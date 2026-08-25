@@ -1,0 +1,25 @@
+# Decisiones vigentes
+
+- Usar Java 21 + Spring Boot 3.x + Maven para el backend Master.
+- Usar package base `com.galtek.classroom`.
+- Usar C#/.NET para el Windows Agent.
+- Separar Agent en `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`.
+- Mantener `GaltekClassroom.Agent.Shared` para constantes, modelos y contratos compartidos cuando exista necesidad real.
+- Usar React + Tauri para la UI futura del Master, sin Vite.
+- Usar gRPC/Protobuf para comunicacion futura Master-Agent.
+- Usar mTLS y certificados de dispositivo para confianza futura de red.
+- Usar mDNS/DNS-SD solo para descubrimiento.
+- Usar Named Pipes para IPC local futuro entre Service y Session Agent.
+- Usar SQLite como almacenamiento futuro del Master.
+- Galtek Hub sera el proveedor de licencias comerciales.
+- Las licencias seran JWT firmados con RSA / RS256.
+- La aplicacion local solo validara licencias con llave publica; no generara licencias.
+- Separar Installation Identity, Commercial License y Network Identity.
+- El `installationId` sera permanente y correspondera al `sub` de la licencia.
+- La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
+- El almacenamiento local conceptual del Agent sera `C:\ProgramData\Galtek\Classroom\`.
+- Galtek Classroom debe ser LAN/offline-first.
+- Esta prohibida la ejecucion remota arbitraria.
+- IP y MAC no son identidad suficiente para autorizacion.
+- Descubrimiento no implica confianza.
+- Una licencia MASTER valida no autoriza automaticamente controlar clientes.

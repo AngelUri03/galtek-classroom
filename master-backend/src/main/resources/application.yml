@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: galtek-classroom-master-backend
+
+debug: false
+
+logging:
+  level:
+    root: INFO
+
+server:
+  port: 8080

@@ -1,0 +1,39 @@
+# Java / Maven
+target/
+*.log
+logs/
+
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+*.nupkg
+*.snupkg
+
+# Visual Studio / Rider / IDEs
+.vs/
+.idea/
+.vscode/
+*.rsuser
+*.DotSettings.user
+
+# Node / future desktop UI
+node_modules/
+dist/
+build/
+.vite/
+
+# Rust / future Tauri shell
+src-tauri/target/
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+
+# Local tool caches
+.dotnet/
+.tools/
