@@ -2,7 +2,7 @@
 
 ## Estado general
 
-Prompt 01 implementa solo la fundacion tecnica. Cualquier capacidad operativa real de administracion remota sigue planificada o no implementada.
+Prompt 02 implementa la Installation Identity local del Agent y la generacion de Machine Code para desarrollo. Cualquier capacidad operativa real de administracion remota sigue planificada o no implementada.
 
 ## Master
 
@@ -46,11 +46,16 @@ IMPLEMENTADO:
 - Worker Service / Generic Host en .NET 8.
 - Puede arrancarse desde consola para desarrollo.
 - Registra inicio, estado activo y detencion limpia.
+- Es autoridad local de Installation Identity.
+- Resuelve `installation.json` al arrancar.
+- Crea una identidad permanente cuando no existe.
+- Reutiliza el mismo `installationId` cuando el archivo existe y es valido.
+- Falla de forma controlada si `installation.json` esta corrupto o incompleto.
+- Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 
 PLANIFICADO:
 
 - Ejecucion como Windows Service.
-- Identidad de dispositivo.
 - Validacion local de licencia.
 - Comunicacion segura.
 - Heartbeat.
@@ -64,7 +69,8 @@ NO IMPLEMENTADO:
 - Comandos remotos.
 - Comunicacion de red.
 - Licenciamiento.
-- Fingerprint de hardware.
+- Activacion.
+- IPC local con Master Backend.
 
 ### Galtek Classroom Session Agent
 
@@ -99,11 +105,12 @@ IMPLEMENTADO:
 
 - Proyecto C# `GaltekClassroom.Agent.Shared`.
 - Constantes minimas de producto.
+- Modelos compartidos de Installation Identity.
+- Modelo de Machine Code.
+- Constantes de `schemaVersion` y archivo `installation.json`.
 
 PLANIFICADO:
 
-- Modelos comunes.
-- Constantes compartidas.
 - Estados.
 - Contratos internos.
 - Abstracciones de licenciamiento.
@@ -145,18 +152,30 @@ NO IMPLEMENTADO:
 
 ### Installation Identity
 
-PLANIFICADO:
+IMPLEMENTADO:
 
 - Identidad permanente de la instalacion.
-- Componentes conceptuales: `installationId`, `cpuHash`, `motherboardHash`, `macHash`, `diskHash`.
+- Persistencia en `installation.json`.
+- `schemaVersion = 1`.
+- `installationId` como GUID permanente.
+- Componentes: `cpuHash`, `motherboardHash`, `macHash`, `diskHash`.
 - Hash local con SHA-256.
-- Validacion tolerante: 3 de 4 componentes de hardware deben coincidir.
+- Normalizacion previa con trim, mayusculas, colapso de espacios, filtro de placeholders sencillos y orden determinista.
+- Solo se guardan hashes de hardware, no seriales crudos.
+- CPU, motherboard y discos se obtienen por WMI mediante `System.Management`.
+- MAC fisicas se obtienen con `NetworkInterface`, filtrando adaptadores virtuales, loopback y tuneles en la medida razonable.
+- Si hay multiples valores validos se normalizan, ordenan y hashean como un solo componente determinista.
+- Machine Code Base64 contiene producto, schema, `installationId`, cuatro hashes y hostname informativo.
+
+PLANIFICADO:
+
+- Validacion tolerante futura: 3 de 4 componentes de hardware deben coincidir contra Commercial License.
 
 NO IMPLEMENTADO:
 
-- Generacion de identidad.
-- Fingerprint de hardware.
-- Persistencia local.
+- Validacion contra licencia.
+- Comparacion 3 de 4 contra JWT.
+- Reparacion automatica de identidades corruptas.
 
 ### Commercial License
 
@@ -194,14 +213,20 @@ NO IMPLEMENTADO:
 
 ## Almacenamiento local del Agent
 
+IMPLEMENTADO:
+
+- Usar `<CommonApplicationData>\Galtek\Classroom\`.
+- Obtener la ruta mediante APIs de .NET, sin hardcodear `C:\ProgramData`.
+- Permitir override de desarrollo y tests con `GALTEK_CLASSROOM_DATA_DIR`.
+- Archivo actual: `installation.json`.
+- Escritura de identidad con archivo temporal y reemplazo/movimiento para evitar JSON a medio escribir en cierres inesperados.
+
 PLANIFICADO:
 
-- Usar `C:\ProgramData\Galtek\Classroom\`.
-- Posibles archivos futuros: `installation.json`, `license.dat`, `classroom.db` o configuracion local, logs.
+- Posibles archivos futuros: `license.dat`, `classroom.db` o configuracion local, logs.
 
 NO IMPLEMENTADO:
 
-- Escritura de archivos locales del Agent.
 - Base de datos local.
 - Logs persistentes en disco.
 

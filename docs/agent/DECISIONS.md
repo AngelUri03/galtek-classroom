@@ -5,6 +5,9 @@
 - Usar C#/.NET para el Windows Agent.
 - Separar Agent en `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`.
 - Mantener `GaltekClassroom.Agent.Shared` para constantes, modelos y contratos compartidos cuando exista necesidad real.
+- `GaltekClassroom.Agent.Service` es la autoridad local unica de Installation Identity.
+- En iteraciones futuras, `GaltekClassroom.Agent.Service` tambien sera la autoridad local de Commercial License.
+- El Master Backend no implementa Installation Identity; la consultara futuramente al Service mediante IPC confiable.
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion futura Master-Agent.
 - Usar mTLS y certificados de dispositivo para confianza futura de red.
@@ -17,7 +20,15 @@
 - Separar Installation Identity, Commercial License y Network Identity.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
-- El almacenamiento local conceptual del Agent sera `C:\ProgramData\Galtek\Classroom\`.
+- `installation.json` usa `schemaVersion = 1`.
+- `installation.json` guarda solo hashes de hardware, `installationId` y `createdAtUtc`; no guarda licencia, IP, Network Identity ni seriales crudos.
+- El almacenamiento local del Agent sera `<CommonApplicationData>\Galtek\Classroom\`.
+- `GALTEK_CLASSROOM_DATA_DIR` permite reemplazar el directorio de datos en desarrollo y pruebas.
+- CPU, motherboard y disco se obtienen en Windows con `System.Management` porque .NET no expone una API BCL simple para esos seriales fisicos.
+- MAC fisicas se obtienen con `NetworkInterface`, filtrando adaptadores virtuales, loopback y tuneles en la medida razonable.
+- Antes de SHA-256 se normalizan identificadores con trim, mayusculas, colapso de espacios, filtro de placeholders comunes y orden determinista.
+- Los hashes de hardware se serializan como SHA-256 hexadecimal en minusculas.
+- Si `installation.json` esta corrupto o incompleto, el Service falla el arranque y el modo `--machine-code` devuelve error; no se regenera silenciosamente.
 - Galtek Classroom debe ser LAN/offline-first.
 - Esta prohibida la ejecucion remota arbitraria.
 - IP y MAC no son identidad suficiente para autorizacion.

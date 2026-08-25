@@ -1,5 +1,5 @@
 # Agent Tests
 
-This directory is reserved for automated tests for the C# Agent solution.
+This directory contains automated tests for the C# Agent solution.
 
-Prompt 01 creates only the minimal Service, Session Agent, and Shared projects. No .NET test project has been added yet.
+Implemented test coverage starts with Installation Identity and Machine Code behavior in `GaltekClassroom.Agent.Service.Tests`.

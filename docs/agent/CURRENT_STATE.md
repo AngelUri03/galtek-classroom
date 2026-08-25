@@ -2,11 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-08-25 - Prompt 01.
+2026-08-25 - Prompt 02.
 
 ## Estado del proyecto
 
-Fundacion inicial creada en un repositorio que estaba vacio. El producto todavia no tiene funciones operativas de administracion remota.
+Installation Identity local implementada en el Agent Service. El producto todavia no tiene funciones operativas de administracion remota ni validacion comercial de licencias.
 
 ## Implementado
 
@@ -14,8 +14,15 @@ Fundacion inicial creada en un repositorio que estaba vacio. El producto todavia
 - Endpoint `GET /api/system/health`.
 - Prueba automatica del health endpoint.
 - Solucion .NET `GaltekClassroom.Agent.sln` con Service, Session y Shared.
-- Agent Service minimo con Worker Service / Generic Host.
+- Agent Service con Worker Service / Generic Host.
+- Installation Identity permanente del equipo en `installation.json`.
+- Ubicacion de datos en `<CommonApplicationData>\Galtek\Classroom\` con override `GALTEK_CLASSROOM_DATA_DIR`.
+- Hashes SHA-256 de CPU, motherboard, MAC fisicas y discos.
+- Normalizacion determinista antes de hashear.
+- Manejo explicito de `installation.json` corrupto o incompleto sin regeneracion silenciosa.
+- Modo de desarrollo `--machine-code` que imprime Machine Code Base64 y finaliza.
 - Session Agent minimo de consola.
+- Proyecto xUnit `GaltekClassroom.Agent.Service.Tests`.
 - Directorio `protocol/` con README de alcance.
 - Documentacion base de contexto, arquitectura, reglas, decisiones e historial.
 
@@ -25,37 +32,38 @@ Fundacion inicial creada en un repositorio que estaba vacio. El producto todavia
 
 ## Pendiente inmediato
 
-- Definir Prompt 02 antes de implementar protocolo, persistencia, UI o funciones remotas.
-- Agregar pruebas .NET cuando exista comportamiento del Agent que validar.
+- Definir Prompt 03 sin implementar todavia licencia, gRPC, mTLS, mDNS, pairing, IPC ni UI.
+- Definir como exponer el estado local del Service a otros procesos cuando llegue el IPC confiable.
 
 ## Cambios aceptados
 
 - Separacion Master backend / Agent / Protocol / Docs.
 - Agent separado en Windows Service y Session Agent.
 - Service preparado para ejecutarse en consola durante desarrollo.
+- Agent Service como autoridad local de Installation Identity.
+- Commercial License futura tambien centralizada en Agent Service.
 
 ## Cambios rechazados / No repetir
 
 - No implementar ejecucion remota arbitraria.
 - No crear UI React/Tauri todavia.
-- No implementar licencias, gRPC, mTLS, mDNS, pairing, captura o bloqueo en Prompt 01.
+- No implementar licencias, JWT, activacion, gRPC, mTLS, mDNS, pairing, captura o bloqueo en Prompt 02.
 
 ## Problemas conocidos
 
-- El entorno no tenia .NET SDK instalado al inicio; se instalo .NET SDK 8.0.424 en `C:\Users\angel\.dotnet` para crear y validar la solucion.
-- No existe proyecto de tests .NET todavia.
+- El `dotnet` del PATH global apunta solo al runtime; usar `C:\Users\angel\.dotnet\dotnet.exe` o ajustar PATH para acceder al SDK 8.0.424.
 - El entorno tiene `DEBUG=release`; el backend fuerza `debug=false` salvo configuracion explicita por argumentos/JVM properties para evitar logs DEBUG accidentales.
 
 ## Pruebas ejecutadas
 
-- `mvn clean verify` en `master-backend`: correcto, 1 prueba ejecutada.
-- `mvn spring-boot:run` en `master-backend`: correcto, backend arranco en `http://localhost:8080`.
-- `Invoke-RestMethod http://localhost:8080/api/system/health`: correcto, respondio `{"application":"Galtek Classroom Master","status":"UP"}`.
 - `dotnet build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `dotnet test .\GaltekClassroom.Agent.sln` en `agent`: correcto; no hay proyectos de tests .NET todavia.
-- `dotnet run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj`: correcto, inicia en consola y se detiene limpiamente con Ctrl+C.
-- `dotnet run --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj`: correcto, inicia y cierra limpiamente.
+- `dotnet test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 7 pruebas superadas.
+- `dotnet run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj` en `agent` con `GALTEK_CLASSROOM_DATA_DIR` temporal: correcto, crea `installation.json` y arranca.
+- Segunda ejecucion del Agent Service con el mismo directorio temporal: correcto, conserva el mismo `installationId`.
+- Modo Machine Code con `--machine-code` y directorio temporal: correcto, Base64 decodifica a JSON con producto, schema, `installationId`, cuatro hashes y hostname.
+- Revision manual de `installation.json`: correcto, solo contiene hashes de 64 caracteres y no contiene licencia ni IP.
+- `mvn clean verify` en `master-backend`: correcto, 1 prueba ejecutada.
 
 ## Proximo paso recomendado
 
-Definir el esqueleto del protocolo Protobuf minimo y los contratos internos iniciales sin implementar todavia operaciones remotas reales.
+Implementar IPC local minimo y confiable para consultar desde otros procesos el estado de Installation Identity y Machine Code sin agregar todavia Commercial License ni red.

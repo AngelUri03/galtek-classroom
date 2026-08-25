@@ -49,3 +49,51 @@
 ### Commit sugerido
 
 `chore: initialize Galtek Classroom architecture`
+
+## 2026-08-25 - Prompt 02
+
+### Realizado
+
+- Implementada Installation Identity permanente en `GaltekClassroom.Agent.Service`.
+- Agregado `installation.json` con `schemaVersion`, `installationId`, cuatro hashes de hardware y `createdAtUtc`.
+- Agregada generacion de Machine Code Base64 para desarrollo con `--machine-code`.
+- Agregado proyecto xUnit para tests del Agent Service.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Shared/`
+- `agent/src/GaltekClassroom.Agent.Service/`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/`
+- `agent/GaltekClassroom.Agent.sln`
+- `README.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+
+### Decisiones tomadas
+
+- `GaltekClassroom.Agent.Service` queda como autoridad local unica de Installation Identity.
+- El directorio productivo es `<CommonApplicationData>\Galtek\Classroom\` y puede reemplazarse con `GALTEK_CLASSROOM_DATA_DIR`.
+- Se usa `System.Management` para CPU, motherboard y disco en Windows; MAC se obtiene con `NetworkInterface`.
+- Si `installation.json` esta corrupto o incompleto no se regenera silenciosamente.
+
+### Cambios descartados
+
+- No se implementaron JWT, activacion, Commercial License, gRPC, mTLS, mDNS, pairing, IPC, UI ni comandos remotos.
+
+### Pendiente
+
+- Exponer estado local mediante IPC confiable en una iteracion futura.
+- Implementar Commercial License solo cuando Installation Identity ya sea consumible por el resto del sistema.
+
+### Validaciones
+
+- `dotnet build .\GaltekClassroom.Agent.sln`: correcto, 0 advertencias, 0 errores.
+- `dotnet test .\GaltekClassroom.Agent.sln`: correcto, 7 pruebas superadas.
+- Agent Service ejecutado dos veces con `GALTEK_CLASSROOM_DATA_DIR` temporal: correcto, conserva `installationId`.
+- Machine Code generado y decodificado: correcto, contiene payload esperado sin licencia ni IP.
+- `mvn clean verify` en `master-backend`: correcto, 1 prueba ejecutada.
+
+### Commit sugerido
+
+`feat(agent): add installation identity and machine code`

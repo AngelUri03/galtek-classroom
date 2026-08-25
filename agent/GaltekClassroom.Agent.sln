@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GaltekClassroom.Agent.Sessi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GaltekClassroom.Agent.Shared", "src\GaltekClassroom.Agent.Shared\GaltekClassroom.Agent.Shared.csproj", "{C46AA975-A153-411B-AC00-0635D2036D53}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{039FC634-86B3-48BC-9779-57A0362A0A97}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GaltekClassroom.Agent.Service.Tests", "tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj", "{989EECE7-FD77-4797-9E90-CA2572D0789A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,10 +36,15 @@ Global
 		{C46AA975-A153-411B-AC00-0635D2036D53}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C46AA975-A153-411B-AC00-0635D2036D53}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C46AA975-A153-411B-AC00-0635D2036D53}.Release|Any CPU.Build.0 = Release|Any CPU
+		{989EECE7-FD77-4797-9E90-CA2572D0789A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{989EECE7-FD77-4797-9E90-CA2572D0789A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{989EECE7-FD77-4797-9E90-CA2572D0789A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{989EECE7-FD77-4797-9E90-CA2572D0789A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{22AF24E2-E1A4-4026-B601-AE8262BD1011} = {24A5C698-6662-4024-BDB7-25A90E5BE7CD}
 		{46DF620F-E40E-42E6-BF29-6038A42AAAA4} = {24A5C698-6662-4024-BDB7-25A90E5BE7CD}
 		{C46AA975-A153-411B-AC00-0635D2036D53} = {24A5C698-6662-4024-BDB7-25A90E5BE7CD}
+		{989EECE7-FD77-4797-9E90-CA2572D0789A} = {039FC634-86B3-48BC-9779-57A0362A0A97}
 	EndGlobalSection
 EndGlobal
