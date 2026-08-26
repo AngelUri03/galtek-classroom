@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $ServiceName = 'GaltekClassroomAgent'
 $LegacyServiceNames = @('GaltekClassroomAgentService')
+$SessionInstallSubdirectory = 'Session'
 
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -109,6 +110,34 @@ function Remove-ServiceIfPresent {
     Wait-ServiceDeleted -Name $Name -TimeoutSeconds 30
 }
 
+function Remove-AgentServiceBinaries {
+    param(
+        [Parameter(Mandatory = $true)][string] $InstallDirectory,
+        [Parameter(Mandatory = $true)][string] $PreservedSubdirectory
+    )
+
+    if (-not (Test-Path -LiteralPath $InstallDirectory)) {
+        Write-Host "Binaries were not present: $InstallDirectory"
+        return
+    }
+
+    foreach ($item in Get-ChildItem -LiteralPath $InstallDirectory -Force) {
+        if ($item.PSIsContainer -and [string]::Equals($item.Name, $PreservedSubdirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force
+    }
+
+    if (@(Get-ChildItem -LiteralPath $InstallDirectory -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $InstallDirectory -Force
+        Write-Host "Removed binaries: $InstallDirectory"
+    }
+    else {
+        Write-Host "Removed Agent Service binaries and preserved Session Agent directory: $InstallDirectory\$PreservedSubdirectory"
+    }
+}
+
 if (-not (Test-IsElevated)) {
     Write-Error 'This uninstaller must be run from an elevated PowerShell session. Open PowerShell as Administrator and run the script again.'
     exit 1
@@ -127,13 +156,7 @@ foreach ($legacyServiceName in $LegacyServiceNames) {
     Remove-ServiceIfPresent -Name $legacyServiceName
 }
 
-if (Test-Path -LiteralPath $installDirectory) {
-    Remove-Item -LiteralPath $installDirectory -Recurse -Force
-    Write-Host "Removed binaries: $installDirectory"
-}
-else {
-    Write-Host "Binaries were not present: $installDirectory"
-}
+Remove-AgentServiceBinaries -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
 
 if ($PurgeData) {
     Write-Warning 'PurgeData elimina Installation Identity y Commercial License. La instalacion resultante requerira una nueva activacion.'

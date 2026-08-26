@@ -13,6 +13,23 @@
 - El Windows Service se ejecuta como `LocalSystem`.
 - `LocalSystem` no autoriza por si mismo a cualquier cliente IPC a ejecutar acciones privilegiadas; IPC write requiere una fase posterior de autorizacion.
 - El startup type del Windows Service es `Automatic`.
+- El Session Agent arranca automaticamente con Windows Task Scheduler al inicio de sesion del usuario.
+- La tarea programada estable del Session Agent se llama `GaltekClassroomSessionAgent`.
+- La tarea del Session Agent usa trigger `AtLogon` para usuarios interactivos del equipo.
+- La tarea del Session Agent usa principal de grupo `S-1-5-32-545` (Builtin Users) para evitar nombres localizados y no guardar credenciales.
+- El Session Agent se ejecuta con el token del usuario interactivo y `RunLevel Limited`; no corre como `LocalSystem` ni eleva artificialmente privilegios.
+- El Session Agent se inicia con argumento explicito `--background`; por compatibilidad, la ausencia de argumentos tambien entra en modo background.
+- El Session Agent productivo se compila como `WinExe` para que el autostart no muestre consola ni ventana.
+- Los comandos `--ipc-ping` y `--ipc-status` son one-shot, no adquieren el lock background y no inician el supervisor permanente.
+- El Session Agent garantiza una instancia por sesion mediante el objeto nombrado `Local\GaltekClassroom.Agent.Session`.
+- El lock usa un named mutex como marcador kernel por sesion y no usa namespace `Global\`, para no impedir instancias legitimas en otras sesiones.
+- El Session Agent obtiene y valida su `Process.SessionId`; en background no debe ejecutarse normalmente en `SessionId = 0`.
+- El Session Agent permanece vivo aunque el Agent Service no este disponible o la licencia no este activa.
+- El Session Agent consulta al Service solo mediante Local IPC v1; no lee `installation.json`, `license.dat`, JWT ni hashes de hardware.
+- El Session Agent reconecta al Agent Service con backoff acotado `2s, 5s, 10s, 30s...` y polling saludable cada 15 segundos.
+- La configuracion de Task Scheduler usa `MultipleInstances Parallel`; el control definitivo de duplicados queda en el mutex por sesion.
+- La publicacion productiva inicial del Session Agent es `Release`, `win-x64`, self-contained, carpeta normal, sin `PublishSingleFile`.
+- Los binarios productivos del Session Agent viven en `<ProgramFiles>\Galtek\Classroom\Agent\Session\`.
 - La publicacion productiva inicial del Agent Service es `Release`, `win-x64`, self-contained, carpeta normal, sin `PublishSingleFile`.
 - Los binarios productivos del Agent Service viven en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Los datos persistentes del Agent viven en `<CommonApplicationData>\Galtek\Classroom\`.

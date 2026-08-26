@@ -12,6 +12,7 @@ $LegacyServiceNames = @('GaltekClassroomAgentService')
 $ServiceDisplayName = 'Galtek Classroom Agent Service'
 $ServiceDescription = 'Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.'
 $ServiceExecutableName = 'GaltekClassroom.Agent.Service.exe'
+$SessionInstallSubdirectory = 'Session'
 $RecoveryResetSeconds = 86400
 $RecoveryActions = 'restart/5000/restart/15000/restart/60000'
 
@@ -112,6 +113,26 @@ function Stop-ServiceIfPresent {
     return $true
 }
 
+function Clear-AgentServiceInstallDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string] $InstallDirectory,
+        [Parameter(Mandatory = $true)][string] $PreservedSubdirectory
+    )
+
+    if (-not (Test-Path -LiteralPath $InstallDirectory)) {
+        New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
+        return
+    }
+
+    foreach ($item in Get-ChildItem -LiteralPath $InstallDirectory -Force) {
+        if ($item.PSIsContainer -and [string]::Equals($item.Name, $PreservedSubdirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force
+    }
+}
+
 if (-not (Test-IsElevated)) {
     Write-Error 'This installer must be run from an elevated PowerShell session. Open PowerShell as Administrator and run the script again.'
     exit 1
@@ -152,13 +173,7 @@ Stop-ServiceIfPresent -Name $ServiceName | Out-Null
 
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
 
-if (Test-Path -LiteralPath $installDirectory) {
-    Get-ChildItem -LiteralPath $installDirectory -Force | Remove-Item -Recurse -Force
-}
-else {
-    New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
-}
-
+Clear-AgentServiceInstallDirectory -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
 Copy-Item -Path (Join-Path $artifactDirectory '*') -Destination $installDirectory -Recurse -Force
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

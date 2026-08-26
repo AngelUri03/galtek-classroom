@@ -1,0 +1,91 @@
+using GaltekClassroom.Agent.Session.Ipc;
+using GaltekClassroom.Agent.Session.Lifecycle;
+using GaltekClassroom.Agent.Shared;
+
+namespace GaltekClassroom.Agent.Session.Tests;
+
+public sealed class SessionAgentBackgroundHostTests
+{
+    [Fact]
+    public async Task RunAsync_WhenInstanceAlreadyExists_ExitsWithoutStartingSupervisor()
+    {
+        var client = new CountingLocalAgentClient();
+        var host = CreateHost(
+            acquired: false,
+            sessionId: 12,
+            client);
+
+        var exitCode = await host.RunAsync(CancellationToken.None);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(0, client.PingCalls);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenProcessIsInSessionZero_ExitsWithErrorWithoutStartingSupervisor()
+    {
+        var client = new CountingLocalAgentClient();
+        var host = CreateHost(
+            acquired: true,
+            sessionId: 0,
+            client);
+
+        var exitCode = await host.RunAsync(CancellationToken.None);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(0, client.PingCalls);
+    }
+
+    private static SessionAgentBackgroundHost CreateHost(
+        bool acquired,
+        int sessionId,
+        CountingLocalAgentClient client)
+    {
+        return new SessionAgentBackgroundHost(
+            new FakeSessionInstanceLock(acquired),
+            new SessionContext(1234, sessionId, "angel"),
+            new SessionAgentSupervisor(
+                client,
+                new NeverDelay(),
+                new SessionAgentSupervisorOptions()));
+    }
+
+    private sealed class FakeSessionInstanceLock : ISessionInstanceLock
+    {
+        private readonly bool _acquired;
+
+        public FakeSessionInstanceLock(bool acquired)
+        {
+            _acquired = acquired;
+        }
+
+        public SessionInstanceLockHandle TryAcquire()
+        {
+            return new SessionInstanceLockHandle(_acquired, mutex: null);
+        }
+    }
+
+    private sealed class NeverDelay : ISessionAgentDelay
+    {
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    private sealed class CountingLocalAgentClient : ILocalAgentIpcClient
+    {
+        public int PingCalls { get; private set; }
+
+        public Task<LocalIpcPingPayload> PingAsync(CancellationToken cancellationToken)
+        {
+            PingCalls++;
+            return Task.FromResult(new LocalIpcPingPayload());
+        }
+
+        public Task<LocalDeviceStatus> GetDeviceStatusAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new LocalDeviceStatus());
+        }
+    }
+}

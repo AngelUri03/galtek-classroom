@@ -2,7 +2,7 @@
 
 ## Estado general
 
-Prompt 05 deja `GaltekClassroom.Agent.Service` ejecutable como Windows Service real con publicacion self-contained `win-x64`, instalacion en Program Files, inicio Automatic y recovery configurado. El modo consola de desarrollo y los comandos CLI existentes se mantienen.
+Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
 
@@ -104,7 +104,7 @@ PLANIFICADO:
 - Recepcion de comandos estructurados.
 - Operaciones privilegiadas.
 - Coordinacion con Session Agent.
-- Session Agent lifecycle / autostart at user logon.
+- Coordinacion funcional con Session Agent para operaciones futuras.
 
 NO IMPLEMENTADO:
 
@@ -120,7 +120,6 @@ NO IMPLEMENTADO:
 - Autorizacion MASTER para comandos.
 - Comandos remotos.
 - Comunicacion de red.
-- Session Agent autostart.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
 ### Galtek Classroom Session Agent
@@ -128,20 +127,40 @@ NO IMPLEMENTADO:
 IMPLEMENTADO:
 
 - Proyecto C# `GaltekClassroom.Agent.Session`.
-- Ejecutable minimo de consola.
-- Registra inicio y cierre limpio.
+- Ejecutable productivo `WinExe` para no mostrar consola al autoarrancar.
+- Modo background explicito `--background`.
+- Sin argumentos equivale a modo background para conservar un entrypoint productivo sencillo.
+- Arranque automatico mediante Scheduled Task `GaltekClassroomSessionAgent`.
+- Trigger de tarea `AtLogon` para usuarios interactivos del equipo.
+- Principal de tarea por grupo `S-1-5-32-545` (Builtin Users), sin credenciales guardadas.
+- Run level `Limited`; no corre como `LocalSystem` ni eleva artificialmente privilegios.
+- Configuracion de tarea sin requerimiento de red ni corriente AC, con ejecucion prolongada y restart acotado.
+- `MultipleInstances Parallel` en Task Scheduler para no bloquear futuras sesiones Windows multiples.
+- Single instance por sesion mediante named mutex local `Local\GaltekClassroom.Agent.Session`.
+- Validacion de `Process.SessionId`; el modo background no debe ejecutarse normalmente en `SessionId = 0`.
+- Supervisor IPC local con estados internos `STARTING`, `WAITING_FOR_SERVICE`, `CONNECTED`, `READY` y `STOPPING`.
+- Reconexion automatica al Agent Service con backoff acotado `2s`, `5s`, `10s`, `30s`.
+- Polling saludable por `PING` cada 15 segundos.
+- Permanece activo si el Service no esta disponible temporalmente.
+- Permanece activo aunque la Commercial License no este `ACTIVE`.
 - Cliente IPC local para consultar al Agent Service.
 - Comandos de desarrollo `--ipc-status` y `--ipc-ping`.
+- Los comandos `--ipc-status` y `--ipc-ping` son one-shot, imprimen JSON seguro y terminan sin iniciar background.
+- Publicacion productiva `Release`, `win-x64`, self-contained, carpeta normal, sin single-file.
+- Artifact publicado en `artifacts/windows/agent-session/`, ignorado por Git.
+- Instalacion en `<ProgramFiles>\Galtek\Classroom\Agent\Session\`.
+- Scripts PowerShell para publicar, instalar/actualizar y desinstalar el Session Agent.
+- Orquestadores PowerShell para publicar, instalar/actualizar y desinstalar el Agent completo.
 
 PLANIFICADO:
 
-- Proceso dentro de la sesion interactiva del usuario.
 - Captura de pantalla.
 - Recepcion de proyeccion.
 - Interaccion con escritorio.
 - Bloqueo de entrada.
 - Ejecucion controlada de aplicaciones.
 - Overlays.
+- Contrato futuro Service <-> Session que identifique `sessionId`, contexto de usuario y estado active/interactive sin tratarlos como seguridad por si solos.
 
 NO IMPLEMENTADO:
 
@@ -149,6 +168,9 @@ NO IMPLEMENTADO:
 - Captura de pantalla.
 - Bloqueo de teclado/mouse.
 - Proyeccion.
+- IPC Service -> Session write.
+- Registro IPC de sesiones.
+- Comandos remotos.
 
 ### GaltekClassroom.Agent.Shared
 
@@ -195,7 +217,7 @@ IMPLEMENTADO:
 
 - Windows Named Pipe `GaltekClassroom.Agent.v1`.
 - `GaltekClassroom.Agent.Service` es el servidor IPC.
-- `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS`.
+- `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS` en CLI one-shot y en supervisor background.
 - Master Backend Java consume `GET_DEVICE_STATUS` y `GET_MACHINE_CODE`.
 - Protocolo documentado en `protocol/local-ipc-v1.md`.
 - `protocolVersion = 1`.

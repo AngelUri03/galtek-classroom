@@ -2,18 +2,19 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, and a real installable Windows Service flow for the Agent Service. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, Session Agent autostart, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, and a background/autostart lifecycle for the Session Agent. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
 
 ## Architecture
 
 - `master-backend/`: Java 21, Spring Boot 3.x, Maven backend for the Master application.
 - `agent/`: C#/.NET solution for Windows Agent components.
 - `agent/src/GaltekClassroom.Agent.Service/`: Worker Service / Generic Host; owns Installation Identity and Commercial License locally, and hosts Local IPC API v1.
-- `agent/src/GaltekClassroom.Agent.Session/`: console Session Agent with Local IPC status/ping commands.
+- `agent/src/GaltekClassroom.Agent.Session/`: silent user-session Agent with background lifecycle, Local IPC supervisor, and status/ping diagnostics.
 - `agent/src/GaltekClassroom.Agent.Shared/`: shared constants, Installation Identity, Machine Code, Commercial License state models, and Local IPC contracts/framing.
 - `agent/tests/GaltekClassroom.Agent.Service.Tests/`: automated tests for Installation Identity, Machine Code, Commercial License, and Local IPC behavior.
+- `agent/tests/GaltekClassroom.Agent.Session.Tests/`: automated tests for Session Agent lifecycle, single instance locking, backoff, reconnect behavior, and CLI mode parsing.
 - `protocol/`: cross-language protocol notes, including `protocol/local-ipc-v1.md`.
-- `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service.
+- `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service, Session Agent, or full Agent.
 - `docs/`: project context, architecture notes, decisions, and handoff state.
 
 ## Development Requirements
@@ -105,22 +106,63 @@ C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Serv
 
 The Service starts the Local IPC Named Pipe server on `GaltekClassroom.Agent.v1`.
 
-Run the Session Agent:
+Run the Session Agent background lifecycle:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj
+C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --background
 ```
+
+The Session Agent runs in the current interactive user session, acquires a per-session lock, waits for the Agent Service when it is unavailable, and reconnects automatically.
 
 Query the Agent Service from the Session Agent through IPC:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-status
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-ping
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
 ```
 
-## Agent Service Publish And Install
+The diagnostics are one-shot commands: they print JSON and terminate without starting the background supervisor.
+
+## Agent Publish And Install
+
+Publish the complete Agent from the repository root:
+
+```powershell
+.\installer\windows\publish-agent.ps1
+```
+
+This calls the Service and Session publish scripts and writes:
+
+```text
+artifacts\windows\agent-service\
+artifacts\windows\agent-session\
+```
+
+Both artifacts are `Release`, `win-x64`, self-contained, folder-based, and ignored by Git.
+
+Install or update the complete Agent from an elevated PowerShell session:
+
+```powershell
+.\installer\windows\install-agent.ps1
+```
+
+Uninstall the complete Agent:
+
+```powershell
+.\installer\windows\uninstall-agent.ps1
+```
+
+Normal uninstall preserves `%ProgramData%\Galtek\Classroom\`. To intentionally remove Installation Identity and Commercial License:
+
+```powershell
+.\installer\windows\uninstall-agent.ps1 -PurgeData
+```
+
+`-PurgeData` is passed only to the Service uninstaller because ProgramData belongs to the machine-level Agent Service identity and license.
+
+## Agent Service
 
 The production Windows Service uses one executable for both console development mode and service mode.
 
@@ -205,6 +247,64 @@ Local IPC v1 is documented in `protocol/local-ipc-v1.md`.
 - Max message payload: 64 KiB.
 - Operations: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
 - Scope: read-only.
+
+## Session Agent
+
+Production Session Agent identity:
+
+- Scheduled Task: `GaltekClassroomSessionAgent`.
+- Display/description: `Galtek Classroom Session Agent`.
+- Trigger: `AtLogon`.
+- Principal: Builtin Users SID `S-1-5-32-545`.
+- Run level: `Limited`.
+- Task action: `GaltekClassroom.Agent.Session.exe --background`.
+- Installed path: `%ProgramFiles%\Galtek\Classroom\Agent\Session\`.
+- Multiple instances policy: `Parallel`.
+
+The executable is compiled as `WinExe` so Task Scheduler autostart does not show a console window. The process still exposes one-shot diagnostics through `--ipc-ping` and `--ipc-status`; in development, invoke the `.dll` with `dotnet` to capture output directly.
+
+Publish only the Session Agent:
+
+```powershell
+.\installer\windows\publish-agent-session.ps1
+```
+
+Install or update only the Session Agent from an elevated PowerShell session:
+
+```powershell
+.\installer\windows\install-session-agent.ps1
+```
+
+Verify the scheduled task:
+
+```powershell
+Get-ScheduledTask -TaskName GaltekClassroomSessionAgent
+```
+
+Verify the running process and its session:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='GaltekClassroom.Agent.Session.exe'" |
+    Select-Object ProcessId, SessionId, ExecutablePath, CommandLine
+```
+
+`SessionId` should match the interactive Windows session and should not be `0` during normal operation.
+
+Uninstall only the Session Agent:
+
+```powershell
+.\installer\windows\uninstall-session-agent.ps1
+```
+
+The Session uninstaller removes the scheduled task and `%ProgramFiles%\Galtek\Classroom\Agent\Session\`, but does not touch ProgramData.
+
+Diagnostic commands:
+
+```powershell
+cd agent
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
+```
 
 ## Machine Code
 

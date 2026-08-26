@@ -298,3 +298,76 @@
 ### Commit sugerido
 
 `feat(agent): install service as windows service`
+
+## 2026-08-25 - Prompt 06
+
+### Realizado
+
+- Implementado lifecycle background real de `GaltekClassroom.Agent.Session`.
+- Agregado modo `--background`; sin argumentos tambien entra en modo background.
+- Convertido Session Agent productivo a `WinExe` para autostart sin consola visible.
+- Conservados `--ipc-ping` y `--ipc-status` como comandos one-shot.
+- Agregado single instance por sesion con named mutex local `Local\GaltekClassroom.Agent.Session`.
+- Agregado supervisor IPC con `PING`, `GET_DEVICE_STATUS`, backoff acotado y polling saludable.
+- Agregada publicacion self-contained `Release/win-x64` del Session Agent.
+- Agregados scripts de instalacion/desinstalacion del Session Agent con Task Scheduler.
+- Agregados orquestadores thin para publicar, instalar y desinstalar el Agent completo.
+- Ajustados scripts del Service para no borrar `Agent\Session\` en updates/desinstalaciones especificas del Service.
+- Agregado proyecto `GaltekClassroom.Agent.Session.Tests`.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Session/`
+- `agent/src/GaltekClassroom.Agent.Shared/ProductInfo.cs`
+- `agent/tests/GaltekClassroom.Agent.Session.Tests/`
+- `agent/GaltekClassroom.Agent.sln`
+- `installer/windows/`
+- `README.md`
+- `installer/windows/README.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Usar Windows Task Scheduler con trigger `AtLogon` para iniciar el Session Agent en la sesion interactiva.
+- Registrar la tarea como `GaltekClassroomSessionAgent`.
+- Usar principal de grupo `S-1-5-32-545` (Builtin Users), `RunLevel Limited` y sin credenciales guardadas.
+- No lanzar Session Agent desde el Windows Service ni usar APIs de token de Session 0.
+- Usar `MultipleInstances Parallel` en Task Scheduler para no bloquear escenarios multi-session futuros.
+- Delegar duplicados al mutex local por sesion.
+- Mantener IPC v1 read-only sin agregar operaciones nuevas.
+- Mantener el Session Agent vivo aunque el Service no este disponible o la licencia no este activa.
+
+### Cambios descartados
+
+- No se implementaron captura, bloqueo, overlays, tray icon, UI, comandos remotos, IPC write, gRPC, mTLS, mDNS, pairing ni Galtek Hub.
+- No se instalaron binarios en AppData, Desktop, Startup folder ni repositorio.
+- No se agregaron wrappers VBS ni scripts ocultos para el autostart.
+- No se agrego una plataforma pesada de logging.
+
+### Pendiente
+
+- Validacion real de Task Scheduler en entorno elevado.
+- Validacion visual real del autostart automatico sin ventana en una sesion de Windows instalada.
+- Definir contrato futuro Service <-> Session para identificar `sessionId`, usuario y estado interactive/active.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln`: correcto, 56 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 14 pruebas superadas.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `.\installer\windows\publish-agent-session.ps1`: correcto; genero artifact `Release`, `win-x64`, self-contained.
+- `.\installer\windows\publish-agent.ps1`: correcto; publico Service y Session.
+- Artifact Session contiene `.exe` y dependencias; `artifacts/` esta ignorado por Git.
+- `install-session-agent.ps1` y `uninstall-session-agent.ps1` fallan temprano con mensaje claro en entorno no elevado.
+- Prueba manual de mutex: primera instancia `--background` queda viva, segunda termina, `SessionId = 12`.
+- Prueba local de restart: Session Agent sigue vivo al detener el Service y sigue vivo tras iniciar nuevamente el Service.
+- `--ipc-ping` con Service arriba devuelve `UP`.
+- `--ipc-status` con Service arriba devuelve estado seguro `ACTIVATION_REQUIRED`.
+
+### Commit sugerido
+
+`feat(agent): add session agent lifecycle`

@@ -1,6 +1,6 @@
-# Galtek Classroom Agent Service - Windows Installer Scripts
+# Galtek Classroom Agent - Windows Installer Scripts
 
-These scripts manage the Windows Service lifecycle without MSI, WiX, Inno Setup or a graphical installer.
+These scripts manage the Windows Agent lifecycle without MSI, WiX, Inno Setup or a graphical installer.
 
 ## Requirements
 
@@ -11,31 +11,82 @@ These scripts manage the Windows Service lifecycle without MSI, WiX, Inno Setup 
 
 Run installation scripts from an Administrator PowerShell session. The scripts do not bypass UAC.
 
-## Publish
+## Full Agent Publish
 
 From the repository root:
+
+```powershell
+.\installer\windows\publish-agent.ps1
+```
+
+This thin orchestrator calls:
+
+```text
+publish-agent-service.ps1
+publish-agent-session.ps1
+```
+
+Default outputs:
+
+```text
+artifacts\windows\agent-service\
+artifacts\windows\agent-session\
+```
+
+Both publishes are `Release`, `win-x64`, self-contained and folder-based. Publishing does not modify Program Files or ProgramData.
+
+## Full Agent Install Or Update
+
+From an elevated PowerShell session:
+
+```powershell
+.\installer\windows\install-agent.ps1
+```
+
+This thin orchestrator calls:
+
+```text
+install-agent-service.ps1
+install-session-agent.ps1
+```
+
+The Service installer manages `%ProgramFiles%\Galtek\Classroom\Agent\` and preserves the `Session\` subdirectory. The Session installer manages `%ProgramFiles%\Galtek\Classroom\Agent\Session\` and preserves ProgramData.
+
+## Full Agent Uninstall
+
+From an elevated PowerShell session:
+
+```powershell
+.\installer\windows\uninstall-agent.ps1
+```
+
+This thin orchestrator removes the Session Agent first and then the Service.
+
+By default it preserves:
+
+```text
+%ProgramData%\Galtek\Classroom\
+```
+
+To intentionally remove machine identity and license data:
+
+```powershell
+.\installer\windows\uninstall-agent.ps1 -PurgeData
+```
+
+`-PurgeData` is passed only to `uninstall-agent-service.ps1`.
+
+Warning: `PurgeData` elimina Installation Identity y Commercial License. La instalacion resultante requerira una nueva activacion.
+
+## Agent Service
+
+Publish only the Service:
 
 ```powershell
 .\installer\windows\publish-agent-service.ps1
 ```
 
-Default artifact output:
-
-```text
-artifacts\windows\agent-service\
-```
-
-The publish is `Release`, `win-x64`, and self-contained. Publishing does not modify Program Files or ProgramData.
-
-Optional custom output:
-
-```powershell
-.\installer\windows\publish-agent-service.ps1 -OutputPath C:\Builds\Galtek\agent-service
-```
-
-## Install
-
-From an elevated PowerShell session:
+Install or update only the Service:
 
 ```powershell
 .\installer\windows\install-agent-service.ps1
@@ -45,7 +96,8 @@ The script:
 
 - validates that the published artifact exists;
 - stops the existing service when present;
-- copies binaries to `%ProgramFiles%\Galtek\Classroom\Agent\`;
+- copies Service binaries to `%ProgramFiles%\Galtek\Classroom\Agent\`;
+- preserves `%ProgramFiles%\Galtek\Classroom\Agent\Session\` if it exists;
 - creates or reconfigures service `GaltekClassroomAgent`;
 - sets startup type to `Automatic`;
 - runs as `LocalSystem`;
@@ -54,18 +106,7 @@ The script:
 
 ProgramData is created or verified at `%ProgramData%\Galtek\Classroom\`, but existing `installation.json` and `license.dat` are not deleted.
 
-## Update
-
-Publish a new artifact, then run the same install script again:
-
-```powershell
-.\installer\windows\publish-agent-service.ps1
-.\installer\windows\install-agent-service.ps1
-```
-
-The service name is stable. Updates replace binaries in Program Files and preserve ProgramData, so the Installation Identity and Commercial License survive normal upgrades.
-
-## Verify
+Verify:
 
 ```powershell
 Get-Service GaltekClassroomAgent
@@ -73,7 +114,86 @@ Get-CimInstance Win32_Service -Filter "Name='GaltekClassroomAgent'" |
     Select-Object Name, State, StartMode, StartName, PathName
 ```
 
-Useful lifecycle commands:
+Uninstall only the Service:
+
+```powershell
+.\installer\windows\uninstall-agent-service.ps1
+```
+
+The Service uninstaller preserves `Agent\Session\` when present and preserves ProgramData unless `-PurgeData` is passed.
+
+## Session Agent
+
+Publish only the Session Agent:
+
+```powershell
+.\installer\windows\publish-agent-session.ps1
+```
+
+Install or update only the Session Agent:
+
+```powershell
+.\installer\windows\install-session-agent.ps1
+```
+
+The script:
+
+- validates that the published artifact exists;
+- stops the scheduled task if it is running;
+- stops only installed Session Agent processes whose executable path is `%ProgramFiles%\Galtek\Classroom\Agent\Session\GaltekClassroom.Agent.Session.exe`;
+- copies Session Agent binaries to `%ProgramFiles%\Galtek\Classroom\Agent\Session\`;
+- creates or replaces scheduled task `GaltekClassroomSessionAgent`;
+- validates action, trigger, principal, run level, network setting and multiple-instance policy;
+- starts the task for the current session when possible.
+
+Scheduled Task configuration:
+
+```text
+TaskName: GaltekClassroomSessionAgent
+Description: Galtek Classroom Session Agent
+Trigger: AtLogon
+Principal: S-1-5-32-545 (Builtin Users)
+RunLevel: Limited
+Action: GaltekClassroom.Agent.Session.exe --background
+MultipleInstances: Parallel
+ExecutionTimeLimit: none
+Network required: false
+Battery start allowed: true
+```
+
+`MultipleInstances Parallel` keeps the design compatible with fast user switching and RDP. Duplicate control is done inside the Session Agent with a per-session mutex.
+
+Verify:
+
+```powershell
+Get-ScheduledTask -TaskName GaltekClassroomSessionAgent
+Get-CimInstance Win32_Process -Filter "Name='GaltekClassroom.Agent.Session.exe'" |
+    Select-Object ProcessId, SessionId, ExecutablePath, CommandLine
+```
+
+`SessionId` should match the interactive user session and should not be `0` during normal operation.
+
+Uninstall only the Session Agent:
+
+```powershell
+.\installer\windows\uninstall-session-agent.ps1
+```
+
+The Session uninstaller removes the task and `%ProgramFiles%\Galtek\Classroom\Agent\Session\`. It does not touch ProgramData and has no `-PurgeData` option.
+
+## Diagnostics
+
+From development builds:
+
+```powershell
+cd agent
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
+C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
+```
+
+The commands print JSON and terminate. They do not start the background supervisor.
+
+Useful Service lifecycle commands:
 
 ```powershell
 Stop-Service GaltekClassroomAgent
@@ -81,43 +201,9 @@ Start-Service GaltekClassroomAgent
 Restart-Service GaltekClassroomAgent
 ```
 
-IPC checks from the development Session Agent:
-
-```powershell
-cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-ping
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-status
-```
-
-## Uninstall
-
-From an elevated PowerShell session:
-
-```powershell
-.\installer\windows\uninstall-agent-service.ps1
-```
-
-The script stops and removes the Windows Service registration, then removes the installed binaries from Program Files.
-
-By default it preserves:
-
-```text
-%ProgramData%\Galtek\Classroom\
-```
-
-That directory contains the persistent Installation Identity and Commercial License.
-
-To intentionally remove machine identity and license data:
-
-```powershell
-.\installer\windows\uninstall-agent-service.ps1 -PurgeData
-```
-
-`-PurgeData` deletes Installation Identity and Commercial License. The next installation will require activation again.
-
 ## Troubleshooting
 
 - If install or uninstall reports elevation errors, reopen PowerShell as Administrator.
 - If publish cannot find the SDK, install .NET SDK 8.0 or set `DOTNET_ROOT`.
-- If the service fails to start with an identity error, inspect `%ProgramData%\Galtek\Classroom\installation.json`; corrupt identity files are not regenerated silently.
-- If license status is `ACTIVATION_REQUIRED` or `LICENSE_KEY_NOT_CONFIGURED`, the Windows Service should still remain running and IPC read-only status should remain available.
+- If the Service fails to start with an identity error, inspect `%ProgramData%\Galtek\Classroom\installation.json`; corrupt identity files are not regenerated silently.
+- If license status is `ACTIVATION_REQUIRED` or `LICENSE_KEY_NOT_CONFIGURED`, the Windows Service and Session Agent should still remain running and IPC read-only status should remain available.

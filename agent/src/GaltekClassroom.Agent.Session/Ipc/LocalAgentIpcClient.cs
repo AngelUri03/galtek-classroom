@@ -15,7 +15,7 @@ public sealed class LocalAgentIpcException : Exception
     public string ErrorCode { get; }
 }
 
-public sealed class LocalAgentIpcClient
+public sealed class LocalAgentIpcClient : ILocalAgentIpcClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
