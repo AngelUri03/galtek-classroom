@@ -13,10 +13,12 @@ public static class ServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<ILocalIpcPipeStreamFactory, LocalIpcPipeStreamFactory>();
+            services.AddSingleton<ILocalIpcClientIdentityProvider, WindowsLocalIpcClientIdentityProvider>();
         }
         else
         {
             services.AddSingleton<ILocalIpcPipeStreamFactory, UnsupportedLocalIpcPipeStreamFactory>();
+            services.AddSingleton<ILocalIpcClientIdentityProvider, UnavailableLocalIpcClientIdentityProvider>();
         }
 
         services.AddSingleton<ILocalIpcRequestHandler, LocalIpcRequestHandler>();

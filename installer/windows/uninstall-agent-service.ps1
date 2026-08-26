@@ -159,7 +159,7 @@ foreach ($legacyServiceName in $LegacyServiceNames) {
 Remove-AgentServiceBinaries -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
 
 if ($PurgeData) {
-    Write-Warning 'PurgeData elimina Installation Identity y Commercial License. La instalacion resultante requerira una nueva activacion.'
+    Write-Warning 'PurgeData elimina Installation Identity, Commercial License y Master Windows Binding. La instalacion resultante requerira una nueva activacion y reconfiguracion Master.'
 
     if (Test-Path -LiteralPath $dataDirectory) {
         Remove-Item -LiteralPath $dataDirectory -Recurse -Force

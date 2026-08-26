@@ -51,6 +51,7 @@ public enum ErrorCode {
 
     MASTER_NOT_LICENSED(ErrorCategory.AUTHORIZATION, false),
     MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED(ErrorCategory.AUTHORIZATION, false),
+    MASTER_INSTALLATION_MISMATCH(ErrorCategory.AUTHORIZATION, false),
     MASTER_NOT_PAIRED(ErrorCategory.AUTHORIZATION, false),
 
     OPERATION_CANCELLED(ErrorCategory.OPERATION, false),

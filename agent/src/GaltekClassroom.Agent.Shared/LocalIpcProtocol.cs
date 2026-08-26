@@ -13,6 +13,7 @@ public static class LocalIpcOperations
     public const string Ping = "PING";
     public const string GetDeviceStatus = "GET_DEVICE_STATUS";
     public const string GetMachineCode = "GET_MACHINE_CODE";
+    public const string GetMasterAuthorization = "GET_MASTER_AUTHORIZATION";
 }
 
 public static class LocalIpcErrorCodes

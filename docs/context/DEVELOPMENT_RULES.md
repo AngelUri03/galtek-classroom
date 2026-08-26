@@ -39,6 +39,13 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No confiar en IP o MAC como identidad de autorizacion.
 - No asumir que descubrimiento equivale a confianza.
 - No asumir que una licencia MASTER autoriza control automatico sobre cualquier cliente.
+- La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
+- Nunca confiar en un SID declarado por JSON, UI, request HTTP o payload IPC.
+- El SID local del caller debe derivarse del token real del cliente Named Pipe mediante APIs Windows soportadas.
+- Cualquier error o duda en autorizacion Master debe fallar cerrado con `authorized=false`.
+- Un administrador Windows distinto no hereda Master si su SID no esta ligado.
+- `MasterWindowsBinding` nunca va en SQLite ni dentro de `installation.json` o `license.dat`.
+- Rebinding de Master siempre debe ser explicito.
 
 ## Dominio funcional y UX masiva
 
@@ -71,7 +78,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Mapear excepciones SQLite a `ErrorCode`; no propagar mensajes SQL tecnicos a UI.
 - Minimizar PII: guardar solo datos necesarios para aula, alumno, workspace, perfiles y operaciones.
 - No persistir passwords, cookies, tokens, cache protegido ni secretos de navegador.
-- No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado sigue siendo el Agent Service futuro.
+- No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado es el Agent Service.
 - Consultas de listados deben ser batch-friendly; evitar N+1 para classroom, group, devices, assignments y targets batch.
 - Las escrituras multi-tabla deben ser transaccionales y tener pruebas de rollback cuando afecten invariantes.
 - Usar version optimista en updates mutables y mapear conflictos a `CONCURRENT_MODIFICATION`.

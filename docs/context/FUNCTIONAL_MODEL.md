@@ -290,7 +290,7 @@ Persistencia Prompt 08:
 
 ## MasterWindowsBinding
 
-Un Master queda ligado a una cuenta concreta de Windows mediante SID.
+Un Master queda ligado a una cuenta concreta de Windows mediante SID. Prompt 09 implementa la persistencia y verificacion real en `GaltekClassroom.Agent.Service`.
 
 Modelo:
 
@@ -305,21 +305,34 @@ MasterWindowsBinding
 Regla de autorizacion local:
 
 ```text
-Commercial License contiene MASTER
+Commercial License ACTIVE con rol MASTER
   + Installation Identity correcta
-  + Windows SID actual == SID autorizado
+  + binding.installationId == installationIdentity.installationId
+  + Windows SID real del caller IPC == SID autorizado
   = MASTER LOCALMENTE AUTORIZADO
 ```
 
-Username, display name o pertenencia al grupo Administrators no autorizan por si mismos. Otro administrador Windows no hereda automaticamente permisos Master.
+Username, display name o pertenencia al grupo Administrators no autorizan por si mismos. Otro administrador Windows no hereda automaticamente permisos Master. El `accountDisplayName` es informativo; la identidad fuerte es el SID.
 
-Autoridad final planificada:
+Autoridad final implementada:
 
 - Agent Service persiste/verifica binding local sensible.
-- Master Backend consume estado derivado por IPC.
+- Agent Service obtiene el SID real del cliente conectado al Named Pipe mediante impersonation.
+- Master Backend consume estado derivado por IPC y no recalcula autorizacion con datos sueltos.
 - UI no es autoridad.
 
-Prompt 08 no persiste `MasterWindowsBinding` en SQLite. La base `classroom.db` no debe tener tabla `master_windows_binding`; la autoridad final sigue planificada en Agent Service.
+Persistencia Prompt 09:
+
+- Archivo `master-binding.json` en `<CommonApplicationData>\Galtek\Classroom\`.
+- Schema v1 con `schemaVersion`, `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
+- Una instalacion Master tiene exactamente cero o un binding.
+- Binding ausente produce `NOT_CONFIGURED` y el Service sigue corriendo.
+- Binding corrupto, incompleto, schema desconocido o SID invalido produce `MASTER_BINDING_INVALID` y preserva el archivo.
+- Binding de otra instalacion produce `MASTER_BINDING_INSTALLATION_MISMATCH`; no se adopta el `installationId` del archivo.
+- La CLI administrativa `--bind-master-current-user` y `--bind-master-account <WINDOWS_ACCOUNT>` requiere elevacion.
+- Rebinding requiere `--replace-master-binding`.
+
+Prompt 08 no persiste `MasterWindowsBinding` en SQLite. La base `classroom.db` no debe tener tabla `master_windows_binding`; la autoridad final vive en Agent Service.
 
 ## ApplicationDefinition
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Runtime;
 using GaltekClassroom.Agent.Shared;
 
@@ -14,6 +15,7 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
     private readonly CommercialLicenseManager _licenseManager;
     private readonly MachineCodeGenerator _machineCodeGenerator;
     private readonly IHostNameProvider _hostNameProvider;
+    private readonly MasterAuthorizationService _masterAuthorizationService;
     private readonly ILogger<LocalIpcRequestHandler> _logger;
 
     public LocalIpcRequestHandler(
@@ -21,16 +23,26 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
         CommercialLicenseManager licenseManager,
         MachineCodeGenerator machineCodeGenerator,
         IHostNameProvider hostNameProvider,
+        MasterAuthorizationService masterAuthorizationService,
         ILogger<LocalIpcRequestHandler> logger)
     {
         _runtimeState = runtimeState;
         _licenseManager = licenseManager;
         _machineCodeGenerator = machineCodeGenerator;
         _hostNameProvider = hostNameProvider;
+        _masterAuthorizationService = masterAuthorizationService;
         _logger = logger;
     }
 
     public Task<string> HandleAsync(string requestJson, CancellationToken cancellationToken)
+    {
+        return HandleAsync(requestJson, LocalIpcClientContext.Unavailable(), cancellationToken);
+    }
+
+    public async Task<string> HandleAsync(
+        string requestJson,
+        LocalIpcClientContext clientContext,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -41,7 +53,7 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
             var request = JsonSerializer.Deserialize<LocalIpcRequest>(requestJson, JsonOptions);
             response = request is null
                 ? LocalIpcResponse.Error(string.Empty, LocalIpcErrorCodes.MalformedRequest)
-                : HandleRequest(request);
+                : await HandleRequestAsync(request, clientContext, cancellationToken);
         }
         catch (JsonException)
         {
@@ -54,10 +66,13 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
             response = LocalIpcResponse.Error(string.Empty, LocalIpcErrorCodes.InternalError);
         }
 
-        return Task.FromResult(JsonSerializer.Serialize(response, JsonOptions));
+        return JsonSerializer.Serialize(response, JsonOptions);
     }
 
-    private LocalIpcResponse HandleRequest(LocalIpcRequest request)
+    private async Task<LocalIpcResponse> HandleRequestAsync(
+        LocalIpcRequest request,
+        LocalIpcClientContext clientContext,
+        CancellationToken cancellationToken)
     {
         var requestId = request.RequestId ?? string.Empty;
 
@@ -76,6 +91,9 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
             LocalIpcOperations.Ping => LocalIpcResponse.Ok(requestId, new LocalIpcPingPayload()),
             LocalIpcOperations.GetDeviceStatus => LocalIpcResponse.Ok(requestId, GetDeviceStatus()),
             LocalIpcOperations.GetMachineCode => LocalIpcResponse.Ok(requestId, GetMachineCode()),
+            LocalIpcOperations.GetMasterAuthorization => LocalIpcResponse.Ok(
+                requestId,
+                await _masterAuthorizationService.GetAuthorizationAsync(clientContext, cancellationToken)),
             _ => LocalIpcResponse.Error(requestId, LocalIpcErrorCodes.OperationNotSupported)
         };
 

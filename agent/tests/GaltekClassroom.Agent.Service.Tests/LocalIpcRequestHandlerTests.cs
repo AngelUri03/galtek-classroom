@@ -3,6 +3,7 @@ using System.Text.Json;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Runtime;
 using GaltekClassroom.Agent.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -136,6 +137,119 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
             document.RootElement.GetProperty("payload").GetProperty("machineCode").GetString());
     }
 
+    [Fact]
+    public async Task HandleAsync_WhenMasterAuthorizationHasNoBinding_ReturnsNotConfigured()
+    {
+        var handler = CreateHandler();
+        var requestId = Guid.NewGuid().ToString("D");
+
+        var responseJson = await handler.HandleAsync(
+            JsonSerializer.Serialize(new LocalIpcRequest
+            {
+                RequestId = requestId,
+                Operation = LocalIpcOperations.GetMasterAuthorization
+            }, JsonOptions),
+            new LocalIpcClientContext("S-1-5-21-1000000000-1000000000-1000000000-1001", "AULA\\MaestraPrimaria"),
+            CancellationToken.None);
+
+        using var document = JsonDocument.Parse(responseJson);
+        var payload = document.RootElement.GetProperty("payload");
+
+        Assert.True(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal(requestId, document.RootElement.GetProperty("requestId").GetString());
+        Assert.Equal(LocalIpcProtocol.ProtocolVersion, document.RootElement.GetProperty("protocolVersion").GetInt32());
+        Assert.Equal("NOT_CONFIGURED", payload.GetProperty("status").GetString());
+        Assert.False(payload.GetProperty("authorized").GetBoolean());
+        Assert.False(payload.GetProperty("configured").GetBoolean());
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenMasterLicenseIsMissing_ReturnsBusinessStateWithoutSid()
+    {
+        var identity = CreateIdentity();
+        var store = new MasterBindingStore(
+            new MasterBindingStoreOptions(_dataDirectory),
+            new NoOpMasterBindingFileSecurity());
+        var boundSid = "S-1-5-21-1000000000-1000000000-1000000000-1001";
+        await store.WriteAsync(
+            MasterWindowsBinding.Create(
+                identity.InstallationId,
+                boundSid,
+                "AULA\\MaestraPrimaria",
+                FixedNowUtc),
+            replaceExisting: false,
+            CancellationToken.None);
+        var handler = CreateHandler(identity);
+        var requestId = Guid.NewGuid().ToString("D");
+
+        var responseJson = await handler.HandleAsync(
+            JsonSerializer.Serialize(new LocalIpcRequest
+            {
+                RequestId = requestId,
+                Operation = LocalIpcOperations.GetMasterAuthorization
+            }, JsonOptions),
+            new LocalIpcClientContext(boundSid, "AULA\\MaestraPrimaria"),
+            CancellationToken.None);
+
+        using var document = JsonDocument.Parse(responseJson);
+        var json = document.RootElement.GetRawText();
+        var payload = document.RootElement.GetProperty("payload");
+
+        Assert.True(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal("MASTER_LICENSE_REQUIRED", payload.GetProperty("status").GetString());
+        Assert.False(payload.GetProperty("authorized").GetBoolean());
+        Assert.True(payload.GetProperty("configured").GetBoolean());
+        Assert.Equal("AULA\\MaestraPrimaria", payload.GetProperty("boundAccountDisplayName").GetString());
+        Assert.Equal("AULA\\MaestraPrimaria", payload.GetProperty("currentAccountDisplayName").GetString());
+        Assert.DoesNotContain(boundSid, json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenCurrentWindowsAccountDiffers_ReturnsNotAuthorized()
+    {
+        var identity = CreateIdentity();
+        var store = new MasterBindingStore(
+            new MasterBindingStoreOptions(_dataDirectory),
+            new NoOpMasterBindingFileSecurity());
+        var boundSid = "S-1-5-21-1000000000-1000000000-1000000000-1001";
+        await store.WriteAsync(
+            MasterWindowsBinding.Create(
+                identity.InstallationId,
+                boundSid,
+                "AULA\\MaestraPrimaria",
+                FixedNowUtc),
+            replaceExisting: false,
+            CancellationToken.None);
+        var handler = CreateHandler(
+            identity,
+            LicenseState.ActiveState(
+                "license-1",
+                "ORG-1",
+                [CommercialLicenseConstants.ClientRole, CommercialLicenseConstants.MasterRole],
+                CommercialLicenseFeatures.Empty,
+                FixedNowUtc.AddDays(30),
+                FixedNowUtc));
+        var requestId = Guid.NewGuid().ToString("D");
+
+        var responseJson = await handler.HandleAsync(
+            JsonSerializer.Serialize(new LocalIpcRequest
+            {
+                RequestId = requestId,
+                Operation = LocalIpcOperations.GetMasterAuthorization
+            }, JsonOptions),
+            new LocalIpcClientContext(
+                "S-1-5-21-1000000000-1000000000-1000000000-1002",
+                "AULA\\Soporte"),
+            CancellationToken.None);
+
+        using var document = JsonDocument.Parse(responseJson);
+        var payload = document.RootElement.GetProperty("payload");
+
+        Assert.Equal("CURRENT_ACCOUNT_NOT_AUTHORIZED", payload.GetProperty("status").GetString());
+        Assert.False(payload.GetProperty("authorized").GetBoolean());
+        Assert.Equal("AULA\\Soporte", payload.GetProperty("currentAccountDisplayName").GetString());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataDirectory))
@@ -157,7 +271,9 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
         return JsonSerializer.Deserialize<LocalIpcResponse>(responseJson, JsonOptions)!;
     }
 
-    private LocalIpcRequestHandler CreateHandler(InstallationIdentity? identity = null)
+    private LocalIpcRequestHandler CreateHandler(
+        InstallationIdentity? identity = null,
+        LicenseState? masterLicenseState = null)
     {
         var runtimeState = new AgentRuntimeState();
         runtimeState.SetInstallationIdentity(identity ?? CreateIdentity());
@@ -177,6 +293,15 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
             licenseManager,
             new MachineCodeGenerator(hostNameProvider),
             hostNameProvider,
+            new MasterAuthorizationService(
+                runtimeState,
+                masterLicenseState is null
+                    ? licenseManager
+                    : new StaticLicenseStateProvider(masterLicenseState),
+                new MasterBindingStore(
+                    new MasterBindingStoreOptions(_dataDirectory),
+                    new NoOpMasterBindingFileSecurity()),
+                NullLogger<MasterAuthorizationService>.Instance),
             NullLogger<LocalIpcRequestHandler>.Instance);
     }
 
@@ -247,5 +372,15 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
         }
 
         public DateTimeOffset UtcNow { get; }
+    }
+
+    private sealed class StaticLicenseStateProvider : ILicenseStateProvider
+    {
+        public StaticLicenseStateProvider(LicenseState currentState)
+        {
+            CurrentState = currentState;
+        }
+
+        public LicenseState CurrentState { get; }
     }
 }

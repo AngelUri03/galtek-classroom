@@ -2,7 +2,7 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, and SQLite persistence for the Master classroom domain. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, local Master Windows Binding authorization through the Agent Service, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, and SQLite persistence for the Master classroom domain. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
 
 ## Architecture
 
@@ -64,7 +64,13 @@ Machine Code through IPC:
 Invoke-RestMethod http://localhost:8080/api/device/machine-code
 ```
 
-If the Agent Service is not available, `/api/device/status` and `/api/device/machine-code` return HTTP `503` with code `LOCAL_AGENT_UNAVAILABLE`. `/api/system/health` only reports Master Backend health and does not depend on the Agent Service.
+Master authorization through IPC:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/master/authorization
+```
+
+If the Agent Service is not available, `/api/device/status`, `/api/device/machine-code` and `/api/master/authorization` return HTTP `503` with code `LOCAL_AGENT_UNAVAILABLE`. `/api/system/health` only reports Master Backend health and does not depend on the Agent Service.
 
 ### Master SQLite Data
 
@@ -100,7 +106,7 @@ Migrations live in:
 master-backend/src/main/resources/db/migration/sqlite/
 ```
 
-`classroom.db`, WAL/SHM sidecar files, and local `.db` files are ignored by Git. Master Windows Binding is intentionally not stored in this database; the Agent Service remains the planned authority for that sensitive binding.
+`classroom.db`, WAL/SHM sidecar files, and local `.db` files are ignored by Git. Master Windows Binding is intentionally not stored in this database; the Agent Service is the authority for that sensitive binding.
 
 Run tests:
 
@@ -121,6 +127,7 @@ Files currently used:
 
 - `installation.json`: local Installation Identity.
 - `license.dat`: Commercial License JWT.
+- `master-binding.json`: single local Master Windows Binding.
 
 For development and tests, override that directory with:
 
@@ -152,6 +159,47 @@ C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Serv
 ```
 
 The Service starts the Local IPC Named Pipe server on `GaltekClassroom.Agent.v1`.
+
+### Master Windows Binding
+
+Master features require both a Commercial License with role `MASTER` and a local Windows account binding. The binding is stored by the Agent Service in:
+
+```text
+<CommonApplicationData>\Galtek\Classroom\master-binding.json
+```
+
+Schema v1 contains `schemaVersion`, `installationId`, `windowsSid`, `accountDisplayName` and `boundAtUtc`. It does not store passwords, password hashes, tokens, JWTs or license material. The Master Backend never reads this file and does not know its path; it asks the Agent Service through Local IPC.
+
+Configure the current Windows account from an elevated administrator shell:
+
+```powershell
+cd agent
+C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-current-user
+```
+
+Configure another existing local/domain account:
+
+```powershell
+cd agent
+C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraPrimaria"
+```
+
+Replace an existing binding only with explicit intent:
+
+```powershell
+cd agent
+C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraB" --replace-master-binding
+```
+
+The CLI does not autoelevate or bypass UAC. Without elevation it returns `ADMINISTRATOR_REQUIRED`. A missing account returns `WINDOWS_ACCOUNT_NOT_FOUND`, and an existing binding without replace returns `MASTER_BINDING_ALREADY_CONFIGURED`.
+
+The authorization response is available at:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/master/authorization
+```
+
+Possible statuses are `NOT_CONFIGURED`, `AUTHORIZED`, `CURRENT_ACCOUNT_NOT_AUTHORIZED`, `MASTER_LICENSE_REQUIRED`, `MASTER_BINDING_INVALID` and `MASTER_BINDING_INSTALLATION_MISMATCH`. A license with role `MASTER` is not enough by itself, and a different Windows administrator does not inherit Master access. This local binding also does not authorize remote Clients; network authorization, pairing and mTLS are separate future layers.
 
 Run the Session Agent background lifecycle:
 
@@ -201,13 +249,13 @@ Uninstall the complete Agent:
 .\installer\windows\uninstall-agent.ps1
 ```
 
-Normal uninstall preserves `%ProgramData%\Galtek\Classroom\`. To intentionally remove Installation Identity and Commercial License:
+Normal uninstall preserves `%ProgramData%\Galtek\Classroom\`. To intentionally remove Installation Identity, Commercial License and Master Windows Binding:
 
 ```powershell
 .\installer\windows\uninstall-agent.ps1 -PurgeData
 ```
 
-`-PurgeData` is passed only to the Service uninstaller because ProgramData belongs to the machine-level Agent Service identity and license.
+`-PurgeData` is passed only to the Service uninstaller because ProgramData belongs to the machine-level Agent Service identity, license and Master binding.
 
 ## Agent Service
 
@@ -251,7 +299,7 @@ Persistent machine data:
 %ProgramData%\Galtek\Classroom\
 ```
 
-Program Files contains binaries only. ProgramData contains `installation.json`, `license.dat`, and future persistent Agent data. Updating binaries must not delete or regenerate Installation Identity.
+Program Files contains binaries only. ProgramData contains `installation.json`, `license.dat`, `master-binding.json`, and future persistent Agent data. Updating binaries must not delete or regenerate Installation Identity or Master binding.
 
 Verify service state:
 
@@ -277,13 +325,13 @@ Uninstall from an elevated PowerShell session:
 
 Normal uninstall removes the Windows Service registration and installed binaries, but preserves `%ProgramData%\Galtek\Classroom\`.
 
-To intentionally remove Installation Identity and Commercial License:
+To intentionally remove Installation Identity, Commercial License and Master Windows Binding:
 
 ```powershell
 .\installer\windows\uninstall-agent-service.ps1 -PurgeData
 ```
 
-`-PurgeData` requires explicit administrator intent. The next installation will require a new activation.
+`-PurgeData` requires explicit administrator intent. The next installation will require a new activation and Master reconfiguration.
 
 ## Local IPC API v1
 
@@ -292,7 +340,7 @@ Local IPC v1 is documented in `protocol/local-ipc-v1.md`.
 - Pipe name: `GaltekClassroom.Agent.v1`.
 - Framing: 4-byte BIG ENDIAN length prefix plus UTF-8 JSON.
 - Max message payload: 64 KiB.
-- Operations: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
+- Operations: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - Scope: read-only.
 
 ## Session Agent

@@ -68,6 +68,83 @@ class WindowsNamedPipeLocalAgentClientTest {
     }
 
     @Test
+    void getMasterAuthorizationSerializesRequestAndDeserializesAuthorizedResponse() throws Exception {
+        CapturingTransport transport = new CapturingTransport(responseJson(
+                REQUEST_ID,
+                true,
+                null,
+                Map.of(
+                        "status", "AUTHORIZED",
+                        "authorized", true,
+                        "configured", true,
+                        "boundAccountDisplayName", "AULA\\MaestraPrimaria",
+                        "currentAccountDisplayName", "AULA\\MaestraPrimaria")));
+        WindowsNamedPipeLocalAgentClient client = new WindowsNamedPipeLocalAgentClient(
+                objectMapper,
+                transport,
+                () -> REQUEST_ID);
+
+        MasterAuthorizationResponse response = client.getMasterAuthorization();
+        JsonNode requestJson = objectMapper.readTree(transport.requests().getFirst());
+
+        assertThat(requestJson.get("protocolVersion").asInt()).isEqualTo(LocalIpcProtocol.PROTOCOL_VERSION);
+        assertThat(requestJson.get("requestId").asText()).isEqualTo(REQUEST_ID);
+        assertThat(requestJson.get("operation").asText())
+                .isEqualTo(LocalIpcProtocol.OPERATION_GET_MASTER_AUTHORIZATION);
+        assertThat(response.status()).isEqualTo("AUTHORIZED");
+        assertThat(response.authorized()).isTrue();
+        assertThat(response.configured()).isTrue();
+        assertThat(response.boundAccountDisplayName()).isEqualTo("AULA\\MaestraPrimaria");
+    }
+
+    @Test
+    void getMasterAuthorizationDeserializesNotAuthorizedBusinessStates() throws Exception {
+        CapturingTransport transport = new CapturingTransport(responseJson(
+                REQUEST_ID,
+                true,
+                null,
+                Map.of(
+                        "status", "CURRENT_ACCOUNT_NOT_AUTHORIZED",
+                        "authorized", false,
+                        "configured", true,
+                        "boundAccountDisplayName", "AULA\\MaestraPrimaria",
+                        "currentAccountDisplayName", "AULA\\Soporte")));
+        WindowsNamedPipeLocalAgentClient client = new WindowsNamedPipeLocalAgentClient(
+                objectMapper,
+                transport,
+                () -> REQUEST_ID);
+
+        MasterAuthorizationResponse response = client.getMasterAuthorization();
+
+        assertThat(response.status()).isEqualTo("CURRENT_ACCOUNT_NOT_AUTHORIZED");
+        assertThat(response.authorized()).isFalse();
+        assertThat(response.currentAccountDisplayName()).isEqualTo("AULA\\Soporte");
+    }
+
+    @Test
+    void getMasterAuthorizationDeserializesLicenseRequired() throws Exception {
+        CapturingTransport transport = new CapturingTransport(responseJson(
+                REQUEST_ID,
+                true,
+                null,
+                Map.of(
+                        "status", "MASTER_LICENSE_REQUIRED",
+                        "authorized", false,
+                        "configured", true,
+                        "boundAccountDisplayName", "AULA\\MaestraPrimaria",
+                        "currentAccountDisplayName", "AULA\\MaestraPrimaria")));
+        WindowsNamedPipeLocalAgentClient client = new WindowsNamedPipeLocalAgentClient(
+                objectMapper,
+                transport,
+                () -> REQUEST_ID);
+
+        MasterAuthorizationResponse response = client.getMasterAuthorization();
+
+        assertThat(response.status()).isEqualTo("MASTER_LICENSE_REQUIRED");
+        assertThat(response.authorized()).isFalse();
+    }
+
+    @Test
     void responseRequestIdMismatchIsRejected() throws Exception {
         CapturingTransport transport = new CapturingTransport(responseJson(
                 "22222222-2222-2222-2222-222222222222",

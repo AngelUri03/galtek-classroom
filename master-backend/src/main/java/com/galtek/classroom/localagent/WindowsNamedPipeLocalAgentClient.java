@@ -42,6 +42,13 @@ public class WindowsNamedPipeLocalAgentClient implements LocalAgentClient {
         return execute(LocalIpcProtocol.OPERATION_GET_MACHINE_CODE, MachineCodeResponse.class);
     }
 
+    @Override
+    public MasterAuthorizationResponse getMasterAuthorization() {
+        return execute(
+                LocalIpcProtocol.OPERATION_GET_MASTER_AUTHORIZATION,
+                MasterAuthorizationResponse.class);
+    }
+
     private <T> T execute(String operation, Class<T> payloadType) {
         String requestId = requestIdSupplier.get();
         LocalIpcRequest request = new LocalIpcRequest(

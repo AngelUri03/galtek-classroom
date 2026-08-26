@@ -34,7 +34,7 @@
 - Los binarios productivos del Agent Service viven en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Los datos persistentes del Agent viven en `<CommonApplicationData>\Galtek\Classroom\`.
 - El instalador/actualizador reemplaza binarios sin borrar ProgramData.
-- La desinstalacion normal conserva ProgramData; `-PurgeData` es la unica opcion para borrar Installation Identity y Commercial License.
+- La desinstalacion normal conserva ProgramData; `-PurgeData` es la unica opcion para borrar Installation Identity, Commercial License y Master Windows Binding.
 - La politica de recovery del servicio reinicia ante fallos con retrasos de 5, 15 y 60 segundos, con reset de contador cada 86400 segundos.
 - El Master Backend no implementa Installation Identity; la consulta al Service mediante IPC local.
 - El Master Backend no implementa Commercial License; la consulta al Service mediante IPC local.
@@ -112,7 +112,7 @@
 - Operaciones destructivas deben confirmar una sola vez por operacion masiva y preservar datos cuando sea posible.
 - El Master local queda ligado a una cuenta Windows concreta mediante SID, no por username ni por pertenecer a Administrators.
 - Otro administrador Windows no obtiene automaticamente rol Master si su SID no esta ligado.
-- La autoridad final para persistir/verificar Master Windows Binding debe residir en Agent Service; Master Backend consumira estado derivado por IPC.
+- La autoridad final para persistir/verificar Master Windows Binding reside en Agent Service; Master Backend consume estado derivado por IPC.
 - Prompt 07 no agrega IPC write; cualquier escritura futura requiere autorizacion local disenada.
 - IP y MAC no son identidad suficiente para autorizacion.
 - Descubrimiento no implica confianza.
@@ -151,5 +151,19 @@
 - Batch operations se persisten con targets y attempts para permitir partial success y retry de fallidos retryable.
 - `OperationPayload` guarda payload JSON versionado para metadata de operaciones; no implica ejecucion remota.
 - `MasterWindowsBinding` no se persiste en `classroom.db`.
-- No crear tabla `master_windows_binding` en SQLite; la autoridad final del binding sigue planificada en Agent Service.
+- No crear tabla `master_windows_binding` en SQLite; la autoridad final del binding vive en Agent Service.
 - Los perfiles de navegador persistidos son metadata; no se guardan passwords, cookies, tokens ni cache protegido.
+- `master-binding.json` vive en `<CommonApplicationData>\Galtek\Classroom\`, separado de `installation.json` y `license.dat`.
+- `master-binding.json` usa schema v1 con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
+- Una instalacion tiene cero o un Master Windows Binding; no hay multiples cuentas autorizadas por instalacion.
+- El binding se liga al `installationId`; si no coincide con la Installation Identity actual se bloquea como `MASTER_BINDING_INSTALLATION_MISMATCH`.
+- El SID real de Master authorization se obtiene del cliente Named Pipe mediante impersonation; un SID enviado por payload no se acepta como prueba.
+- `GET_MASTER_AUTHORIZATION` es IPC v1 read-only y no modifica binding, licencia ni identidad.
+- La respuesta de `GET_MASTER_AUTHORIZATION` no expone SID completo, JWT, ruta del binding ni ACLs internas.
+- La CLI administrativa de binding requiere elevacion y no autoeleva.
+- `--bind-master-current-user` usa el SID real del proceso actual y no acepta parametro para modificarlo.
+- `--bind-master-account <WINDOWS_ACCOUNT>` resuelve `NTAccount` a `SecurityIdentifier` mediante APIs Windows/.NET.
+- Reemplazar binding requiere `--replace-master-binding`; no se sobrescribe silenciosamente.
+- Binding corrupto, incompleto, schema desconocido o SID invalido no tumba el Agent Service y bloquea Master como `MASTER_BINDING_INVALID`.
+- Ante Agent Service no disponible, el Master Backend falla cerrado con HTTP 503 `LOCAL_AGENT_UNAVAILABLE`.
+- Desinstalacion normal preserva `master-binding.json`; `-PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding.

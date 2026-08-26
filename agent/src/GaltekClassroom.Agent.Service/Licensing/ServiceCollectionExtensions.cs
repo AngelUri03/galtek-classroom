@@ -17,6 +17,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILicensePublicKeyProvider, LicensePublicKeyProvider>();
         services.AddSingleton<CommercialLicenseValidator>();
         services.AddSingleton<CommercialLicenseManager>();
+        services.AddSingleton<ILicenseStateProvider>(provider =>
+            provider.GetRequiredService<CommercialLicenseManager>());
         services.AddSingleton<CommercialLicenseActivationService>();
 
         return services;

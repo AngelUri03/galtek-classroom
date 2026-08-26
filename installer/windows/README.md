@@ -68,7 +68,7 @@ By default it preserves:
 %ProgramData%\Galtek\Classroom\
 ```
 
-To intentionally remove machine identity and license data:
+To intentionally remove machine identity, license data and Master Windows Binding:
 
 ```powershell
 .\installer\windows\uninstall-agent.ps1 -PurgeData
@@ -76,7 +76,7 @@ To intentionally remove machine identity and license data:
 
 `-PurgeData` is passed only to `uninstall-agent-service.ps1`.
 
-Warning: `PurgeData` elimina Installation Identity y Commercial License. La instalacion resultante requerira una nueva activacion.
+Warning: `PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding. La instalacion resultante requerira una nueva activacion y reconfiguracion Master.
 
 ## Agent Service
 
@@ -104,7 +104,7 @@ The script:
 - configures service recovery restart delays of 5, 15 and 60 seconds;
 - starts the service and verifies `Running`.
 
-ProgramData is created or verified at `%ProgramData%\Galtek\Classroom\`, but existing `installation.json` and `license.dat` are not deleted.
+ProgramData is created or verified at `%ProgramData%\Galtek\Classroom\`, but existing `installation.json`, `license.dat` and `master-binding.json` are not deleted.
 
 Verify:
 

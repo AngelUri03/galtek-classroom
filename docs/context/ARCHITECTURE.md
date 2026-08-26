@@ -2,15 +2,17 @@
 
 ## Estado general
 
+Prompt 09 implementa la autoridad real de Master Windows Binding en `GaltekClassroom.Agent.Service`. El binding local se persiste en `master-binding.json`, se liga al `installationId`, se evalua contra `LicenseState` activo con rol `MASTER` y se compara contra el SID real del cliente conectado al Named Pipe mediante impersonation. El Master Backend Java solo consume el resultado derivado por IPC y expone diagnostico.
+
 Prompt 08 agrega persistencia SQLite local del dominio Master mediante Spring JDBC, Flyway programatico y repositories explicitos. El Master Backend ya puede crear, migrar y reabrir una base `classroom.db` con aulas, catalogo de aplicaciones, grupos, alumnos, devices, assignments, workspaces, perfiles de navegador y operaciones batch.
 
 Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master Backend: aula, devices, alumnos, grupos, workspaces de alumno, perfiles de navegador, binding local del Master por Windows SID, catalogo de acciones, errores operacionales y planners puros para assignment, move, swap y batch preflight.
 
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
-Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
+Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 08 persiste metadata y resultados del dominio, pero no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 09 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -24,10 +26,12 @@ IMPLEMENTADO:
 - Endpoint `GET /api/system/health`.
 - Endpoint `GET /api/device/status`, delegado al Agent Service mediante IPC local.
 - Endpoint `GET /api/device/machine-code`, delegado al Agent Service mediante IPC local.
+- Endpoint `GET /api/master/authorization`, delegado al Agent Service mediante IPC local.
 - Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
 - Mapeo de Agent Service no disponible a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
+- `MasterAccessGuard` para futuros endpoints administrativos; consulta al Agent Service y falla cerrado cuando `authorized=false`.
 - Prueba automatica del health endpoint.
-- Pruebas de framing IPC, cliente local, endpoints de dispositivo y salud.
+- Pruebas de framing IPC, cliente local, endpoints de dispositivo, autorizacion Master, guard y salud.
 - Dominio funcional puro en paquetes por contexto:
   - `classroom`: `Classroom`, configuracion y relacion de devices/students/groups.
   - `device`: `Device`, estados operacionales y capacidades.
@@ -68,7 +72,6 @@ IMPLEMENTADO:
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
-- Persistencia/verificacion final de Master Windows Binding mediante Agent Service y estado derivado por IPC.
 - gRPC/Protobuf para comunicacion con Agents.
 - Visualizacion de equipos, miniaturas y estado.
 - UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
@@ -108,7 +111,7 @@ IMPLEMENTADO:
   - `device_assignments`.
   - `batch_operations`.
   - `batch_target_results`.
-- `MasterWindowsBinding` no se persiste en SQLite por decision de seguridad; la autoridad final sigue planificada en Agent Service.
+- `MasterWindowsBinding` no se persiste en SQLite por decision de seguridad; la autoridad final vive en Agent Service.
 - IDs del dominio como `TEXT`, generados por la aplicacion; no usar `AUTOINCREMENT` para identidades funcionales.
 - Timestamps como `TEXT` UTC producido desde `Instant.toString()`.
 - Booleans como `INTEGER` `0/1` con `CHECK`.
@@ -149,11 +152,12 @@ IMPLEMENTADO:
 - Publicacion productiva inicial: `Release`, `win-x64`, self-contained, carpeta no single-file.
 - Binarios instalados en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Scripts PowerShell en `installer/windows/` para publicar, instalar/actualizar y desinstalar.
-- `uninstall-agent-service.ps1` conserva ProgramData por defecto y solo borra identidad/licencia con `-PurgeData`.
+- `uninstall-agent-service.ps1` conserva ProgramData por defecto y solo borra identidad/licencia/binding con `-PurgeData`.
 - Version inicial del ejecutable controlada en `agent/src/GaltekClassroom.Agent.Service/GaltekClassroom.Agent.Service.csproj`.
 - Registra inicio, estado activo y detencion limpia.
 - Es autoridad local de Installation Identity.
 - Es autoridad local de Commercial License.
+- Es autoridad local de Master Windows Binding.
 - Resuelve `installation.json` al arrancar.
 - Crea una identidad permanente cuando no existe.
 - Reutiliza el mismo `installationId` cuando el archivo existe y es valido.
@@ -167,15 +171,23 @@ IMPLEMENTADO:
 - Valida expiracion en UTC y mantiene el Service vivo si la licencia esta vencida.
 - Persiste el JWT comercial en `license.dat`, separado de `installation.json`, con escritura temporal y reemplazo/movimiento.
 - Expone CLI de desarrollo para `--license-status`, `--activate-license` por STDIN y `--activate-license-file <ruta>`.
+- Expone CLI administrativa para `--bind-master-current-user`, `--bind-master-account <WINDOWS_ACCOUNT>` y `--replace-master-binding`.
+- Exige elevacion administrativa para crear o reemplazar `master-binding.json`; no autoeleva ni evade UAC.
+- Persiste un unico Master binding en `master-binding.json`, separado de `installation.json` y `license.dat`.
+- Valida schema v1, SID, `installationId` y campos obligatorios al leer el binding.
+- No regenera silenciosamente binding ausente, corrupto, incompleto, con schema desconocido o SID invalido.
+- Escribe el binding mediante archivo temporal, flush y replace/move atomico; verifica lectura posterior.
+- Endurece `master-binding.json` para escritura por `LocalSystem` y `BuiltinAdministrators`.
 - Mantiene `LicenseState` en memoria sin exponer el JWT completo.
 - Monitor ligero de expiracion runtime cada 60 segundos, sin recalcular WMI.
 - Local IPC API v1 read-only mediante Windows Named Pipes.
 - Named Pipe server versionado `GaltekClassroom.Agent.v1`.
 - Framing IPC con prefijo de longitud de 4 bytes BIG ENDIAN mas JSON UTF-8.
 - Limite maximo de mensaje de 64 KiB.
-- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
+- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
+- `GET_MASTER_AUTHORIZATION` deriva el SID real del cliente Named Pipe y no acepta SID en el payload.
 - ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
 
 PLANIFICADO:
@@ -200,7 +212,7 @@ NO IMPLEMENTADO:
 - DPAPI o endurecimiento avanzado de ACL.
 - Clock rollback.
 - Enforcements de features.
-- Autorizacion MASTER para comandos.
+- Comandos MASTER protegidos por autorizacion.
 - Comandos remotos.
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
@@ -303,20 +315,20 @@ IMPLEMENTADO:
 - Windows Named Pipe `GaltekClassroom.Agent.v1`.
 - `GaltekClassroom.Agent.Service` es el servidor IPC.
 - `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS` en CLI one-shot y en supervisor background.
-- Master Backend Java consume `GET_DEVICE_STATUS` y `GET_MACHINE_CODE`.
+- Master Backend Java consume `GET_DEVICE_STATUS`, `GET_MACHINE_CODE` y `GET_MASTER_AUTHORIZATION`.
 - Protocolo documentado en `protocol/local-ipc-v1.md`.
 - `protocolVersion = 1`.
 - Mensajes JSON UTF-8 con prefijo de longitud de 4 bytes BIG ENDIAN.
 - Limite de payload de 64 KiB.
-- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
+- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - IPC v1 es read-only.
+- El SID de autorizacion Master se deriva del token real del cliente conectado al Named Pipe mediante impersonation; no viene del payload.
 - Version desconocida devuelve `IPC_PROTOCOL_UNSUPPORTED`.
 - Operacion desconocida devuelve `IPC_OPERATION_NOT_SUPPORTED`.
 - JSON malformado, longitud invalida y desconexiones de clientes se manejan sin detener el Service.
 
 NO IMPLEMENTADO:
 
-- Autorizacion local para operaciones privilegiadas futuras.
 - Activacion de licencia por IPC.
 - Operaciones write por IPC.
 
@@ -373,30 +385,35 @@ NO IMPLEMENTADO:
 - Revocacion online.
 - Descarga o confianza en llaves enviadas junto con JWT.
 - Enforcement de features.
-- Autorizacion MASTER.
 
 ### Master Windows Binding
 
-IMPLEMENTADO en Prompt 07:
+IMPLEMENTADO:
 
-- Modelo `MasterWindowsBinding` con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
-- Modelo `MasterAuthorizationState` con `NOT_CONFIGURED`, `AUTHORIZED`, `CURRENT_ACCOUNT_NOT_AUTHORIZED` y `MASTER_LICENSE_REQUIRED`.
-- `MasterAuthorizationPolicy` que exige licencia activa con rol `MASTER`, `installationId` correcto y SID actual igual al SID ligado.
+- Modelo Java `MasterWindowsBinding` con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`, conservado como modelo funcional y para tests.
+- Modelo `MasterAuthorizationState` con `NOT_CONFIGURED`, `AUTHORIZED`, `CURRENT_ACCOUNT_NOT_AUTHORIZED`, `MASTER_LICENSE_REQUIRED`, `MASTER_BINDING_INVALID` e `INSTALLATION_MISMATCH`.
+- Politica Java de Prompt 07 conservada como modelo puro; no es autoridad productiva.
 - Abstraccion `CurrentWindowsIdentityProvider`.
 - Implementacion Java `JdkCurrentWindowsIdentityProvider` que obtiene SID mediante API del JDK por reflexion, sin comandos shell ni JNA.
 - Pruebas puras que no dependen de la cuenta Windows real.
 - Prompt 08 confirma que `classroom.db` no persiste `MasterWindowsBinding` ni crea tabla `master_windows_binding`.
+- Prompt 09 persiste y verifica el binding final en el Agent Service, autoridad local de Installation Identity, Commercial License y Master Windows Binding.
+- Archivo `master-binding.json` con schema v1 en `<CommonApplicationData>\Galtek\Classroom\`.
+- Unica cuenta autorizada por instalacion: exactamente cero o un binding.
+- Binding ligado a `installationId`; un archivo copiado desde otra instalacion produce `MASTER_BINDING_INSTALLATION_MISMATCH`.
+- Binding corrupto, incompleto, schema desconocido o SID invalido produce `MASTER_BINDING_INVALID` sin tumbar el Service.
+- `GET_MASTER_AUTHORIZATION` expone al Master Backend solo estado derivado seguro, sin SID completo ni rutas internas.
+- `MasterAuthorizationService` en Agent Service evalua Installation Identity, `LicenseState`, binding y SID real del caller.
+- CLI administrativa elevada crea/reemplaza binding con `--bind-master-current-user`, `--bind-master-account <WINDOWS_ACCOUNT>` y `--replace-master-binding`.
+- Otro administrador Windows no hereda permiso Master si su SID no esta ligado.
 
 PLANIFICADO:
 
-- Persistir y verificar el binding final en el Agent Service, porque es autoridad local para datos sensibles.
-- Exponer al Master Backend solo estado derivado por IPC local.
 - UI futura para configurar/diagnosticar binding, sin ser autoridad.
+- IPC write futuro de binding solo si se disena una autorizacion local adecuada.
 
 NO IMPLEMENTADO:
 
-- Persistencia del binding.
-- IPC write para crear o modificar binding.
 - Reemplazo de Network Identity, pairing o mTLS.
 - Autorizacion remota entre equipos.
 
@@ -426,10 +443,13 @@ IMPLEMENTADO:
 - Permitir override de desarrollo y tests con `GALTEK_CLASSROOM_DATA_DIR`.
 - Archivo `installation.json` para Installation Identity.
 - Archivo `license.dat` para Commercial License.
+- Archivo `master-binding.json` para Master Windows Binding.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
+- Escritura del Master binding con archivo temporal, flush y reemplazo/movimiento atomico.
 - `license.dat` guarda solo el JWT recibido.
+- `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
-- Actualizar o desinstalar normalmente no borra `installation.json` ni `license.dat`.
+- Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat` ni `master-binding.json`.
 
 NO IMPLEMENTADO:
 
@@ -456,6 +476,13 @@ VIGENTE DESDE AHORA:
 - IP y MAC no son identidad de autorizacion.
 - Licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
 - Licencia MASTER valida no equivale a permiso automatico para controlar clientes de la LAN.
+- Autorizacion Master productiva proviene del Agent Service, no del Master Backend.
+- El SID declarado por payload, UI o JSON no es prueba de identidad.
+- El SID local del caller debe derivarse del token real del Named Pipe.
+- Ante duda o error de autorizacion Master, el resultado debe ser `authorized=false`.
+- Un administrador Windows distinto no hereda Master si su SID no esta ligado.
+- `MasterWindowsBinding` nunca se persiste en SQLite.
+- Rebinding de Master siempre requiere intencion explicita.
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

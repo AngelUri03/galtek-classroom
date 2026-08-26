@@ -3,7 +3,7 @@ using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Licensing;
 
-public sealed class CommercialLicenseManager
+public sealed class CommercialLicenseManager : ILicenseStateProvider
 {
     private readonly CommercialLicenseStore _store;
     private readonly CommercialLicenseValidator _validator;

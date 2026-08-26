@@ -191,3 +191,26 @@ public sealed record LocalIpcMachineCodePayload
     [JsonPropertyOrder(0)]
     public string MachineCode { get; init; } = string.Empty;
 }
+
+public sealed record LocalMasterAuthorization
+{
+    [JsonPropertyName("status")]
+    [JsonPropertyOrder(0)]
+    public string Status { get; init; } = MasterAuthorizationStatus.NotConfigured.ToCode();
+
+    [JsonPropertyName("authorized")]
+    [JsonPropertyOrder(1)]
+    public bool Authorized { get; init; }
+
+    [JsonPropertyName("configured")]
+    [JsonPropertyOrder(2)]
+    public bool Configured { get; init; }
+
+    [JsonPropertyName("boundAccountDisplayName")]
+    [JsonPropertyOrder(3)]
+    public string? BoundAccountDisplayName { get; init; }
+
+    [JsonPropertyName("currentAccountDisplayName")]
+    [JsonPropertyOrder(4)]
+    public string? CurrentAccountDisplayName { get; init; }
+}

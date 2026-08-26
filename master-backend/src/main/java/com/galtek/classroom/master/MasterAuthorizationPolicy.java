@@ -20,12 +20,18 @@ public final class MasterAuthorizationPolicy {
                     null);
         }
 
-        if (license == null
-                || !license.allowsMaster()
-                || !binding.installationId().equals(license.installationId())) {
+        if (license == null || !license.allowsMaster()) {
             return new MasterAuthorizationDecision(
                     MasterAuthorizationState.MASTER_LICENSE_REQUIRED,
                     ErrorCode.MASTER_NOT_LICENSED,
+                    currentIdentity.windowsSid(),
+                    binding.windowsSid());
+        }
+
+        if (!binding.installationId().equals(license.installationId())) {
+            return new MasterAuthorizationDecision(
+                    MasterAuthorizationState.INSTALLATION_MISMATCH,
+                    ErrorCode.MASTER_INSTALLATION_MISMATCH,
                     currentIdentity.windowsSid(),
                     binding.windowsSid());
         }

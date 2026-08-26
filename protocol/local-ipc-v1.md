@@ -6,7 +6,7 @@ Esta es la especificacion canonica cross-language para el IPC local entre:
 - `GaltekClassroom.Agent.Session`
 - `master-backend`
 
-IPC v1 es estrictamente read-only. No define activacion de licencia ni comandos operativos.
+IPC v1 es estrictamente read-only. No define activacion de licencia, cambios de binding ni comandos operativos.
 
 ## Transporte
 
@@ -56,6 +56,7 @@ Reglas:
 - `requestId` debe ser un UUID y debe conservarse exactamente en la respuesta.
 - `operation` debe pertenecer al conjunto permitido de IPC v1.
 - `payload` existe para compatibilidad futura, pero en IPC v1 las operaciones permitidas no requieren datos.
+- Ninguna request de IPC v1 debe enviar SID de Windows para autorizacion.
 
 ## Response
 
@@ -154,6 +155,66 @@ Payload de respuesta:
 
 Esta operacion debe funcionar aunque `licenseStatus != ACTIVE`, porque el Machine Code se necesita para activacion futura.
 
+### GET_MASTER_AUTHORIZATION
+
+Devuelve el estado de autorizacion local Master calculado por el Agent Service.
+
+Payload de request:
+
+```json
+{}
+```
+
+El caller no declara su SID. El Agent Service obtiene el SID real del cliente conectado al Named Pipe usando impersonation del pipe y evalua:
+
+```text
+Commercial License ACTIVE
++
+rol MASTER
++
+binding.installationId == installationIdentity.installationId
++
+SID real del cliente == SID ligado
+```
+
+Payload de respuesta:
+
+```json
+{
+  "status": "AUTHORIZED",
+  "authorized": true,
+  "configured": true,
+  "boundAccountDisplayName": "AULA\\MaestraPrimaria",
+  "currentAccountDisplayName": "AULA\\MaestraPrimaria"
+}
+```
+
+Estados actuales:
+
+- `NOT_CONFIGURED`
+- `AUTHORIZED`
+- `CURRENT_ACCOUNT_NOT_AUTHORIZED`
+- `MASTER_LICENSE_REQUIRED`
+- `MASTER_BINDING_INVALID`
+- `MASTER_BINDING_INSTALLATION_MISMATCH`
+
+Campos permitidos:
+
+- `status`
+- `authorized`
+- `configured`
+- `boundAccountDisplayName`
+- `currentAccountDisplayName`
+
+Campos sensibles prohibidos:
+
+- SID completo del binding o del caller
+- JWT o `license.dat`
+- ruta de `master-binding.json`
+- ACLs internas
+
+Esta respuesta solo responde si la cuenta local actual puede usar esta instalacion Master. No autoriza control de clientes remotos, pairing, mTLS ni confianza de red.
+
 ## Errores
 
 Codigos actuales:
@@ -180,8 +241,9 @@ IPC v1 es read-only. Las unicas operaciones permitidas son:
 - `PING`
 - `GET_DEVICE_STATUS`
 - `GET_MACHINE_CODE`
+- `GET_MASTER_AUTHORIZATION`
 
-No estan permitidas operaciones write como activacion, bloqueo, apagado, proyeccion, apertura de aplicaciones ni ejecucion de comandos.
+No estan permitidas operaciones write como activacion, set/update/delete de Master binding, bloqueo, apagado, proyeccion, apertura de aplicaciones ni ejecucion de comandos.
 
 ACL actual del pipe:
 

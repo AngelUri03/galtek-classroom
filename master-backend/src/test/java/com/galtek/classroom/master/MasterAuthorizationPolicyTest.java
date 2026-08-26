@@ -47,6 +47,18 @@ class MasterAuthorizationPolicyTest {
         assertThat(decision.errorCode()).isEqualTo(ErrorCode.MASTER_NOT_LICENSED);
     }
 
+    @Test
+    void bindingFromAnotherInstallationIsRejected() {
+        var decision = policy.evaluate(
+                new CommercialLicenseView("bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee", true, Set.of("CLIENT", "MASTER")),
+                binding("S-1-5-21-1000"),
+                identity("S-1-5-21-1000"));
+
+        assertThat(decision.authorized()).isFalse();
+        assertThat(decision.state()).isEqualTo(MasterAuthorizationState.INSTALLATION_MISMATCH);
+        assertThat(decision.errorCode()).isEqualTo(ErrorCode.MASTER_INSTALLATION_MISMATCH);
+    }
+
     private static CommercialLicenseView license(Set<String> roles) {
         return new CommercialLicenseView("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", true, roles);
     }

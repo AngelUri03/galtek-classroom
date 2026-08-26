@@ -511,3 +511,75 @@
 ### Commit sugerido
 
 `feat(master): persist classroom domain in sqlite`
+
+## 2026-08-26 - Prompt 09
+
+### Realizado
+
+- Implementada autoridad real de Master Windows Binding en `GaltekClassroom.Agent.Service`.
+- Agregado `master-binding.json` en `<CommonApplicationData>\Galtek\Classroom\`, separado de `installation.json`, `license.dat` y `classroom.db`.
+- Agregado schema v1, validacion de SID, validacion de `installationId`, manejo de binding ausente/corrupto/mismatch y escritura atomica con verificacion.
+- Agregada CLI administrativa `--bind-master-current-user`, `--bind-master-account <WINDOWS_ACCOUNT>` y `--replace-master-binding`, con elevacion obligatoria y sin autoelevacion.
+- Agregada obtencion del SID real del cliente Named Pipe mediante `NamedPipeServerStream.RunAsClient(...)`.
+- Agregada operacion IPC read-only `GET_MASTER_AUTHORIZATION`.
+- Extendidos contratos IPC C# y Java sin cambiar `protocolVersion = 1`.
+- Agregado endpoint `GET /api/master/authorization` en Master Backend.
+- Agregado `MasterAccessGuard` para futuros endpoints administrativos.
+- Actualizada documentacion canonica, README, decisiones, reglas y estado actual.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Service/Master/`
+- `agent/src/GaltekClassroom.Agent.Service/Ipc/`
+- `agent/src/GaltekClassroom.Agent.Shared/`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/`
+- `master-backend/src/main/java/com/galtek/classroom/localagent/`
+- `master-backend/src/main/java/com/galtek/classroom/master/`
+- `master-backend/src/test/java/com/galtek/classroom/localagent/`
+- `master-backend/src/test/java/com/galtek/classroom/master/`
+- `protocol/local-ipc-v1.md`
+- `README.md`
+- `.gitignore`
+- `installer/windows/`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+
+### Decisiones tomadas
+
+- Agent Service es la autoridad productiva de Master authorization.
+- El Master Backend Java no lee `master-binding.json` ni decide con SID recibido por payload.
+- Una instalacion tiene cero o un Master Windows Binding.
+- Binding se liga a `installationId`; mismatch bloquea Master.
+- SID real de caller IPC se obtiene por impersonation del Named Pipe.
+- Respuesta de autorizacion no expone SID completo, JWT, ruta del binding ni ACLs.
+- Rebinding siempre requiere `--replace-master-binding`.
+- Binding corrupto no tumba el Service; bloquea Master y preserva el archivo.
+- Normal uninstall preserva binding; `-PurgeData` elimina identidad, licencia y binding.
+
+### Cambios descartados
+
+- No se agrego IPC write.
+- No se agrego CRUD escolar ni UI.
+- No se agrego gRPC, mTLS, pairing, filesystem real ni comandos remotos.
+- No se agrego migration SQLite ni tabla `master_windows_binding`.
+- No se hizo commit.
+
+### Pendiente
+
+- UI futura de diagnostico/configuracion de binding sin ser autoridad.
+- IPC write futuro solo con autorizacion local disenada.
+- Endpoints administrativos futuros deben usar `MasterAccessGuard`.
+- Autorizacion de red, pairing y mTLS siguen separados.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 88 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 59 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): authorize local master via agent service`

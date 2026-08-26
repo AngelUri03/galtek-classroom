@@ -5,6 +5,7 @@ using System.Text.Json;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Runtime;
 using GaltekClassroom.Agent.Session.Ipc;
 using GaltekClassroom.Agent.Shared;
@@ -217,11 +218,21 @@ public sealed class LocalIpcServerTests : IDisposable
             licenseManager,
             new MachineCodeGenerator(hostNameProvider),
             hostNameProvider,
+            new MasterAuthorizationService(
+                runtimeState,
+                licenseManager,
+                new MasterBindingStore(
+                    new MasterBindingStoreOptions(_dataDirectory),
+                    new NoOpMasterBindingFileSecurity()),
+                NullLogger<MasterAuthorizationService>.Instance),
             NullLogger<LocalIpcRequestHandler>.Instance);
 
         return new LocalIpcServer(
             new LocalIpcServerOptions(pipeName, 2),
             new LocalIpcPipeStreamFactory(),
+            new StaticLocalIpcClientIdentityProvider(new LocalIpcClientContext(
+                "S-1-5-21-1000000000-1000000000-1000000000-1001",
+                "AULA\\MaestraPrimaria")),
             handler,
             NullLogger<LocalIpcServer>.Instance);
     }
@@ -298,5 +309,20 @@ public sealed class LocalIpcServerTests : IDisposable
         }
 
         public DateTimeOffset UtcNow { get; }
+    }
+
+    private sealed class StaticLocalIpcClientIdentityProvider : ILocalIpcClientIdentityProvider
+    {
+        private readonly LocalIpcClientContext _context;
+
+        public StaticLocalIpcClientIdentityProvider(LocalIpcClientContext context)
+        {
+            _context = context;
+        }
+
+        public LocalIpcClientContext GetClientContext(PipeStream pipe)
+        {
+            return _context;
+        }
     }
 }

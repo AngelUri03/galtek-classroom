@@ -2,6 +2,7 @@ using GaltekClassroom.Agent.Service;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Shared;
 
 var commandLine = AgentCommandLine.Parse(args);
@@ -16,6 +17,7 @@ if (!commandLine.IsValid)
 var builder = Host.CreateApplicationBuilder(commandLine.HostArgs);
 builder.Services.AddInstallationIdentityServices();
 builder.Services.AddCommercialLicenseServices();
+builder.Services.AddMasterAuthorizationServices();
 builder.Services.AddLocalIpcServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
@@ -78,6 +80,29 @@ if (commandLine.Mode is AgentCommandMode.ActivateLicenseFromStdin or AgentComman
     Console.WriteLine(LicenseConsoleJsonSerializer.SerializeActivationResult(activationResult));
 
     if (!activationResult.Activated)
+    {
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
+if (commandLine.Mode is AgentCommandMode.BindMasterCurrentUser or AgentCommandMode.BindMasterAccount)
+{
+    builder.Logging.ClearProviders();
+
+    await using var serviceProvider = builder.Services.BuildServiceProvider();
+    var bindingService = serviceProvider.GetRequiredService<MasterBindingConfigurationService>();
+    var result = commandLine.Mode == AgentCommandMode.BindMasterCurrentUser
+        ? await bindingService.BindCurrentUserAsync(commandLine.ReplaceMasterBinding, CancellationToken.None)
+        : await bindingService.BindAccountAsync(
+            commandLine.MasterAccountName ?? string.Empty,
+            commandLine.ReplaceMasterBinding,
+            CancellationToken.None);
+
+    Console.WriteLine(MasterBindingConsoleJsonSerializer.SerializeConfigurationResult(result));
+
+    if (!result.Configured)
     {
         Environment.ExitCode = 1;
     }

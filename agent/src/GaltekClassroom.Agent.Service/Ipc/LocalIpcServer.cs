@@ -8,17 +8,20 @@ public sealed class LocalIpcServer : BackgroundService
 {
     private readonly LocalIpcServerOptions _options;
     private readonly ILocalIpcPipeStreamFactory _pipeStreamFactory;
+    private readonly ILocalIpcClientIdentityProvider _clientIdentityProvider;
     private readonly ILocalIpcRequestHandler _requestHandler;
     private readonly ILogger<LocalIpcServer> _logger;
 
     public LocalIpcServer(
         LocalIpcServerOptions options,
         ILocalIpcPipeStreamFactory pipeStreamFactory,
+        ILocalIpcClientIdentityProvider clientIdentityProvider,
         ILocalIpcRequestHandler requestHandler,
         ILogger<LocalIpcServer> logger)
     {
         _options = options;
         _pipeStreamFactory = pipeStreamFactory;
+        _clientIdentityProvider = clientIdentityProvider;
         _requestHandler = requestHandler;
         _logger = logger;
     }
@@ -77,7 +80,8 @@ public sealed class LocalIpcServer : BackgroundService
         CancellationToken cancellationToken)
     {
         var requestJson = await LocalIpcFraming.ReadJsonAsync(pipe, cancellationToken);
-        var responseJson = await _requestHandler.HandleAsync(requestJson, cancellationToken);
+        var clientContext = _clientIdentityProvider.GetClientContext(pipe);
+        var responseJson = await _requestHandler.HandleAsync(requestJson, clientContext, cancellationToken);
         await LocalIpcFraming.WriteJsonAsync(pipe, responseJson, cancellationToken);
     }
 }

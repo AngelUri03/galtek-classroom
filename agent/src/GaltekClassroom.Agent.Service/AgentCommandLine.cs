@@ -6,13 +6,17 @@ public enum AgentCommandMode
     MachineCode,
     LicenseStatus,
     ActivateLicenseFromStdin,
-    ActivateLicenseFromFile
+    ActivateLicenseFromFile,
+    BindMasterCurrentUser,
+    BindMasterAccount
 }
 
 public sealed record AgentCommandLine(
     AgentCommandMode Mode,
     string[] HostArgs,
     string? LicenseFilePath,
+    string? MasterAccountName,
+    bool ReplaceMasterBinding,
     string? ErrorMessage)
 {
     public bool IsValid => ErrorMessage is null;
@@ -23,10 +27,15 @@ public sealed record AgentCommandLine(
         const string licenseStatusArgument = "--license-status";
         const string activateLicenseArgument = "--activate-license";
         const string activateLicenseFileArgument = "--activate-license-file";
+        const string bindMasterCurrentUserArgument = "--bind-master-current-user";
+        const string bindMasterAccountArgument = "--bind-master-account";
+        const string replaceMasterBindingArgument = "--replace-master-binding";
 
         var mode = AgentCommandMode.Service;
         var hostArgs = new List<string>();
         string? licenseFilePath = null;
+        string? masterAccountName = null;
+        var replaceMasterBinding = false;
         string? error = null;
 
         for (var index = 0; index < args.Length; index++)
@@ -65,10 +74,48 @@ public sealed record AgentCommandLine(
                 continue;
             }
 
+            if (string.Equals(argument, bindMasterCurrentUserArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.BindMasterCurrentUser, argument, ref mode, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, bindMasterAccountArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.BindMasterAccount, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--bind-master-account requires a Windows account name.";
+                    continue;
+                }
+
+                masterAccountName = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, replaceMasterBindingArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                replaceMasterBinding = true;
+                continue;
+            }
+
             hostArgs.Add(argument);
         }
 
-        return new AgentCommandLine(mode, hostArgs.ToArray(), licenseFilePath, error);
+        if (replaceMasterBinding
+            && mode is not AgentCommandMode.BindMasterCurrentUser and not AgentCommandMode.BindMasterAccount)
+        {
+            error ??= "--replace-master-binding can only be used with a Master binding command.";
+        }
+
+        return new AgentCommandLine(
+            mode,
+            hostArgs.ToArray(),
+            licenseFilePath,
+            masterAccountName,
+            replaceMasterBinding,
+            error);
     }
 
     private static void SetMode(
