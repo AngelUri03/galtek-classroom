@@ -128,7 +128,6 @@ NO IMPLEMENTADO:
 - Backup/restore automatico.
 - Auditoria persistente de acciones administrativas reales.
 - Borrado seguro/retencion configurable de PII.
-- Persistencia de Master Windows Binding en Agent Service.
 
 ## Agent
 
