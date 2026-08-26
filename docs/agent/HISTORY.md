@@ -232,3 +232,69 @@
 ### Commit sugerido
 
 `feat(ipc): add local ipc api v1`
+
+## 2026-08-25 - Prompt 05
+
+### Realizado
+
+- Convertido `GaltekClassroom.Agent.Service` en Windows Service instalable con nombre estable `GaltekClassroomAgent`.
+- Conservado el modo consola de desarrollo y los modos CLI `--machine-code`, `--license-status`, `--activate-license` y `--activate-license-file`.
+- Confirmada la integracion oficial `Microsoft.Extensions.Hosting.WindowsServices`.
+- Agregados scripts PowerShell para publicar self-contained `win-x64`, instalar/actualizar y desinstalar.
+- Separados binarios en Program Files y datos persistentes en ProgramData.
+- Configurados startup `Automatic`, cuenta `LocalSystem` y recovery del servicio.
+- Agregada desinstalacion que conserva ProgramData por defecto y `-PurgeData` explicito.
+- Agregado versionado inicial del ejecutable en el `.csproj` del Service.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Shared/ProductInfo.cs`
+- `agent/src/GaltekClassroom.Agent.Service/GaltekClassroom.Agent.Service.csproj`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/ProductInfoTests.cs`
+- `installer/windows/`
+- `.gitignore`
+- `README.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Service Name: `GaltekClassroomAgent`.
+- Display Name: `Galtek Classroom Agent Service`.
+- Cuenta: `LocalSystem`.
+- Startup type: `Automatic`.
+- Recovery: restart con retrasos de 5, 15 y 60 segundos, reset en 86400 segundos.
+- Runtime publicado inicial: `win-x64`, self-contained, sin single-file.
+- Ruta de binarios: `<ProgramFiles>\Galtek\Classroom\Agent\`.
+- Ruta de datos: `<CommonApplicationData>\Galtek\Classroom\`.
+- Upgrade y uninstall normal conservan Installation Identity y Commercial License.
+
+### Cambios descartados
+
+- No se implementaron Session Agent autostart, scheduled tasks, Run registry, launcher interactivo desde Session 0, MSI, installer grafico, IPC write, activacion por IPC, gRPC, mTLS, mDNS, pairing, certificados, comandos remotos, UI, SQLite ni Galtek Hub.
+
+### Pendiente
+
+- Definir lifecycle/autostart del Session Agent al inicio de sesion del usuario.
+- Empaquetar la public key productiva de Galtek Hub.
+- Disenar autorizacion local antes de cualquier IPC write.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 42 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 14 pruebas superadas.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `.\installer\windows\publish-agent-service.ps1`: correcto; genero artifact `Release`, `win-x64`, self-contained.
+- Artifact publicado contiene `.exe` y dependencias, y `artifacts/` esta ignorado por Git.
+- `.exe` publicado ejecutado con `GALTEK_CLASSROOM_DATA_DIR` temporal: correcto, IPC responde `UP` y estado `ACTIVATION_REQUIRED`.
+- CLI del `.exe` publicado: `--machine-code` y `--license-status` correctos.
+- Validacion alternativa Master Backend contra `.exe` publicado en modo consola: health correcto, device status correcto tras reintento, machine-code correcto.
+- `install-agent-service.ps1` y `uninstall-agent-service.ps1` validan elevacion y fallan temprano en entorno no elevado.
+- Validacion real del Service Control Manager pendiente por falta de elevacion del entorno.
+
+### Commit sugerido
+
+`feat(agent): install service as windows service`

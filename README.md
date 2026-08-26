@@ -2,7 +2,7 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, and Local IPC API v1 for read-only status queries. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, and a real installable Windows Service flow for the Agent Service. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, Session Agent autostart, or the future desktop UI.
 
 ## Architecture
 
@@ -13,6 +13,7 @@ The current iteration implements local Installation Identity, development Machin
 - `agent/src/GaltekClassroom.Agent.Shared/`: shared constants, Installation Identity, Machine Code, Commercial License state models, and Local IPC contracts/framing.
 - `agent/tests/GaltekClassroom.Agent.Service.Tests/`: automated tests for Installation Identity, Machine Code, Commercial License, and Local IPC behavior.
 - `protocol/`: cross-language protocol notes, including `protocol/local-ipc-v1.md`.
+- `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service.
 - `docs/`: project context, architecture notes, decisions, and handoff state.
 
 ## Development Requirements
@@ -118,6 +119,82 @@ cd agent
 C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-status
 C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --ipc-ping
 ```
+
+## Agent Service Publish And Install
+
+The production Windows Service uses one executable for both console development mode and service mode.
+
+Windows Service identity:
+
+- Service Name: `GaltekClassroomAgent`.
+- Display Name: `Galtek Classroom Agent Service`.
+- Account: `LocalSystem`.
+- Startup Type: `Automatic`.
+- Recovery: restart after failures with 5, 15 and 60 second delays.
+
+Publish a self-contained Windows x64 artifact from the repository root:
+
+```powershell
+.\installer\windows\publish-agent-service.ps1
+```
+
+Default artifact path:
+
+```text
+artifacts\windows\agent-service\
+```
+
+Install or update from an elevated PowerShell session:
+
+```powershell
+.\installer\windows\install-agent-service.ps1
+```
+
+Installed binaries:
+
+```text
+%ProgramFiles%\Galtek\Classroom\Agent\
+```
+
+Persistent machine data:
+
+```text
+%ProgramData%\Galtek\Classroom\
+```
+
+Program Files contains binaries only. ProgramData contains `installation.json`, `license.dat`, and future persistent Agent data. Updating binaries must not delete or regenerate Installation Identity.
+
+Verify service state:
+
+```powershell
+Get-Service GaltekClassroomAgent
+Get-CimInstance Win32_Service -Filter "Name='GaltekClassroomAgent'" |
+    Select-Object Name, State, StartMode, StartName, PathName
+```
+
+Lifecycle commands:
+
+```powershell
+Stop-Service GaltekClassroomAgent
+Start-Service GaltekClassroomAgent
+Restart-Service GaltekClassroomAgent
+```
+
+Uninstall from an elevated PowerShell session:
+
+```powershell
+.\installer\windows\uninstall-agent-service.ps1
+```
+
+Normal uninstall removes the Windows Service registration and installed binaries, but preserves `%ProgramData%\Galtek\Classroom\`.
+
+To intentionally remove Installation Identity and Commercial License:
+
+```powershell
+.\installer\windows\uninstall-agent-service.ps1 -PurgeData
+```
+
+`-PurgeData` requires explicit administrator intent. The next installation will require a new activation.
 
 ## Local IPC API v1
 

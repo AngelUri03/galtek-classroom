@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 04 implementa Local IPC API v1 read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
+Prompt 05 deja `GaltekClassroom.Agent.Service` ejecutable como Windows Service real con publicacion self-contained `win-x64`, instalacion en Program Files, inicio Automatic y recovery configurado. El modo consola de desarrollo y los comandos CLI existentes se mantienen.
+
+Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
 
 Las capacidades operativas de administracion remota siguen planificadas. No hay gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
@@ -53,6 +55,19 @@ IMPLEMENTADO:
 - Proyecto C# `GaltekClassroom.Agent.Service`.
 - Worker Service / Generic Host en .NET 8.
 - Puede arrancarse desde consola para desarrollo.
+- Usa la integracion oficial `Microsoft.Extensions.Hosting.WindowsServices`.
+- Puede ejecutarse como Windows Service instalado.
+- Service Name estable: `GaltekClassroomAgent`.
+- Display Name: `Galtek Classroom Agent Service`.
+- Description: `Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.`
+- Cuenta de servicio: `LocalSystem`.
+- Startup type: `Automatic`.
+- Recovery configurado por instalador: reiniciar ante fallos con retrasos de 5, 15 y 60 segundos; reset de contador cada 86400 segundos.
+- Publicacion productiva inicial: `Release`, `win-x64`, self-contained, carpeta no single-file.
+- Binarios instalados en `<ProgramFiles>\Galtek\Classroom\Agent\`.
+- Scripts PowerShell en `installer/windows/` para publicar, instalar/actualizar y desinstalar.
+- `uninstall-agent-service.ps1` conserva ProgramData por defecto y solo borra identidad/licencia con `-PurgeData`.
+- Version inicial del ejecutable controlada en `agent/src/GaltekClassroom.Agent.Service/GaltekClassroom.Agent.Service.csproj`.
 - Registra inicio, estado activo y detencion limpia.
 - Es autoridad local de Installation Identity.
 - Es autoridad local de Commercial License.
@@ -82,7 +97,6 @@ IMPLEMENTADO:
 
 PLANIFICADO:
 
-- Ejecucion como Windows Service instalada automaticamente.
 - Empaquetar la llave publica real de Galtek Hub como recurso/mecanismo productivo.
 - Revalidacion completa explicita invocable por IPC.
 - Comunicacion segura.
@@ -90,6 +104,7 @@ PLANIFICADO:
 - Recepcion de comandos estructurados.
 - Operaciones privilegiadas.
 - Coordinacion con Session Agent.
+- Session Agent lifecycle / autostart at user logon.
 
 NO IMPLEMENTADO:
 
@@ -103,9 +118,10 @@ NO IMPLEMENTADO:
 - Clock rollback.
 - Enforcements de features.
 - Autorizacion MASTER para comandos.
-- Instalacion automatica como Windows Service.
 - Comandos remotos.
 - Comunicacion de red.
+- Session Agent autostart.
+- Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
 ### Galtek Classroom Session Agent
 
@@ -280,6 +296,8 @@ IMPLEMENTADO:
 - Archivo `license.dat` para Commercial License.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
 - `license.dat` guarda solo el JWT recibido.
+- Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
+- Actualizar o desinstalar normalmente no borra `installation.json` ni `license.dat`.
 
 NO IMPLEMENTADO:
 

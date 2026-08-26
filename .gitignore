@@ -11,6 +11,8 @@ TestResults/
 *.suo
 *.nupkg
 *.snupkg
+artifacts/
+publish/
 
 # Visual Studio / Rider / IDEs
 .vs/
@@ -33,6 +35,9 @@ Thumbs.db
 Desktop.ini
 *.tmp
 *.temp
+installer/**/out/
+installer/**/tmp/
+installer/**/temp/
 
 # Local tool caches
 .dotnet/

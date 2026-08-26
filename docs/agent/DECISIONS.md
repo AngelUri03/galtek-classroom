@@ -7,6 +7,18 @@
 - Mantener `GaltekClassroom.Agent.Shared` para constantes, modelos y contratos compartidos cuando exista necesidad real.
 - `GaltekClassroom.Agent.Service` es la autoridad local unica de Installation Identity.
 - `GaltekClassroom.Agent.Service` es la autoridad local unica de Commercial License.
+- El Windows Service estable se llama `GaltekClassroomAgent`.
+- El Display Name del Windows Service es `Galtek Classroom Agent Service`.
+- La Description del Windows Service es `Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.`
+- El Windows Service se ejecuta como `LocalSystem`.
+- `LocalSystem` no autoriza por si mismo a cualquier cliente IPC a ejecutar acciones privilegiadas; IPC write requiere una fase posterior de autorizacion.
+- El startup type del Windows Service es `Automatic`.
+- La publicacion productiva inicial del Agent Service es `Release`, `win-x64`, self-contained, carpeta normal, sin `PublishSingleFile`.
+- Los binarios productivos del Agent Service viven en `<ProgramFiles>\Galtek\Classroom\Agent\`.
+- Los datos persistentes del Agent viven en `<CommonApplicationData>\Galtek\Classroom\`.
+- El instalador/actualizador reemplaza binarios sin borrar ProgramData.
+- La desinstalacion normal conserva ProgramData; `-PurgeData` es la unica opcion para borrar Installation Identity y Commercial License.
+- La politica de recovery del servicio reinicia ante fallos con retrasos de 5, 15 y 60 segundos, con reset de contador cada 86400 segundos.
 - El Master Backend no implementa Installation Identity; la consulta al Service mediante IPC local.
 - El Master Backend no implementa Commercial License; la consulta al Service mediante IPC local.
 - Usar React + Tauri para la UI futura del Master, sin Vite.
