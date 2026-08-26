@@ -6,20 +6,47 @@
 - Separar Agent en `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`.
 - Mantener `GaltekClassroom.Agent.Shared` para constantes, modelos y contratos compartidos cuando exista necesidad real.
 - `GaltekClassroom.Agent.Service` es la autoridad local unica de Installation Identity.
-- En iteraciones futuras, `GaltekClassroom.Agent.Service` tambien sera la autoridad local de Commercial License.
-- El Master Backend no implementa Installation Identity; la consultara futuramente al Service mediante IPC confiable.
+- `GaltekClassroom.Agent.Service` es la autoridad local unica de Commercial License.
+- El Master Backend no implementa Installation Identity; la consulta al Service mediante IPC local.
+- El Master Backend no implementa Commercial License; la consulta al Service mediante IPC local.
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion futura Master-Agent.
 - Usar mTLS y certificados de dispositivo para confianza futura de red.
 - Usar mDNS/DNS-SD solo para descubrimiento.
-- Usar Named Pipes para IPC local futuro entre Service y Session Agent.
+- Usar Windows Named Pipes para IPC local entre Service, Session Agent y Master Backend.
+- El Agent Service es el unico servidor de Local IPC API v1.
+- El pipe IPC v1 se llama `GaltekClassroom.Agent.v1`.
+- IPC v1 usa JSON UTF-8 con prefijo de longitud de 4 bytes BIG ENDIAN.
+- IPC v1 usa `protocolVersion = 1`.
+- IPC v1 limita el payload JSON a 64 KiB.
+- IPC v1 es read-only.
+- IPC v1 solo permite `PING`, `GET_DEVICE_STATUS` y `GET_MACHINE_CODE`.
+- `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
+- `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.
+- El Master Backend no lee `installation.json`, no lee `license.dat`, no valida JWT y no reconstruye Machine Code localmente.
+- El Master Backend mapea indisponibilidad del Agent Service a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
+- La ACL actual del pipe permite `LocalSystem` y administradores con control total, y `Authenticated Users` con lectura/escritura del pipe para consultas locales read-only.
+- Acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas; antes de cualquier operacion write debe existir autorizacion local especifica.
 - Usar SQLite como almacenamiento futuro del Master.
 - Galtek Hub sera el proveedor de licencias comerciales.
 - Las licencias seran JWT firmados con RSA / RS256.
 - La aplicacion local solo validara licencias con llave publica; no generara licencias.
+- Commercial License exige issuer exacto `galtek-hub`.
+- Commercial License exige audience exacto `galtek-classroom`.
+- Commercial License exige product exacto `GALTEK_CLASSROOM`.
+- Commercial License soporta `schemaVersion = 1`; versiones desconocidas se bloquean como `LICENSE_SCHEMA_UNSUPPORTED`.
 - Separar Installation Identity, Commercial License y Network Identity.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
+- La validacion completa de Commercial License obtiene el fingerprint de hardware actual al arrancar y al activar/renovar; el monitor de 60 segundos solo revisa expiracion temporal.
+- La activacion/renovacion valida completamente el JWT antes de reemplazar `license.dat`.
+- Si una activacion o renovacion candidata falla, una licencia valida existente debe conservarse.
+- La expiracion debe revalidarse en runtime; el monitor actual revisa cada 60 segundos sin recalcular WMI.
+- `license.dat` se persiste separado de `installation.json` y contiene solo el JWT recibido.
+- `license.dat` no se cifra en Prompt 03 porque la integridad proviene de la firma RS256, `installationId` y hardware 3 de 4; DPAPI/ACL hardening queda para una fase posterior.
+- `GALTEK_CLASSROOM_LICENSE_PUBLIC_KEY_PATH` es solo un mecanismo explicito de desarrollo/configuracion para cargar la llave publica, no descarga dinamica ni confianza en una llave recibida por red.
+- El Agent exige al menos rol `CLIENT`; conserva roles conocidos `CLIENT` y `MASTER` e ignora roles futuros desconocidos para autorizacion por ahora.
+- `features` se valida estructuralmente como objeto opcional y se conserva en un modelo extensible; su enforcement llegara con cada funcionalidad.
 - `installation.json` usa `schemaVersion = 1`.
 - `installation.json` guarda solo hashes de hardware, `installationId` y `createdAtUtc`; no guarda licencia, IP, Network Identity ni seriales crudos.
 - El almacenamiento local del Agent sera `<CommonApplicationData>\Galtek\Classroom\`.
@@ -34,3 +61,4 @@
 - IP y MAC no son identidad suficiente para autorizacion.
 - Descubrimiento no implica confianza.
 - Una licencia MASTER valida no autoriza automaticamente controlar clientes.
+- Las operaciones futuras que aumenten control requeriran licencia activa, pero las operaciones de recuperacion como desbloquear entrada o detener proyeccion no deberan bloquearse por expiracion.

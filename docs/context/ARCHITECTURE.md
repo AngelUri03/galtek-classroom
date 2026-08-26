@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 02 implementa la Installation Identity local del Agent y la generacion de Machine Code para desarrollo. Cualquier capacidad operativa real de administracion remota sigue planificada o no implementada.
+Prompt 04 implementa Local IPC API v1 read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
+
+Las capacidades operativas de administracion remota siguen planificadas. No hay gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -14,7 +16,12 @@ IMPLEMENTADO:
 - Maven.
 - Package base `com.galtek.classroom`.
 - Endpoint `GET /api/system/health`.
+- Endpoint `GET /api/device/status`, delegado al Agent Service mediante IPC local.
+- Endpoint `GET /api/device/machine-code`, delegado al Agent Service mediante IPC local.
+- Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
+- Mapeo de Agent Service no disponible a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
 - Prueba automatica del health endpoint.
+- Pruebas de framing IPC, cliente local, endpoints de dispositivo y salud.
 
 PLANIFICADO:
 
@@ -32,7 +39,8 @@ NO IMPLEMENTADO:
 - Dispositivos/aulas.
 - gRPC funcional.
 - Descubrimiento.
-- Licencias.
+- Commercial License en Java.
+- Llaves publicas o JWT dentro del Master Backend.
 
 ## Agent
 
@@ -47,16 +55,36 @@ IMPLEMENTADO:
 - Puede arrancarse desde consola para desarrollo.
 - Registra inicio, estado activo y detencion limpia.
 - Es autoridad local de Installation Identity.
+- Es autoridad local de Commercial License.
 - Resuelve `installation.json` al arrancar.
 - Crea una identidad permanente cuando no existe.
 - Reutiliza el mismo `installationId` cuando el archivo existe y es valido.
 - Falla de forma controlada si `installation.json` esta corrupto o incompleto.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
+- Valida licencias JWT firmadas con RSA / RS256.
+- Rechaza algoritmos distintos a RS256 antes de confiar en el token.
+- Exige issuer `galtek-hub`, audience `galtek-classroom`, product `GALTEK_CLASSROOM` y `schemaVersion = 1`.
+- Exige `sub == installationId` sin modificar ni adoptar `installation.json`.
+- Valida hardware actual 3 de 4 contra `cpuHash`, `motherboardHash`, `macHash` y `diskHash`.
+- Valida expiracion en UTC y mantiene el Service vivo si la licencia esta vencida.
+- Persiste el JWT comercial en `license.dat`, separado de `installation.json`, con escritura temporal y reemplazo/movimiento.
+- Expone CLI de desarrollo para `--license-status`, `--activate-license` por STDIN y `--activate-license-file <ruta>`.
+- Mantiene `LicenseState` en memoria sin exponer el JWT completo.
+- Monitor ligero de expiracion runtime cada 60 segundos, sin recalcular WMI.
+- Local IPC API v1 read-only mediante Windows Named Pipes.
+- Named Pipe server versionado `GaltekClassroom.Agent.v1`.
+- Framing IPC con prefijo de longitud de 4 bytes BIG ENDIAN mas JSON UTF-8.
+- Limite maximo de mensaje de 64 KiB.
+- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
+- `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
+- `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
+- ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
 
 PLANIFICADO:
 
-- Ejecucion como Windows Service.
-- Validacion local de licencia.
+- Ejecucion como Windows Service instalada automaticamente.
+- Empaquetar la llave publica real de Galtek Hub como recurso/mecanismo productivo.
+- Revalidacion completa explicita invocable por IPC.
 - Comunicacion segura.
 - Heartbeat.
 - Recepcion de comandos estructurados.
@@ -65,12 +93,19 @@ PLANIFICADO:
 
 NO IMPLEMENTADO:
 
+- Galtek Hub.
+- Generacion de licencias comerciales.
+- Private keys comerciales.
+- Activacion online.
+- Revocacion online.
+- Descarga runtime de llaves publicas.
+- DPAPI o endurecimiento avanzado de ACL.
+- Clock rollback.
+- Enforcements de features.
+- Autorizacion MASTER para comandos.
 - Instalacion automatica como Windows Service.
 - Comandos remotos.
 - Comunicacion de red.
-- Licenciamiento.
-- Activacion.
-- IPC local con Master Backend.
 
 ### Galtek Classroom Session Agent
 
@@ -79,6 +114,8 @@ IMPLEMENTADO:
 - Proyecto C# `GaltekClassroom.Agent.Session`.
 - Ejecutable minimo de consola.
 - Registra inicio y cierre limpio.
+- Cliente IPC local para consultar al Agent Service.
+- Comandos de desarrollo `--ipc-status` y `--ipc-ping`.
 
 PLANIFICADO:
 
@@ -89,14 +126,12 @@ PLANIFICADO:
 - Bloqueo de entrada.
 - Ejecucion controlada de aplicaciones.
 - Overlays.
-- IPC local con Windows Service mediante Named Pipes.
 
 NO IMPLEMENTADO:
 
 - UI.
 - Captura de pantalla.
 - Bloqueo de teclado/mouse.
-- Named Pipes.
 - Proyeccion.
 
 ### GaltekClassroom.Agent.Shared
@@ -108,13 +143,15 @@ IMPLEMENTADO:
 - Modelos compartidos de Installation Identity.
 - Modelo de Machine Code.
 - Constantes de `schemaVersion` y archivo `installation.json`.
+- Constantes de Commercial License.
+- Modelo `LicenseState`, estados internos, roles conocidos y features extensibles.
+- Contratos IPC v1.
+- Framing IPC v1.
+- Constantes de operaciones, errores, nombre de pipe y limite de mensaje.
 
 PLANIFICADO:
 
-- Estados.
-- Contratos internos.
-- Abstracciones de licenciamiento.
-- Contratos IPC.
+- Contratos de red cuando se definan los `.proto`.
 
 ## Comunicacion futura de red
 
@@ -136,17 +173,29 @@ NO IMPLEMENTADO:
 
 Nota de seguridad: descubrir un equipo no significa confiar en el.
 
-## IPC local futuro
+## IPC local
 
-PLANIFICADO:
+IMPLEMENTADO:
 
-- La comunicacion entre Windows Service y Session Agent usara Named Pipes.
+- Windows Named Pipe `GaltekClassroom.Agent.v1`.
+- `GaltekClassroom.Agent.Service` es el servidor IPC.
+- `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS`.
+- Master Backend Java consume `GET_DEVICE_STATUS` y `GET_MACHINE_CODE`.
+- Protocolo documentado en `protocol/local-ipc-v1.md`.
+- `protocolVersion = 1`.
+- Mensajes JSON UTF-8 con prefijo de longitud de 4 bytes BIG ENDIAN.
+- Limite de payload de 64 KiB.
+- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`.
+- IPC v1 es read-only.
+- Version desconocida devuelve `IPC_PROTOCOL_UNSUPPORTED`.
+- Operacion desconocida devuelve `IPC_OPERATION_NOT_SUPPORTED`.
+- JSON malformado, longitud invalida y desconexiones de clientes se manejan sin detener el Service.
 
 NO IMPLEMENTADO:
 
-- Contratos IPC.
-- Named Pipe server/client.
-- Autorizacion local entre procesos.
+- Autorizacion local para operaciones privilegiadas futuras.
+- Activacion de licencia por IPC.
+- Operaciones write por IPC.
 
 ## Identidades
 
@@ -167,32 +216,41 @@ IMPLEMENTADO:
 - Si hay multiples valores validos se normalizan, ordenan y hashean como un solo componente determinista.
 - Machine Code Base64 contiene producto, schema, `installationId`, cuatro hashes y hostname informativo.
 
-PLANIFICADO:
-
-- Validacion tolerante futura: 3 de 4 componentes de hardware deben coincidir contra Commercial License.
-
 NO IMPLEMENTADO:
 
-- Validacion contra licencia.
-- Comparacion 3 de 4 contra JWT.
 - Reparacion automatica de identidades corruptas.
+- Network Identity.
 
 ### Commercial License
 
-PLANIFICADO:
+IMPLEMENTADO:
 
-- Galtek Hub genera licencias.
-- Galtek Classroom solo valida JWT firmados con RSA / RS256 usando llave publica.
-- Claims previstos: `iss`, `aud`, `sub`, `jti`, `product`, `schemaVersion`, `organizationId`, hashes de hardware, `roles`, `features`, `iat`, `exp`.
-- `sub` representa el `installationId` permanente.
-- Roles previstos: `CLIENT`, `MASTER`.
+- Validacion local en `GaltekClassroom.Agent.Service`.
+- JWT firmado por Galtek Hub con RSA / RS256.
+- Abstraccion `ILicensePublicKeyProvider`.
+- Proveedor actual por ruta explicita de desarrollo `GALTEK_CLASSROOM_LICENSE_PUBLIC_KEY_PATH`.
+- Estado `LICENSE_KEY_NOT_CONFIGURED` cuando no hay llave publica configurada.
+- Claims estructurales obligatorios: `iss`, `aud`, `sub`, `jti`, `product`, `schemaVersion`, `cpuHash`, `motherboardHash`, `macHash`, `diskHash`, `roles`, `iat`, `exp`.
+- `organizationId` opcional.
+- `features` opcional como objeto extensible.
+- Roles conocidos `CLIENT` y `MASTER`; el Agent exige al menos `CLIENT`.
+- Estados explicitos para licencia activa, faltante, vencida, alterada, malformada, invalida, mismatch de instalacion/producto/hardware, schema no soportado, issuer/audience y rol no operativo.
+- Activacion/renovacion valida antes de reemplazar `license.dat`.
+- Si una activacion nueva falla, no se borra ni reemplaza una licencia valida anterior.
+- La validacion completa obtiene el fingerprint de hardware actual al arrancar y al activar/renovar.
+- Expiracion runtime de `ACTIVE` a `LICENSE_EXPIRED` sin reinicio.
 
 NO IMPLEMENTADO:
 
 - Galtek Hub.
-- Generacion de licencias.
-- Validacion JWT.
-- Persistencia de licencias.
+- Llave publica productiva real embebida.
+- Private key comercial.
+- Generacion local de licencias.
+- Activacion online.
+- Revocacion online.
+- Descarga o confianza en llaves enviadas junto con JWT.
+- Enforcement de features.
+- Autorizacion MASTER.
 
 ### Network Identity
 
@@ -218,17 +276,18 @@ IMPLEMENTADO:
 - Usar `<CommonApplicationData>\Galtek\Classroom\`.
 - Obtener la ruta mediante APIs de .NET, sin hardcodear `C:\ProgramData`.
 - Permitir override de desarrollo y tests con `GALTEK_CLASSROOM_DATA_DIR`.
-- Archivo actual: `installation.json`.
-- Escritura de identidad con archivo temporal y reemplazo/movimiento para evitar JSON a medio escribir en cierres inesperados.
-
-PLANIFICADO:
-
-- Posibles archivos futuros: `license.dat`, `classroom.db` o configuracion local, logs.
+- Archivo `installation.json` para Installation Identity.
+- Archivo `license.dat` para Commercial License.
+- Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
+- `license.dat` guarda solo el JWT recibido.
 
 NO IMPLEMENTADO:
 
 - Base de datos local.
 - Logs persistentes en disco.
+- DPAPI/ACL hardening avanzado para `license.dat`.
+
+Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
 ## Limites de seguridad
 
@@ -239,4 +298,8 @@ VIGENTE DESDE AHORA:
 - Usar comandos futuros explicitos y estructurados, por ejemplo `LOCK_INPUT`, `UNLOCK_INPUT`, `OPEN_APPLICATION` con `appId`, `SHUTDOWN`, `RESTART`, `START_PROJECTION`, `STOP_PROJECTION`.
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
 - IP y MAC no son identidad de autorizacion.
+- Licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
 - Licencia MASTER valida no equivale a permiso automatico para controlar clientes de la LAN.
+- IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
+- Las operaciones futuras que aumenten control requeriran licencia activa.
+- Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

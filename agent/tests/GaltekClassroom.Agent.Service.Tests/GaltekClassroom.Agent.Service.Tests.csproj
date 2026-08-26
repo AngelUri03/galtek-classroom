@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj" />
+    <ProjectReference Include="..\..\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj" />
   </ItemGroup>
 
 </Project>

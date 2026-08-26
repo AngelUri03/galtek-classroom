@@ -1,5 +1,7 @@
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Runtime;
 
 namespace GaltekClassroom.Agent.Service;
 
@@ -7,13 +9,19 @@ public sealed class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly InstallationIdentityResolver _installationIdentityResolver;
+    private readonly CommercialLicenseManager _licenseManager;
+    private readonly AgentRuntimeState _runtimeState;
 
     public Worker(
         ILogger<Worker> logger,
-        InstallationIdentityResolver installationIdentityResolver)
+        InstallationIdentityResolver installationIdentityResolver,
+        CommercialLicenseManager licenseManager,
+        AgentRuntimeState runtimeState)
     {
         _logger = logger;
         _installationIdentityResolver = installationIdentityResolver;
+        _licenseManager = licenseManager;
+        _runtimeState = runtimeState;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -36,6 +44,26 @@ public sealed class Worker : BackgroundService
         _logger.LogInformation(
             "Installation identity ready. InstallationId: {InstallationId}",
             resolution.Identity!.InstallationId);
+
+        _runtimeState.SetInstallationIdentity(resolution.Identity);
+
+        var licenseState = await _licenseManager.ResolveAsync(resolution.Identity, cancellationToken);
+
+        if (licenseState.Active)
+        {
+            _logger.LogInformation(
+                "Commercial license active. LicenseId: {LicenseId}. ExpiresAtUtc: {ExpiresAtUtc}. Roles: {Roles}.",
+                licenseState.LicenseId,
+                licenseState.ExpiresAtUtc,
+                string.Join(",", licenseState.Roles));
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Commercial license is not active. Status: {LicenseStatus}. Reason: {BlockingReason}",
+                licenseState.Status.ToCode(),
+                licenseState.BlockingReason);
+        }
 
         await base.StartAsync(cancellationToken);
     }

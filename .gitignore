@@ -37,3 +37,11 @@ Desktop.ini
 # Local tool caches
 .dotnet/
 .tools/
+
+# Galtek Classroom local Agent data and development licenses
+.local-agent-data/
+installation.json
+license.dat
+*.jwt
+*private*.pem
+dev-public-key.pem

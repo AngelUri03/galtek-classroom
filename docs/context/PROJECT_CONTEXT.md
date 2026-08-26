@@ -40,7 +40,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Comunicacion futura Master-Agent: gRPC y Protobuf.
 - Seguridad futura de red: mTLS y certificados de dispositivo.
 - Descubrimiento futuro: mDNS/DNS-SD.
-- IPC local futuro Service-Session Agent: Named Pipes.
+- IPC local Service-Session Agent y Master Backend-Agent Service: Windows Named Pipes.
 - Almacenamiento futuro Master: SQLite.
 
 ## Principios de producto
