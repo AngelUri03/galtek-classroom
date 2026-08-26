@@ -440,3 +440,74 @@
 ### Commit sugerido
 
 `feat(master): add classroom domain model`
+
+## 2026-08-26 - Prompt 08
+
+### Realizado
+
+- Implementada persistencia SQLite local del dominio Master.
+- Agregadas dependencias Spring JDBC, Flyway y SQLite JDBC.
+- Agregada configuracion `galtek.classroom.master.storage.*`.
+- Agregada resolucion de ruta del Master a `<CommonApplicationData>\Galtek\Classroom\Master\` con override `GALTEK_CLASSROOM_MASTER_DATA_DIR`.
+- Agregada migracion `V1__create_master_domain.sql`.
+- Agregadas tablas de aulas, aplicaciones, grupos, alumnos, devices, workspaces, perfiles de navegador, assignments y batch operations.
+- Agregados repositories explicitos y servicios transaccionales por contexto.
+- Agregado estado de almacenamiento y mapeo de errores SQLite a `ErrorCode`.
+- Agregadas pruebas de integracion SQLite para migracion, reapertura, constraints, corrupcion, rollback, batch y versionado.
+
+### Archivos principales modificados
+
+- `master-backend/pom.xml`
+- `master-backend/src/main/resources/application.yml`
+- `master-backend/src/main/resources/db/migration/sqlite/V1__create_master_domain.sql`
+- `master-backend/src/main/java/com/galtek/classroom/persistence/`
+- `master-backend/src/main/java/com/galtek/classroom/persistence/sqlite/`
+- `master-backend/src/main/java/com/galtek/classroom/*/*Repository.java`
+- `master-backend/src/main/java/com/galtek/classroom/*/*Service.java`
+- `master-backend/src/test/java/com/galtek/classroom/persistence/sqlite/`
+- `.gitignore`
+- `README.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+
+### Decisiones tomadas
+
+- Usar Spring JDBC y repositories explicitos; no JPA/Hibernate.
+- Usar Flyway programatico con migraciones en `db/migration/sqlite`.
+- Usar `flyway-core` administrado por Spring Boot con Xerial SQLite JDBC, sin agregar un modulo Flyway SQLite no alineado al BOM.
+- IDs del dominio como `TEXT`, timestamps UTC como texto y booleans `0/1`.
+- Habilitar foreign keys, WAL, `synchronous=NORMAL` y `busy_timeout`.
+- Mantener pool JDBC pequeno.
+- `device_assignments` queda como fuente de verdad de assignment actual e historico.
+- Proteger un assignment actual por alumno y por device con indices unicos parciales.
+- Preservar base corrupta y reportar `MASTER_DATABASE_CORRUPT`.
+- No persistir `MasterWindowsBinding` en SQLite.
+- No persistir secretos de navegador.
+
+### Cambios descartados
+
+- No se implementaron endpoints nuevos de gestion, UI, gRPC, mTLS, mDNS, pairing, Network Identity, filesystem real, browser automation, wallpapers reales, captura, bloqueo ni comandos remotos.
+- No se agrego JPA/Hibernate.
+- No se agrego cifrado at-rest ni backup automatico.
+- No se creo tabla `master_windows_binding`.
+- No se hizo commit.
+
+### Pendiente
+
+- Exponer/usar la persistencia desde endpoints/API futuros del Master.
+- Persistir/verificar Master Windows Binding en Agent Service.
+- Definir IPC write y autorizacion local antes de operaciones privilegiadas.
+- Agregar cifrado at-rest, backup/restore y retencion/borrado seguro de PII cuando se defina el alcance.
+
+### Validaciones
+
+- `mvn clean verify` en `master-backend`: correcto, 50 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 59 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): persist classroom domain in sqlite`

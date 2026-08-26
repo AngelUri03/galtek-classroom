@@ -56,7 +56,7 @@
 - El Master Backend mapea indisponibilidad del Agent Service a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
 - La ACL actual del pipe permite `LocalSystem` y administradores con control total, y `Authenticated Users` con lectura/escritura del pipe para consultas locales read-only.
 - Acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas; antes de cualquier operacion write debe existir autorizacion local especifica.
-- Usar SQLite como almacenamiento futuro del Master.
+- Usar SQLite como almacenamiento local del Master.
 - Galtek Hub sera el proveedor de licencias comerciales.
 - Las licencias seran JWT firmados con RSA / RS256.
 - La aplicacion local solo validara licencias con llave publica; no generara licencias.
@@ -118,3 +118,38 @@
 - Descubrimiento no implica confianza.
 - Una licencia MASTER valida no autoriza automaticamente controlar clientes.
 - Las operaciones futuras que aumenten control requeriran licencia activa, pero las operaciones de recuperacion como desbloquear entrada o detener proyeccion no deberan bloquearse por expiracion.
+- El almacenamiento local del Master ya usa SQLite en `classroom.db`.
+- La ruta productiva por defecto del Master es `<CommonApplicationData>\Galtek\Classroom\Master\`.
+- `GALTEK_CLASSROOM_MASTER_DATA_DIR` permite reemplazar el directorio de datos del Master en desarrollo y pruebas.
+- `galtek.classroom.master.storage.data-dir` tiene prioridad cuando esta configurado explicitamente.
+- El nombre default de base del Master es `classroom.db`.
+- `classroom.db`, `classroom.db-wal`, `classroom.db-shm` y archivos `.db*` locales no deben versionarse.
+- Usar Spring JDBC para persistencia del Master.
+- No usar JPA/Hibernate para la persistencia SQLite actual.
+- Usar Flyway para migraciones SQLite del Master.
+- Ejecutar Flyway programaticamente en el Master para controlar `quick_check`, migration failure y mapping de errores.
+- `flyway-core` 11.7.2 administrado por Spring Boot se usa con Xerial SQLite JDBC; no se agrega `flyway-database-nc-sqlite` 13.x por no estar alineado con el BOM actual.
+- Las migraciones SQLite viven en `master-backend/src/main/resources/db/migration/sqlite/`.
+- Las identidades de dominio persistidas son `TEXT` generadas por aplicacion, no `AUTOINCREMENT`.
+- Los timestamps persistidos por el Master se guardan como `TEXT` UTC desde `Instant.toString()`.
+- Los booleans SQLite se guardan como `INTEGER` 0/1 con constraints `CHECK`.
+- Los enum sets se guardan como JSON textual de nombres de enum ordenados.
+- No usar serializacion binaria Java ni blobs opacos para metadata del dominio.
+- SQLite debe iniciar con `PRAGMA foreign_keys=ON`.
+- SQLite debe usar WAL en el Master local.
+- SQLite debe usar `synchronous=NORMAL`.
+- `busy_timeout` default del Master es 5000 ms.
+- El pool JDBC del Master debe mantenerse pequeno; default `maximum-pool-size = 4`.
+- `PRAGMA quick_check` se ejecuta al arrancar para detectar corrupcion cuando hay base existente.
+- Una base corrupta no se borra ni se reemplaza automaticamente.
+- `MasterStorageState` expone estado derivado de almacenamiento para diagnostico interno.
+- `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` y `CONCURRENT_MODIFICATION` son codigos vigentes de persistencia.
+- `device_assignments` es fuente de verdad para assignment actual e historico.
+- La unicidad de assignment actual por alumno y por device se protege tambien en SQLite con indices unicos parciales.
+- `Device.assignedStudentId` y `Student.currentDeviceAssignment` se derivan de `device_assignments`.
+- Archivar alumnos conserva historial y assignments; no se deben borrar datos historicos por defecto.
+- Batch operations se persisten con targets y attempts para permitir partial success y retry de fallidos retryable.
+- `OperationPayload` guarda payload JSON versionado para metadata de operaciones; no implica ejecucion remota.
+- `MasterWindowsBinding` no se persiste en `classroom.db`.
+- No crear tabla `master_windows_binding` en SQLite; la autoridad final del binding sigue planificada en Agent Service.
+- Los perfiles de navegador persistidos son metadata; no se guardan passwords, cookies, tokens ni cache protegido.

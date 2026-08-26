@@ -55,6 +55,27 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Errores tecnicos deben mapearse a errores operacionales antes de llegar a UI.
 - Las futuras UI deben priorizar acciones masivas, recuperacion y minima intervencion manual.
 
+## Persistencia Master SQLite
+
+- Usar Spring JDBC y repositories explicitos; no introducir JPA/Hibernate mientras el diseno siga siendo SQLite local y explicito.
+- Ejecutar migraciones con Flyway desde `db/migration/sqlite`.
+- No crear ni modificar tablas fuera de migraciones versionadas.
+- No usar `AUTOINCREMENT` para identidades del dominio; usar IDs `TEXT` generados por la aplicacion.
+- Guardar timestamps en UTC como texto estable.
+- Habilitar foreign keys por conexion.
+- Mantener WAL, `busy_timeout` y pool pequeno para SQLite local.
+- `DeviceAssignment` es fuente de verdad de asignaciones actuales e historicas.
+- Mantener constraints de un assignment actual por alumno y un assignment actual por device.
+- Archivar antes que borrar entidades escolares con historial; no hacer hard-delete de alumnos, devices, aulas o assignments salvo que una fase futura defina retencion/borrado seguro.
+- No borrar, sobrescribir ni recrear automaticamente una base corrupta; reportar `MASTER_DATABASE_CORRUPT` y preservar el archivo para diagnostico/recuperacion.
+- Mapear excepciones SQLite a `ErrorCode`; no propagar mensajes SQL tecnicos a UI.
+- Minimizar PII: guardar solo datos necesarios para aula, alumno, workspace, perfiles y operaciones.
+- No persistir passwords, cookies, tokens, cache protegido ni secretos de navegador.
+- No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado sigue siendo el Agent Service futuro.
+- Consultas de listados deben ser batch-friendly; evitar N+1 para classroom, group, devices, assignments y targets batch.
+- Las escrituras multi-tabla deben ser transaccionales y tener pruebas de rollback cuando afecten invariantes.
+- Usar version optimista en updates mutables y mapear conflictos a `CONCURRENT_MODIFICATION`.
+
 ## UI futura
 
 - React.

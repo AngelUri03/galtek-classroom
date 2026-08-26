@@ -2,11 +2,12 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, and a background/autostart lifecycle for the Session Agent. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, and SQLite persistence for the Master classroom domain. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
 
 ## Architecture
 
 - `master-backend/`: Java 21, Spring Boot 3.x, Maven backend for the Master application.
+- `master-backend/src/main/resources/db/migration/sqlite/`: Flyway migrations for the Master SQLite database.
 - `agent/`: C#/.NET solution for Windows Agent components.
 - `agent/src/GaltekClassroom.Agent.Service/`: Worker Service / Generic Host; owns Installation Identity and Commercial License locally, and hosts Local IPC API v1.
 - `agent/src/GaltekClassroom.Agent.Session/`: silent user-session Agent with background lifecycle, Local IPC supervisor, and status/ping diagnostics.
@@ -37,6 +38,14 @@ cd master-backend
 mvn spring-boot:run
 ```
 
+For development, prefer an explicit local data directory so the backend does not use ProgramData:
+
+```powershell
+cd master-backend
+$env:GALTEK_CLASSROOM_MASTER_DATA_DIR = "$PWD\.local-master-data"
+mvn spring-boot:run
+```
+
 Health endpoint:
 
 ```powershell
@@ -56,6 +65,42 @@ Invoke-RestMethod http://localhost:8080/api/device/machine-code
 ```
 
 If the Agent Service is not available, `/api/device/status` and `/api/device/machine-code` return HTTP `503` with code `LOCAL_AGENT_UNAVAILABLE`. `/api/system/health` only reports Master Backend health and does not depend on the Agent Service.
+
+### Master SQLite Data
+
+The Master stores classroom-domain data in SQLite:
+
+```text
+<CommonApplicationData>\Galtek\Classroom\Master\classroom.db
+```
+
+Development/tests can override the directory:
+
+```powershell
+$env:GALTEK_CLASSROOM_MASTER_DATA_DIR = "$PWD\.local-master-data"
+```
+
+Relevant settings:
+
+```yaml
+galtek:
+  classroom:
+    master:
+      storage:
+        data-dir: ${GALTEK_CLASSROOM_MASTER_DATA_DIR:}
+        database-file-name: classroom.db
+        busy-timeout-ms: 5000
+        maximum-pool-size: 4
+        quick-check-on-startup: true
+```
+
+Migrations live in:
+
+```text
+master-backend/src/main/resources/db/migration/sqlite/
+```
+
+`classroom.db`, WAL/SHM sidecar files, and local `.db` files are ignored by Git. Master Windows Binding is intentionally not stored in this database; the Agent Service remains the planned authority for that sensitive binding.
 
 Run tests:
 

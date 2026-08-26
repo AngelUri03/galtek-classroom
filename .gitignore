@@ -12,6 +12,15 @@ TestResults/
 *.nupkg
 *.snupkg
 artifacts/
+
+# Galtek Classroom Master local SQLite data
+classroom.db
+classroom.db-wal
+classroom.db-shm
+*.db
+*.db-wal
+*.db-shm
+ProgramData/
 publish/
 
 # Visual Studio / Rider / IDEs

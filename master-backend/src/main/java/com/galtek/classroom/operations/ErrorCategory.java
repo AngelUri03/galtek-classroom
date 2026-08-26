@@ -9,5 +9,6 @@ public enum ErrorCategory {
     APPLICATION,
     CONTENT,
     AUTHORIZATION,
-    OPERATION
+    OPERATION,
+    PERSISTENCE
 }

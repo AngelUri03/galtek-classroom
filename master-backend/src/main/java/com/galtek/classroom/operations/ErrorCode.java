@@ -54,7 +54,15 @@ public enum ErrorCode {
     MASTER_NOT_PAIRED(ErrorCategory.AUTHORIZATION, false),
 
     OPERATION_CANCELLED(ErrorCategory.OPERATION, false),
-    OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true);
+    OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true),
+
+    MASTER_DATABASE_UNAVAILABLE(ErrorCategory.PERSISTENCE, true),
+    MASTER_DATABASE_CORRUPT(ErrorCategory.PERSISTENCE, false),
+    MASTER_DATABASE_MIGRATION_FAILED(ErrorCategory.PERSISTENCE, false),
+    MASTER_DATABASE_BUSY(ErrorCategory.PERSISTENCE, true),
+    MASTER_STORAGE_FULL(ErrorCategory.PERSISTENCE, false),
+    PERSISTENCE_CONSTRAINT_VIOLATION(ErrorCategory.PERSISTENCE, false),
+    CONCURRENT_MODIFICATION(ErrorCategory.PERSISTENCE, false);
 
     private final ErrorCategory category;
     private final boolean retryable;

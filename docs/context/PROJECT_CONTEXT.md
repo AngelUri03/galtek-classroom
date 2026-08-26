@@ -56,7 +56,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Seguridad futura de red: mTLS y certificados de dispositivo.
 - Descubrimiento futuro: mDNS/DNS-SD.
 - IPC local Service-Session Agent y Master Backend-Agent Service: Windows Named Pipes.
-- Almacenamiento futuro Master: SQLite.
+- Almacenamiento local Master: SQLite.
 
 ## Principios de producto
 
@@ -70,3 +70,4 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.
 - El Master local se autoriza por licencia MASTER, Installation Identity y Windows SID ligado.
 - Las operaciones futuras deben ser tipadas, batch-first, idempotentes cuando sea posible y con errores operacionales por target.
+- La persistencia local del dominio Master vive en SQLite y debe conservar historial e invariantes de assignments.

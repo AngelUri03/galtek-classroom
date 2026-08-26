@@ -14,6 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(properties = {
         "debug=false",
+        "galtek.classroom.master.storage.enabled=false",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
         "logging.level.root=INFO",
         "logging.level.org.springframework=INFO"
 })

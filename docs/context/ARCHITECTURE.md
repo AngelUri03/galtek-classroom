@@ -2,13 +2,15 @@
 
 ## Estado general
 
+Prompt 08 agrega persistencia SQLite local del dominio Master mediante Spring JDBC, Flyway programatico y repositories explicitos. El Master Backend ya puede crear, migrar y reabrir una base `classroom.db` con aulas, catalogo de aplicaciones, grupos, alumnos, devices, assignments, workspaces, perfiles de navegador y operaciones batch.
+
 Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master Backend: aula, devices, alumnos, grupos, workspaces de alumno, perfiles de navegador, binding local del Master por Windows SID, catalogo de acciones, errores operacionales y planners puros para assignment, move, swap y batch preflight.
 
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 07 puede planear y validar preflight, pero no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 08 persiste metadata y resultados del dominio, pero no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -43,12 +45,29 @@ IMPLEMENTADO:
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
 - Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
+- Persistencia SQLite local del dominio Master con Spring JDBC.
+- Dependencias `spring-boot-starter-jdbc`, `flyway-core` y `sqlite-jdbc` en el backend Master.
+- Flyway programatico para migraciones SQLite desde `classpath:db/migration/sqlite`.
+- Migracion `V1__create_master_domain.sql` con tablas del dominio Master.
+- Configuracion local `galtek.classroom.master.storage.*`.
+- Resolucion de datos del Master a `<CommonApplicationData>\Galtek\Classroom\Master\` con override `GALTEK_CLASSROOM_MASTER_DATA_DIR`.
+- Base local `classroom.db` ignorada por Git, junto con archivos WAL/SHM.
+- `PRAGMA foreign_keys=ON`, WAL, `synchronous=NORMAL` y `busy_timeout` configurado.
+- Pool Hikari pequeno para SQLite local.
+- `MasterDatabaseInitializer` con `PRAGMA quick_check` antes/despues de migrar cuando corresponde.
+- Estado de almacenamiento `MasterStorageState` con `READY`, `UNAVAILABLE`, `CORRUPT` y `MIGRATION_FAILED`.
+- Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
+- Servicios transaccionales de administracion de aula, alumnos, devices, assignments, workspaces, perfiles, catalogo y batch.
+- Control de version optimista mediante columna `version` y error `CONCURRENT_MODIFICATION`.
+- `device_assignments` como fuente de verdad de asignaciones actuales e historicas.
+- Indices unicos parciales para un assignment actual por alumno y por device.
+- Persistencia de batch operations con targets, estados, errores, attempts y retry de fallidos retryable.
+- Mapeo de errores SQLite a `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` y `CONCURRENT_MODIFICATION`.
+- Pruebas de integracion SQLite para creacion, migracion, reapertura, constraints, historial de assignments, batch retry, rollback, versionado y base corrupta.
 
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
-- SQLite para almacenamiento local del Master.
-- Persistencia del modelo funcional en SQLite.
 - Persistencia/verificacion final de Master Windows Binding mediante Agent Service y estado derivado por IPC.
 - gRPC/Protobuf para comunicacion con Agents.
 - Visualizacion de equipos, miniaturas y estado.
@@ -60,13 +79,53 @@ NO IMPLEMENTADO:
 
 - UI.
 - Autenticacion.
-- Base de datos.
-- Persistencia de dispositivos/aulas/alumnos.
 - gRPC funcional.
 - Descubrimiento.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
+
+## Almacenamiento local del Master
+
+IMPLEMENTADO:
+
+- SQLite local en archivo `classroom.db`.
+- Ruta productiva por defecto: `<CommonApplicationData>\Galtek\Classroom\Master\classroom.db`.
+- Override de desarrollo/tests: `GALTEK_CLASSROOM_MASTER_DATA_DIR` o `galtek.classroom.master.storage.data-dir`.
+- Nombre de archivo configurable con `galtek.classroom.master.storage.database-file-name`.
+- Migraciones en `master-backend/src/main/resources/db/migration/sqlite/`.
+- Spring Boot Flyway autoconfiguration deshabilitada; el Master ejecuta Flyway programaticamente para controlar health checks y mapping de errores.
+- `V1__create_master_domain.sql` crea:
+  - `classrooms`.
+  - `application_definitions`.
+  - `classroom_applications`.
+  - `school_groups`.
+  - `students`.
+  - `devices`.
+  - `student_workspaces`.
+  - `browser_profiles`.
+  - `master_browser_profiles`.
+  - `device_assignments`.
+  - `batch_operations`.
+  - `batch_target_results`.
+- `MasterWindowsBinding` no se persiste en SQLite por decision de seguridad; la autoridad final sigue planificada en Agent Service.
+- IDs del dominio como `TEXT`, generados por la aplicacion; no usar `AUTOINCREMENT` para identidades funcionales.
+- Timestamps como `TEXT` UTC producido desde `Instant.toString()`.
+- Booleans como `INTEGER` `0/1` con `CHECK`.
+- Enum sets serializados como JSON textual de nombres de enum ordenados; no hay serializacion binaria Java.
+- Foreign keys habilitadas por conexion.
+- WAL habilitado para mejorar lectura local concurrente.
+- `busy_timeout` default 5000 ms.
+- `maximum-pool-size` default 4.
+- Corruption check con `PRAGMA quick_check`.
+
+NO IMPLEMENTADO:
+
+- Cifrado at-rest de `classroom.db`.
+- Backup/restore automatico.
+- Auditoria persistente de acciones administrativas reales.
+- Borrado seguro/retencion configurable de PII.
+- Persistencia de Master Windows Binding en Agent Service.
 
 ## Agent
 
@@ -326,6 +385,7 @@ IMPLEMENTADO en Prompt 07:
 - Abstraccion `CurrentWindowsIdentityProvider`.
 - Implementacion Java `JdkCurrentWindowsIdentityProvider` que obtiene SID mediante API del JDK por reflexion, sin comandos shell ni JNA.
 - Pruebas puras que no dependen de la cuenta Windows real.
+- Prompt 08 confirma que `classroom.db` no persiste `MasterWindowsBinding` ni crea tabla `master_windows_binding`.
 
 PLANIFICADO:
 

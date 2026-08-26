@@ -1,6 +1,19 @@
 spring:
   application:
     name: galtek-classroom-master-backend
+  flyway:
+    enabled: false
+
+galtek:
+  classroom:
+    master:
+      storage:
+        enabled: true
+        data-dir: ${GALTEK_CLASSROOM_MASTER_DATA_DIR:}
+        database-file-name: classroom.db
+        busy-timeout-ms: 5000
+        maximum-pool-size: 4
+        quick-check-on-startup: true
 
 debug: false
 

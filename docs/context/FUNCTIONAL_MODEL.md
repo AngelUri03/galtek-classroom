@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. No implementa persistencia, red, filesystem real, browser automation, UI ni comandos remotos.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. No implementa red, filesystem real, browser automation, UI ni comandos remotos.
 
 ## Principio de producto
 
@@ -35,7 +35,7 @@ Relaciona:
 - politicas futuras.
 - soporte planificado de recuperacion de workspace.
 
-Prompt 07 solo modela la entidad y su configuracion. No hay persistencia SQLite todavia.
+Desde Prompt 08, `Classroom` se persiste en SQLite con aplicaciones autorizadas mediante tabla de relacion. La lista de devices, students y groups se reconstruye desde sus repositories por `classroomId`.
 
 ## Device
 
@@ -70,6 +70,12 @@ ERROR
 
 No reducir el estado operacional a un boolean `online`.
 
+Persistencia Prompt 08:
+
+- `Device` se persiste por `device_id` logico del Master.
+- `installationId` tiene indice unico.
+- `assignedStudentId` se deriva del assignment actual; no es la fuente de verdad.
+
 ## Student
 
 `Student` representa al alumno, independiente del equipo.
@@ -88,6 +94,12 @@ Campos principales:
 - `currentDeviceAssignment`.
 
 `displayName` no es identidad.
+
+Persistencia Prompt 08:
+
+- `Student` se conserva aunque se archive.
+- `active = false` lo excluye de listados activos, pero no borra historial ni assignments.
+- `currentDeviceAssignment` se deriva de `device_assignments`.
 
 ## Device != Student
 
@@ -136,6 +148,13 @@ Reglas:
 
 `DeviceAssignmentPolicy` valida assignment nuevo contra assignments actuales.
 
+Persistencia Prompt 08:
+
+- `device_assignments` es la fuente de verdad del vinculo actual e historico.
+- Indices unicos parciales garantizan como maximo un assignment `current = 1` por alumno y por device.
+- Mover un assignment actual cierra el anterior y crea uno nuevo dentro de una transaccion.
+- No se borran assignments historicos al archivar alumnos.
+
 ## StudentWorkspace
 
 `StudentWorkspace` pertenece al alumno, no a la computadora.
@@ -155,6 +174,8 @@ StudentWorkspace
 ```
 
 Prompt 07 no implementa filesystem real. Solo modela identidad, estado, destinos logicos permitidos y recuperacion planificada.
+
+Prompt 08 persiste metadata del workspace, destinos logicos permitidos y flags de recovery planificado. No crea carpetas reales ni toca archivos de alumno.
 
 ## Destinos logicos
 
@@ -238,6 +259,11 @@ BROWSER_REAUTH_REQUIRED
 
 Galtek Classroom no debe copiar directamente archivos como `Login Data`, `Cookies` o `Local State` ni extraer secretos. La portabilidad futura debe usar cuentas sincronizadas, perfiles administrados o mecanismos oficiales.
 
+Persistencia Prompt 08:
+
+- Se persiste metadata de perfiles de alumno.
+- No existen columnas para passwords, cookies, tokens, cache protegido ni secretos de navegador.
+
 ## MasterBrowserProfile
 
 `MasterBrowserProfile` es separado del perfil de alumno.
@@ -256,6 +282,11 @@ OPEN_URL browserProfileId = MASTER_PRIMARY
 ```
 
 Galtek no almacena passwords ni cookies.
+
+Persistencia Prompt 08:
+
+- Se persiste metadata del perfil Master y owner SID informativo opcional.
+- La base no almacena credenciales, cookies ni secretos.
 
 ## MasterWindowsBinding
 
@@ -288,7 +319,7 @@ Autoridad final planificada:
 - Master Backend consume estado derivado por IPC.
 - UI no es autoridad.
 
-Prompt 07 no agrega IPC write ni persistencia del binding. Java modela `CurrentWindowsIdentityProvider`, `MasterAuthorizationPolicy` y estados de autorizacion para pruebas puras.
+Prompt 08 no persiste `MasterWindowsBinding` en SQLite. La base `classroom.db` no debe tener tabla `master_windows_binding`; la autoridad final sigue planificada en Agent Service.
 
 ## ApplicationDefinition
 
@@ -303,6 +334,8 @@ launchPolicy
 ```
 
 El Master no debe enviar rutas ejecutables arbitrarias como `C:\algo.exe`. Las operaciones futuras deben enviar `applicationId`.
+
+Prompt 08 persiste el catalogo por `applicationId` y permite asociarlo a aulas. No ejecuta aplicaciones.
 
 ## Action Catalog
 
@@ -508,6 +541,8 @@ attempt
 
 La UI futura debe permitir reintentar solo fallidos y no repetir manualmente los exitosos.
 
+Prompt 08 persiste `BatchOperation` y `BatchTargetResult` con `operationId`, targets, estados, errores, mensaje operacional, `attempt` y payload JSON versionado. El retry se calcula solo sobre targets fallidos cuyo `ErrorCode` sea retryable.
+
 ## Preflight general
 
 Antes de ejecutar una operacion masiva, el sistema debe clasificar targets:
@@ -545,6 +580,7 @@ Categorias:
 - Content.
 - Authorization.
 - Operation.
+- Persistence.
 
 Separar siempre:
 
@@ -559,6 +595,8 @@ mensaje para usuario
 ```
 
 La UI futura no debe decidir comparando textos ni mostrar excepciones tecnicas como `IOException`, `SocketException`, `Win32Exception` o stack traces.
+
+SQLite debe mapear excepciones tecnicas a codigos operacionales como `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` o `CONCURRENT_MODIFICATION`.
 
 ## Retry e idempotencia
 
@@ -619,4 +657,4 @@ targets
 result
 ```
 
-No hay SQLite ni auditoria persistente en Prompt 07.
+Prompt 08 persiste metadata de operaciones batch y resultados por target, pero no implementa auditoria administrativa completa ni ejecucion real.
