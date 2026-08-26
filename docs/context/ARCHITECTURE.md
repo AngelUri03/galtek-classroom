@@ -2,11 +2,13 @@
 
 ## Estado general
 
+Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master Backend: aula, devices, alumnos, grupos, workspaces de alumno, perfiles de navegador, binding local del Master por Windows SID, catalogo de acciones, errores operacionales y planners puros para assignment, move, swap y batch preflight.
+
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo y Machine Code a `GaltekClassroom.Agent.Session` y al Master Backend Java sin duplicar Installation Identity ni Commercial License.
 
-Las capacidades operativas de administracion remota siguen planificadas. No hay gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 07 puede planear y validar preflight, pero no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -24,13 +26,34 @@ IMPLEMENTADO:
 - Mapeo de Agent Service no disponible a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
 - Prueba automatica del health endpoint.
 - Pruebas de framing IPC, cliente local, endpoints de dispositivo y salud.
+- Dominio funcional puro en paquetes por contexto:
+  - `classroom`: `Classroom`, configuracion y relacion de devices/students/groups.
+  - `device`: `Device`, estados operacionales y capacidades.
+  - `student`: `Student`, `SchoolGroup`, `DeviceAssignment`, policies y planners de move/swap.
+  - `workspace`: `StudentWorkspace`, destinos logicos y recovery planificado.
+  - `browser`: perfiles de alumno/Master y validacion conservadora de URL.
+  - `application`: catalogo de aplicaciones por `applicationId`.
+  - `operations`: catalogo de acciones, batch, preflight, resultados, errores, conflict policy y workflows.
+  - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
+- `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
+- `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
+- `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
+- `BatchOperationPlanner` para clasificar targets `READY`, `WARNING`, `BLOCKED`.
+- Modelo central `ErrorCode` con categorias y bandera retryable, separado de mensajes para usuario.
+- `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
+- `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
+- Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
 
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
 - SQLite para almacenamiento local del Master.
+- Persistencia del modelo funcional en SQLite.
+- Persistencia/verificacion final de Master Windows Binding mediante Agent Service y estado derivado por IPC.
 - gRPC/Protobuf para comunicacion con Agents.
 - Visualizacion de equipos, miniaturas y estado.
+- UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
+- Integracion real de workspaces, navegador, transferencia, wallpaper, proyeccion y auditoria.
 - Auditoria administrativa.
 
 NO IMPLEMENTADO:
@@ -38,11 +61,12 @@ NO IMPLEMENTADO:
 - UI.
 - Autenticacion.
 - Base de datos.
-- Dispositivos/aulas.
+- Persistencia de dispositivos/aulas/alumnos.
 - gRPC funcional.
 - Descubrimiento.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
+- Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 
 ## Agent
 
@@ -186,10 +210,12 @@ IMPLEMENTADO:
 - Contratos IPC v1.
 - Framing IPC v1.
 - Constantes de operaciones, errores, nombre de pipe y limite de mensaje.
+- Contratos futuros minimos para operaciones tipadas, estados batch, estados por target, preflight, destinos logicos, conflict policies y errores operacionales.
 
 PLANIFICADO:
 
 - Contratos de red cuando se definan los `.proto`.
+- Contratos concretos Service <-> Session para ejecucion controlada, cuando exista autorizacion local e IPC write disenado.
 
 ## Comunicacion futura de red
 
@@ -290,6 +316,30 @@ NO IMPLEMENTADO:
 - Enforcement de features.
 - Autorizacion MASTER.
 
+### Master Windows Binding
+
+IMPLEMENTADO en Prompt 07:
+
+- Modelo `MasterWindowsBinding` con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
+- Modelo `MasterAuthorizationState` con `NOT_CONFIGURED`, `AUTHORIZED`, `CURRENT_ACCOUNT_NOT_AUTHORIZED` y `MASTER_LICENSE_REQUIRED`.
+- `MasterAuthorizationPolicy` que exige licencia activa con rol `MASTER`, `installationId` correcto y SID actual igual al SID ligado.
+- Abstraccion `CurrentWindowsIdentityProvider`.
+- Implementacion Java `JdkCurrentWindowsIdentityProvider` que obtiene SID mediante API del JDK por reflexion, sin comandos shell ni JNA.
+- Pruebas puras que no dependen de la cuenta Windows real.
+
+PLANIFICADO:
+
+- Persistir y verificar el binding final en el Agent Service, porque es autoridad local para datos sensibles.
+- Exponer al Master Backend solo estado derivado por IPC local.
+- UI futura para configurar/diagnosticar binding, sin ser autoridad.
+
+NO IMPLEMENTADO:
+
+- Persistencia del binding.
+- IPC write para crear o modificar binding.
+- Reemplazo de Network Identity, pairing o mTLS.
+- Autorizacion remota entre equipos.
+
 ### Network Identity
 
 PLANIFICADO:
@@ -337,6 +387,12 @@ VIGENTE DESDE AHORA:
 - No aceptar `cmd.exe /c`, PowerShell arbitrario, shell remota ni rutas arbitrarias enviadas por un Master.
 - Usar comandos futuros explicitos y estructurados, por ejemplo `LOCK_INPUT`, `UNLOCK_INPUT`, `OPEN_APPLICATION` con `appId`, `SHUTDOWN`, `RESTART`, `START_PROJECTION`, `STOP_PROJECTION`.
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
+- Operaciones de contenido deben usar destinos logicos de `StudentWorkspace`; el Master no debe enviar rutas absolutas arbitrarias ni path traversal.
+- `Device` y `Student` son entidades independientes; mover un alumno es un workflow de alumno/workspace, no una copia manual de una carpeta de PC a PC.
+- Browser profiles modelan portabilidad sin copiar passwords, cookies ni cache protegido.
+- Batch-first es obligatorio: targets pueden ser classroom, group, students, devices o items individuales cuando la accion tenga sentido.
+- `PARTIAL_SUCCESS` y retry solo de fallidos deben formar parte del modelo de cualquier operacion masiva.
+- `TARGET_OCCUPIED` nunca debe sobrescribir ni borrar al alumno que ocupa el equipo.
 - IP y MAC no son identidad de autorizacion.
 - Licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
 - Licencia MASTER valida no equivale a permiso automatico para controlar clientes de la LAN.

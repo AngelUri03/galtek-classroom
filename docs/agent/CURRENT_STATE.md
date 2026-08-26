@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-08-25 - Prompt 06.
+2026-08-25 - Prompt 07.
 
 ## Estado del proyecto
+
+Prompt 07 deja formalizado el dominio funcional completo de Galtek Classroom en el Master Backend y contratos minimos en Agent Shared. El proyecto puede expresar aulas, equipos, alumnos, grupos, assignments, workspaces de alumno, perfiles de navegador, binding local del Master por Windows SID, catalogo de operaciones tipadas, errores operacionales, batch results, partial success, retry de fallidos y planners puros de preflight.
 
 `GaltekClassroom.Agent.Service` ya puede ejecutarse como Windows Service real en Session 0 con cuenta `LocalSystem`, inicio `Automatic`, recovery y Local IPC v1 read-only.
 
@@ -12,7 +14,7 @@
 
 Installation Identity y Commercial License siguen siendo autoridad exclusiva del Agent Service. Los datos persistentes permanecen en `<CommonApplicationData>\Galtek\Classroom\`; instalar, actualizar o desinstalar normalmente no borra `installation.json` ni `license.dat`.
 
-El producto todavia no tiene funciones operativas de administracion remota, UI, comunicacion de red, gRPC, mTLS, mDNS, pairing, captura, bloqueo ni comandos remotos.
+El producto todavia no tiene funciones operativas de administracion remota, UI, persistencia del dominio, comunicacion de red, gRPC, mTLS, mDNS, pairing, captura, bloqueo, filesystem real, browser automation, wallpaper real ni comandos remotos.
 
 ## Implementado
 
@@ -21,6 +23,23 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 - Endpoints `GET /api/device/status` y `GET /api/device/machine-code`.
 - Flujo Java `controller -> service -> LocalAgentClient -> Named Pipe transport`.
 - Respuesta HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE` cuando el Agent Service no esta disponible.
+- Dominio Java por contextos:
+  - `classroom`: `Classroom`, `ClassroomConfiguration`.
+  - `device`: `Device`, `DeviceStatus`, `DeviceCapability`.
+  - `student`: `Student`, `SchoolGroup`, `DeviceAssignment`, policies y planners.
+  - `workspace`: `StudentWorkspace`, destinos logicos y recovery planificado.
+  - `browser`: perfiles de alumno/Master y validacion de URL.
+  - `application`: catalogo de aplicaciones.
+  - `operations`: acciones tipadas, batch, preflight, errores, requests y workflows.
+  - `master`: Master Windows Binding, SID provider y autorizacion.
+- `DeviceAssignmentPolicy` detecta alumno ya asignado y equipo ocupado.
+- `StudentMovePlanner` planifica `MOVE_STUDENT` sin transferir archivos.
+- `StudentSwapPlanner` planifica `SWAP_STUDENTS` como preflight transaccional.
+- `BatchOperationPlanner` clasifica devices en `READY`, `WARNING` y `BLOCKED`.
+- `BatchOperation` deriva `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y conserva fallidos/reintentables por target.
+- `ErrorCode` centraliza errores operacionales por categoria y retryable.
+- `OpenUrlPolicy` permite solo `http`/`https` y rechaza `file`, `javascript` y `data`.
+- Contratos C# Shared minimos para acciones, estados batch/target/preflight, destinos logicos, conflict policies y errores operacionales futuros.
 - Solucion .NET `GaltekClassroom.Agent.sln` con Service, Session, Shared y tests.
 - Agent Service con Worker Service / Generic Host .NET 8.
 - Integracion oficial `Microsoft.Extensions.Hosting.WindowsServices`.
@@ -77,11 +96,11 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 06.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 07.
 
 ## Pendiente inmediato
 
-- Prompt 07: definir el siguiente contrato funcional sin agregar ejecucion remota arbitraria.
+- Prompt 08: persistencia SQLite del dominio funcional sin implementar ejecucion remota.
 - Definir como se empaquetara la llave publica real de Galtek Hub para produccion.
 - Disenar autorizacion local antes de cualquier operacion IPC write.
 
@@ -103,6 +122,13 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 - IPC v1 es read-only y no habilita control remoto.
 - Acceso al pipe no equivale a autorizacion para operaciones privilegiadas futuras.
 - Futuras comunicaciones Service <-> Session deberan distinguir `sessionId`, user context y estado active/interactive, pero esos datos no seran seguridad por si solos.
+- Device y Student quedan separados por decision de dominio.
+- StudentWorkspace pertenece al alumno.
+- Master Windows Binding se modela por SID; username/admin solo son informativos.
+- Operaciones futuras deben ser batch-first, con partial success y retry solo de fallidos.
+- Operaciones de contenido usan destinos logicos, no rutas arbitrarias.
+- Browser portability no copia passwords/cookies/cache directamente.
+- Move/swap requieren preflight, preservan origen hasta verificacion y modelan rollback.
 
 ## Cambios rechazados / No repetir
 
@@ -116,6 +142,7 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 - No implementar operaciones write por IPC.
 - No crear tray icon, ventana, toast ni UI React/Tauri todavia.
 - No implementar Galtek Hub, generacion de licencias, private keys comerciales, activacion online, revocacion online, descarga de public key, DPAPI, gRPC, mTLS, mDNS, pairing, captura, bloqueo, comandos remotos, SQLite ni WebRTC.
+- No implementar transferencia real de archivos, Chrome automation, copia de passwords/cookies/cache, wallpapers reales, `OPEN_URL` remoto, `DISTRIBUTE_FILE` remoto, `CREATE_FOLDER` remoto, `MOVE_STUDENT` real ni `SWAP_STUDENTS` real.
 - No agregar Commercial License ni llaves publicas al Master Backend.
 - No confiar en una llave publica enviada junto con un JWT.
 - No mezclar Commercial License dentro de `installation.json`.
@@ -129,12 +156,14 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 - `license.dat` no se cifra localmente en esta fase. Su integridad depende de la firma RS256, `installationId` y hardware 3 de 4; DPAPI/ACL hardening queda pendiente.
 - La validacion real con Service Control Manager y Task Scheduler productivo depende de que el entorno este elevado.
 - Como el Session Agent productivo es `WinExe`, los diagnosticos del `.exe` publicado deben invocarse con espera explicita si se necesita capturar salida desde PowerShell; en desarrollo puede usarse `dotnet GaltekClassroom.Agent.Session.dll --ipc-ping`.
+- Master Windows Binding esta modelado en Java, pero la persistencia/verificacion final debe vivir en Agent Service en Prompt futuro.
+- `JdkCurrentWindowsIdentityProvider` usa API del JDK por reflexion para obtener SID cuando este disponible; las pruebas no dependen de la cuenta Windows real.
 
 ## Pruebas ejecutadas
 
+- `mvn clean verify` en `master-backend`: correcto, 37 pruebas superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 56 pruebas superadas.
-- `mvn clean verify` en `master-backend`: correcto, 14 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 59 pruebas superadas.
 - Parser PowerShell de `installer/windows/*.ps1`: correcto.
 - `.\installer\windows\publish-agent-session.ps1`: correcto; publica `Release`, `win-x64`, self-contained en `artifacts\windows\agent-session\`.
 - Artifact Session publicado: `.exe` y dependencias presentes; `artifacts/` ignorado por Git.
@@ -147,4 +176,4 @@ El producto todavia no tiene funciones operativas de administracion remota, UI, 
 
 ## Proximo paso recomendado
 
-Definir en Prompt 07 el contrato Service <-> Session para identificar sesiones interactivas sin agregar todavia control remoto ni captura.
+Prompt 08: persistir en SQLite el dominio funcional del Master (Classroom, Device, Student, SchoolGroup, DeviceAssignment, StudentWorkspace, BrowserProfile, MasterWindowsBinding y BatchOperation) sin implementar todavia red, filesystem real ni ejecucion remota.

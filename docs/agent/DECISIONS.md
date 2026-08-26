@@ -87,6 +87,33 @@
 - Si `installation.json` esta corrupto o incompleto, el Service falla el arranque y el modo `--machine-code` devuelve error; no se regenera silenciosamente.
 - Galtek Classroom debe ser LAN/offline-first.
 - Esta prohibida la ejecucion remota arbitraria.
+- El usuario principal de producto es una maestra que administra alumnos pequenos, por lo que la UX debe minimizar pasos manuales por computadora.
+- `Device != Student`; un equipo, un alumno y una asignacion son conceptos separados.
+- `StudentWorkspace` pertenece al `Student`, no al `Device`.
+- SchoolGroup agrupa alumnos y no debe mezclarse con nombres de computadoras.
+- Un alumno no debe tener dos assignments actuales simultaneos dentro de la misma sesion operativa.
+- Un device no debe tener dos alumnos actuales simultaneos salvo transicion futura controlada.
+- `TARGET_OCCUPIED` nunca debe resolverse sobrescribiendo o borrando al alumno existente.
+- Toda accion repetitiva debe partir de un diseno batch-first: classroom, group, students, devices o target individual cuando tenga sentido.
+- Las operaciones masivas deben modelar `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED` y `ROLLED_BACK`.
+- Retry debe poder aplicarse a targets fallidos sin repetir targets exitosos.
+- Todo target debe conservar resultado, `errorCode`, mensaje operacional y `attempt`.
+- Los errores tecnicos deben mapearse a codigos operacionales antes de llegar a UI.
+- Separar `errorCode` de mensaje para usuario; no tomar decisiones comparando texto visible.
+- Los destinos de archivos deben ser destinos logicos de workspace, no rutas arbitrarias del filesystem.
+- Proteger operaciones futuras contra path traversal, rutas absolutas arbitrarias y escrituras fuera de scope.
+- Browser profile portability no debe implementarse copiando directamente Chrome `Login Data`, `Cookies`, `Local State` ni otros secretos/cache protegidos.
+- `OPEN_URL` y `START_PROJECTION` son funciones diferentes: una abre localmente en clientes, la otra transmite pantalla del Master.
+- Las aplicaciones se abren por `applicationId` de catalogo, no por rutas ejecutables arbitrarias.
+- `MOVE_STUDENT` debe usar workflow `COPY -> VERIFY -> COMMIT -> CLEANUP`; nunca `DELETE SOURCE -> COPY`.
+- Si un move falla antes de commit, el origen se conserva y el resultado debe permitir retry.
+- `SWAP_STUDENTS` es una operacion compuesta/transaccional, no dos moves independientes sin coordinacion.
+- Move/swap requieren preflight antes de cualquier operacion destructiva.
+- Operaciones destructivas deben confirmar una sola vez por operacion masiva y preservar datos cuando sea posible.
+- El Master local queda ligado a una cuenta Windows concreta mediante SID, no por username ni por pertenecer a Administrators.
+- Otro administrador Windows no obtiene automaticamente rol Master si su SID no esta ligado.
+- La autoridad final para persistir/verificar Master Windows Binding debe residir en Agent Service; Master Backend consumira estado derivado por IPC.
+- Prompt 07 no agrega IPC write; cualquier escritura futura requiere autorizacion local disenada.
 - IP y MAC no son identidad suficiente para autorizacion.
 - Descubrimiento no implica confianza.
 - Una licencia MASTER valida no autoriza automaticamente controlar clientes.

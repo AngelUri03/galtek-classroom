@@ -17,6 +17,8 @@ The current iteration implements local Installation Identity, development Machin
 - `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service, Session Agent, or full Agent.
 - `docs/`: project context, architecture notes, decisions, and handoff state.
 
+Before developing classroom functionality, read `docs/context/FUNCTIONAL_MODEL.md`. It is the stable domain contract for Devices, Students, Student Workspaces, Master Windows Binding, batch-first operations, error handling, retry, and rollback.
+
 ## Development Requirements
 
 - Windows development environment.

@@ -371,3 +371,72 @@
 ### Commit sugerido
 
 `feat(agent): add session agent lifecycle`
+
+## 2026-08-25 - Prompt 07
+
+### Realizado
+
+- Formalizado el dominio funcional completo del Master Backend sin persistencia ni ejecucion remota.
+- Agregados modelos de `Classroom`, `Device`, `SchoolGroup`, `Student`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile`, `ApplicationDefinition`, `MasterWindowsBinding` y operaciones batch.
+- Agregado catalogo de acciones tipadas, conflict policies, estados de workflow, batch statuses, target statuses y preflight statuses.
+- Agregado modelo central de errores operacionales con categoria y bandera retryable.
+- Agregados planners puros `DeviceAssignmentPolicy`, `StudentMovePlanner`, `StudentSwapPlanner` y `BatchOperationPlanner`.
+- Agregada validacion conservadora de URL para `OPEN_URL`.
+- Agregado `CurrentWindowsIdentityProvider` y policy de autorizacion Master por rol `MASTER`, installationId y SID ligado.
+- Agregados contratos C# Shared minimos para futuras operaciones tipadas, destinos logicos y errores, sin agregar IPC write.
+- Creado `docs/context/FUNCTIONAL_MODEL.md`.
+
+### Archivos principales modificados
+
+- `master-backend/src/main/java/com/galtek/classroom/classroom/`
+- `master-backend/src/main/java/com/galtek/classroom/device/`
+- `master-backend/src/main/java/com/galtek/classroom/student/`
+- `master-backend/src/main/java/com/galtek/classroom/workspace/`
+- `master-backend/src/main/java/com/galtek/classroom/browser/`
+- `master-backend/src/main/java/com/galtek/classroom/application/`
+- `master-backend/src/main/java/com/galtek/classroom/operations/`
+- `master-backend/src/main/java/com/galtek/classroom/master/`
+- `master-backend/src/test/java/com/galtek/classroom/`
+- `agent/src/GaltekClassroom.Agent.Shared/OperationContracts.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/OperationContractsTests.cs`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/context/PROJECT_CONTEXT.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `README.md`
+
+### Decisiones tomadas
+
+- `Device != Student`.
+- `StudentWorkspace` pertenece al alumno.
+- Operaciones futuras deben ser batch-first, con `PARTIAL_SUCCESS` y retry de fallidos.
+- Master Windows Binding usa Windows SID; username/admin no son seguridad.
+- La autoridad final del binding debe vivir en Agent Service; Master Backend consume estado derivado por IPC futuro.
+- Browser portability no copia passwords, cookies ni cache protegido.
+- Operaciones de contenido usan destinos logicos, no rutas arbitrarias.
+- Move/swap requieren preflight y workflow `COPY -> VERIFY -> COMMIT -> CLEANUP`.
+- `TARGET_OCCUPIED` nunca sobrescribe ni borra al alumno existente.
+- No se agrega IPC write en Prompt 07.
+
+### Cambios descartados
+
+- No se implementaron SQLite, tablas, migrations, filesystem real, transferencia de archivos, Chrome automation, cookies/passwords, wallpaper real, `OPEN_URL` remoto, `DISTRIBUTE_FILE` remoto, `CREATE_FOLDER` remoto, `MOVE_STUDENT` real, `SWAP_STUDENTS` real, locks reales, shutdown, gRPC, Protobuf, Network Identity, mTLS, pairing, mDNS, screen capture, WebRTC, React, Tauri ni UI.
+
+### Pendiente
+
+- Persistir el dominio funcional en SQLite.
+- Definir IPC local write/autorizacion antes de operaciones privilegiadas.
+- Persistir/verificar Master Windows Binding en Agent Service.
+- Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
+
+### Validaciones
+
+- `mvn clean verify` en `master-backend`: correcto, 37 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 59 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): add classroom domain model`
