@@ -10,6 +10,8 @@ $ErrorActionPreference = 'Stop'
 $ServiceName = 'GaltekClassroomAgent'
 $LegacyServiceNames = @('GaltekClassroomAgentService')
 $SessionInstallSubdirectory = 'Session'
+$NetworkIdentityFileName = 'network-identity.json'
+$NetworkIdentityKeyNamePrefix = 'GaltekClassroom.NetworkIdentity.'
 
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -138,6 +140,60 @@ function Remove-AgentServiceBinaries {
     }
 }
 
+function Remove-NetworkIdentityKeyIfPresent {
+    param([Parameter(Mandatory = $true)][string] $DataDirectory)
+
+    $metadataPath = Join-Path $DataDirectory $NetworkIdentityFileName
+    if (-not (Test-Path -LiteralPath $metadataPath)) {
+        Write-Host "Network Identity metadata was not present: $metadataPath"
+        return
+    }
+
+    try {
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+        $keyNameProperty = $metadata.PSObject.Properties['keyName']
+
+        if ($null -eq $keyNameProperty -or [string]::IsNullOrWhiteSpace([string] $keyNameProperty.Value)) {
+            Write-Warning "Network Identity key was not purged because $NetworkIdentityFileName does not contain a valid keyName."
+            return
+        }
+
+        $keyName = [string] $keyNameProperty.Value
+        if (-not $keyName.StartsWith($NetworkIdentityKeyNamePrefix, [System.StringComparison]::Ordinal)) {
+            Write-Warning "Network Identity key was not purged because keyName does not use the Galtek prefix."
+            return
+        }
+
+        $invalidKeyNameCharacters = [char[]] '\/:*?"<>|'
+        if ($keyName.IndexOfAny($invalidKeyNameCharacters) -ge 0) {
+            Write-Warning "Network Identity key was not purged because keyName contains invalid characters."
+            return
+        }
+
+        $provider = [System.Security.Cryptography.CngProvider]::MicrosoftSoftwareKeyStorageProvider
+        $openOptions = [System.Security.Cryptography.CngKeyOpenOptions]::MachineKey
+
+        if (-not [System.Security.Cryptography.CngKey]::Exists($keyName, $provider, $openOptions)) {
+            Write-Warning "Network Identity CNG key was already absent: $keyName"
+            return
+        }
+
+        $key = [System.Security.Cryptography.CngKey]::Open($keyName, $provider, $openOptions)
+        try {
+            $key.Delete()
+            Write-Host "Purged Network Identity CNG key: $keyName"
+        }
+        finally {
+            if ($null -ne $key) {
+                $key.Dispose()
+            }
+        }
+    }
+    catch {
+        Write-Warning "Network Identity key was not purged safely: $($_.Exception.Message)"
+    }
+}
+
 if (-not (Test-IsElevated)) {
     Write-Error 'This uninstaller must be run from an elevated PowerShell session. Open PowerShell as Administrator and run the script again.'
     exit 1
@@ -159,9 +215,10 @@ foreach ($legacyServiceName in $LegacyServiceNames) {
 Remove-AgentServiceBinaries -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
 
 if ($PurgeData) {
-    Write-Warning 'PurgeData elimina Installation Identity, Commercial License y Master Windows Binding. La instalacion resultante requerira una nueva activacion y reconfiguracion Master.'
+    Write-Warning 'PurgeData elimina Installation Identity, Commercial License, Master Windows Binding y Network Identity. La instalacion resultante requerira una nueva activacion, reconfiguracion Master y nueva identidad de red.'
 
     if (Test-Path -LiteralPath $dataDirectory) {
+        Remove-NetworkIdentityKeyIfPresent -DataDirectory $dataDirectory
         Remove-Item -LiteralPath $dataDirectory -Recurse -Force
         Write-Host "Purged data: $dataDirectory"
     }

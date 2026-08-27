@@ -56,6 +56,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Agent: C#/.NET en Windows.
 - Comunicacion futura Master-Agent: gRPC y Protobuf.
 - Seguridad futura de red: mTLS y certificados de dispositivo.
+- Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Descubrimiento futuro: mDNS/DNS-SD.
 - IPC local Service-Session Agent y Master Backend-Agent Service: Windows Named Pipes.
 - Almacenamiento local Master: SQLite.
@@ -67,6 +68,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Galtek Hub es el proveedor externo de licencias comerciales.
 - Descubrimiento no implica confianza.
 - La licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
+- La Network Identity criptografica del Client no genera confianza automatica entre equipos; solo prepara pairing, certificados y mTLS futuros.
 - El producto no debe convertirse en un canal de ejecucion remota arbitraria.
 - `Device != Student`; los nombres visibles no son identidad.
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.

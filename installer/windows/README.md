@@ -76,7 +76,7 @@ To intentionally remove machine identity, license data and Master Windows Bindin
 
 `-PurgeData` is passed only to `uninstall-agent-service.ps1`.
 
-Warning: `PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding. La instalacion resultante requerira una nueva activacion y reconfiguracion Master.
+Warning: `PurgeData` elimina Installation Identity, Commercial License, Master Windows Binding y Network Identity. La instalacion resultante requerira una nueva activacion, reconfiguracion Master y nueva identidad de red.
 
 ## Agent Service
 
@@ -120,7 +120,7 @@ Uninstall only the Service:
 .\installer\windows\uninstall-agent-service.ps1
 ```
 
-The Service uninstaller preserves `Agent\Session\` when present and preserves ProgramData unless `-PurgeData` is passed.
+The Service uninstaller preserves `Agent\Session\` when present and preserves ProgramData unless `-PurgeData` is passed. With `-PurgeData`, it also attempts to remove the Network Identity CNG machine key only when `network-identity.json` contains a safe Galtek `keyName`.
 
 ## Session Agent
 

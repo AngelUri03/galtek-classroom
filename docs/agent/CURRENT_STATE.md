@@ -2,15 +2,17 @@
 
 ## Ultima actualizacion
 
-2026-08-26 - Prompt 9.6.
+2026-08-27 - Prompt 11.
 
 ## Estado del proyecto
 
+Prompt 11 implementa la Network Identity criptografica permanente del Client dentro de `GaltekClassroom.Agent.Service`. La identidad queda separada de Installation Identity, Commercial License y Master Windows Binding; usa metadata publica en `network-identity.json` y una llave privada no exportable en Windows CNG/KSP de maquina.
+
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
-El Master Backend Java sigue sin leer `master-binding.json`, no conoce su ruta y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
+El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
+El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing, certificados, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
 
 ## Implementado
 
@@ -40,6 +42,16 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
 - Agent Service como autoridad local de Installation Identity, Commercial License y Master Windows Binding.
+- Agent Service como autoridad local de Network Identity criptografica del Client.
+- `network-identity.json` separado de `installation.json`, `license.dat`, `master-binding.json` y `classroom.db`.
+- Metadata de Network Identity schema v1 con `networkIdentityId`, `installationId`, `keyId`, `keyName`, `publicKeyFingerprint` y `createdAtUtc`.
+- Llave privada de Network Identity generada localmente en Windows CNG/KSP de maquina, no exportable y fuera de JSON.
+- Fingerprint SHA-256 de la public key en formato `SubjectPublicKeyInfo`.
+- Primera ejecucion del Service sin metadata ni llave previa crea la Network Identity; reaperturas conservan la misma identidad y fingerprint.
+- Estados explicitos de Network Identity: `NOT_CONFIGURED`, `READY`, `INVALID`, `KEY_MISSING` e `INSTALLATION_MISMATCH`.
+- Errores explicitos `NETWORK_IDENTITY_INVALID`, `NETWORK_IDENTITY_KEY_MISSING` y `NETWORK_IDENTITY_INSTALLATION_MISMATCH`.
+- CLI read-only `--network-identity-status`, sin exponer private key ni `keyName`.
+- `-PurgeData` intenta eliminar la llave CNG de Network Identity solo si puede leer un `keyName` valido con prefijo Galtek desde la metadata.
 - `master-binding.json` separado de `installation.json`, `license.dat` y `classroom.db`.
 - Binding schema v1 con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
 - Unico binding por instalacion: cero o un SID autorizado.
@@ -57,7 +69,7 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 9.6.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 11.
 
 ## Pendiente inmediato
 
@@ -68,7 +80,7 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - Disenar posteriormente almacenamiento seguro de credenciales administradas en el Agent Service del Client.
 - Disenar posteriormente login/logoff/switch con integracion soportada por Windows, contemplando Credential Provider.
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
-- Implementar gRPC, mTLS, pairing, mDNS y Network Identity en fases posteriores.
+- Implementar pairing, certificados/trust, gRPC, mTLS y mDNS en fases posteriores.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
 ## Cambios aceptados
@@ -79,7 +91,10 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - Otro administrador Windows no hereda acceso Master si su SID no esta ligado.
 - Rebinding requiere `--replace-master-binding`.
 - Update de binarios y uninstall normal preservan `master-binding.json`.
-- `-PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding.
+- `-PurgeData` elimina Installation Identity, Commercial License, Master Windows Binding, Network Identity metadata y, si se puede identificar de forma segura, la llave CNG de Network Identity.
+- Network Identity no reemplaza pairing, certificados, mTLS ni autorizacion remota.
+- Metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto no se regeneran silenciosamente.
+- Nunca se adopta `network-identity.json` de otra instalacion.
 - La API administrativa falla cerrado: si Agent Service esta caido devuelve `503 LOCAL_AGENT_UNAVAILABLE`; si Master no esta autorizado devuelve `403`.
 - Bootstrap/snapshot usan modelos de lectura agregados batch-friendly para la UI futura.
 - `students/batch` permite parcialidad por fila; un alumno invalido no cancela los demas.
@@ -99,6 +114,9 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - No reintroducir endpoints administrativos sin `MasterAccessGuard`.
 - No implementar UI, gRPC, pairing, comandos remotos ni filesystem real en Prompt 10.
 - No implementar passwords reales, DPAPI, Credential Provider, login/logoff Windows real, cambio real de usuario ni almacenamiento de credenciales en Prompt 9.6.
+- No implementar pairing, certificados emitidos por Master, CA, mTLS real, gRPC, discovery, comandos remotos, rotacion automatica de claves ni UI en Prompt 11.
+- No guardar private key de Network Identity en JSON, logs, SQLite ni archivos planos.
+- No usar Commercial License, IP, MAC ni hostname como Network Identity.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para automatizar sesiones Windows.
 - No hacer commits automaticamente.
 
@@ -109,14 +127,17 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - `license.dat` no se cifra localmente en esta fase.
 - `classroom.db` no tiene cifrado at-rest, backup/restore automatico ni politica de retencion/borrado seguro de PII.
 - La validacion productiva con Service Control Manager, Task Scheduler y CLI elevada depende de ejecutar en un entorno con permisos administrativos.
+- La creacion real de la llave CNG de Network Identity requiere el contexto del Service como `LocalSystem` o una consola elevada; una prueba manual desde shell no elevado devuelve acceso denegado.
 - No se creo una segunda cuenta Windows para prueba manual de SID distinto; ese caso queda cubierto por tests automatizados.
 
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 90 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 101 pruebas superadas.
 - `mvn clean verify` en `master-backend`: correcto, 76 pruebas superadas.
+- Parser PowerShell de `installer/windows/uninstall-agent-service.ps1`: correcto.
+- `--network-identity-status` con `GALTEK_CLASSROOM_DATA_DIR` temporal vacio: correcto, devuelve `NOT_CONFIGURED` y no crea directorio ni llave.
 
 ## Proximo paso recomendado
 
-Prompt 11: construir la primera UI local React/Tauri o ampliar el modelo operacional, sin implementar comandos remotos reales todavia.
+Prompt 12: usar la Client key de Network Identity para disenar pairing, certificado/trust y mTLS, sin crear confianza automatica por discovery.

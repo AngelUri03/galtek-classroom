@@ -3,6 +3,7 @@ using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Master;
+using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Shared;
 
 var commandLine = AgentCommandLine.Parse(args);
@@ -18,6 +19,7 @@ var builder = Host.CreateApplicationBuilder(commandLine.HostArgs);
 builder.Services.AddInstallationIdentityServices();
 builder.Services.AddCommercialLicenseServices();
 builder.Services.AddMasterAuthorizationServices();
+builder.Services.AddNetworkIdentityServices();
 builder.Services.AddLocalIpcServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
@@ -56,6 +58,18 @@ if (commandLine.Mode == AgentCommandMode.LicenseStatus)
     }
 
     Console.WriteLine(LicenseConsoleJsonSerializer.SerializeState(state));
+    return;
+}
+
+if (commandLine.Mode == AgentCommandMode.NetworkIdentityStatus)
+{
+    builder.Logging.ClearProviders();
+
+    await using var serviceProvider = builder.Services.BuildServiceProvider();
+    var statusService = serviceProvider.GetRequiredService<NetworkIdentityStatusService>();
+    var status = await statusService.GetStatusAsync(CancellationToken.None);
+
+    Console.WriteLine(NetworkIdentityConsoleJsonSerializer.SerializeStatus(status));
     return;
 }
 

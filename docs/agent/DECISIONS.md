@@ -7,6 +7,7 @@
 - Mantener `GaltekClassroom.Agent.Shared` para constantes, modelos y contratos compartidos cuando exista necesidad real.
 - `GaltekClassroom.Agent.Service` es la autoridad local unica de Installation Identity.
 - `GaltekClassroom.Agent.Service` es la autoridad local unica de Commercial License.
+- `GaltekClassroom.Agent.Service` es la autoridad local unica de Network Identity criptografica del Client.
 - El Windows Service estable se llama `GaltekClassroomAgent`.
 - El Display Name del Windows Service es `Galtek Classroom Agent Service`.
 - La Description del Windows Service es `Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.`
@@ -34,7 +35,7 @@
 - Los binarios productivos del Agent Service viven en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Los datos persistentes del Agent viven en `<CommonApplicationData>\Galtek\Classroom\`.
 - El instalador/actualizador reemplaza binarios sin borrar ProgramData.
-- La desinstalacion normal conserva ProgramData; `-PurgeData` es la unica opcion para borrar Installation Identity, Commercial License y Master Windows Binding.
+- La desinstalacion normal conserva ProgramData; `-PurgeData` es la unica opcion para borrar Installation Identity, Commercial License, Master Windows Binding y Network Identity.
 - La politica de recovery del servicio reinicia ante fallos con retrasos de 5, 15 y 60 segundos, con reset de contador cada 86400 segundos.
 - El Master Backend no implementa Installation Identity; la consulta al Service mediante IPC local.
 - El Master Backend no implementa Commercial License; la consulta al Service mediante IPC local.
@@ -64,7 +65,20 @@
 - Commercial License exige audience exacto `galtek-classroom`.
 - Commercial License exige product exacto `GALTEK_CLASSROOM`.
 - Commercial License soporta `schemaVersion = 1`; versiones desconocidas se bloquean como `LICENSE_SCHEMA_UNSUPPORTED`.
-- Separar Installation Identity, Commercial License y Network Identity.
+- Separar Installation Identity, Commercial License, Master Windows Binding y Network Identity.
+- Network Identity vive en `network-identity.json` solo como metadata publica y no dentro de `installation.json`, `license.dat`, `master-binding.json` ni `classroom.db`.
+- La private key de Network Identity se genera localmente en el Client y se guarda en Windows CNG/KSP de maquina, no en archivos planos.
+- La llave inicial de Network Identity usa Microsoft Software Key Storage Provider, RSA 2048, uso de firma y politica no exportable.
+- `networkIdentityId` es un GUID propio de red, separado de `installationId`.
+- `network-identity.json` schema v1 guarda `networkIdentityId`, `installationId`, `keyId`, `keyName`, `publicKeyFingerprint` y `createdAtUtc`.
+- `keyId` y `keyName` se derivan deterministamente del `installationId` para detectar llaves huerfanas sin adoptar estado ajeno.
+- El fingerprint de Network Identity es SHA-256 de la public key `SubjectPublicKeyInfo`, hexadecimal minuscula.
+- Si `network-identity.json` esta corrupto o es incompatible, el estado es `NETWORK_IDENTITY_INVALID` y no se regenera.
+- Si metadata valida apunta a una llave CNG faltante, el estado es `NETWORK_IDENTITY_KEY_MISSING` y no se regenera.
+- Si `installationId` de metadata no coincide con la Installation Identity actual, el estado es `NETWORK_IDENTITY_INSTALLATION_MISMATCH`.
+- Si falta metadata pero existe la llave CNG esperada, se trata como estado invalido y no se regenera silenciosamente.
+- `--network-identity-status` es diagnostico read-only y no expone private key ni `keyName`.
+- Network Identity no crea confianza automatica entre equipos; pairing, certificados, CA, mTLS y gRPC siguen pendientes.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
 - La validacion completa de Commercial License obtiene el fingerprint de hardware actual al arrancar y al activar/renovar; el monitor de 60 segundos solo revisa expiracion temporal.
@@ -179,7 +193,7 @@
 - `POST /api/assignments/{id}/close` es el endpoint vigente para cerrar/unassign un assignment actual.
 - Archivar un `SchoolGroup` con alumnos activos falla con `GROUP_HAS_ACTIVE_STUDENTS`.
 - Archivar un `Classroom` con grupos, alumnos activos, devices, assignments actuales o aplicaciones asociadas falla con `CLASSROOM_HAS_ACTIVE_CONTENT`.
-- Desinstalacion normal preserva `master-binding.json`; `-PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding.
+- Desinstalacion normal preserva `master-binding.json`, `network-identity.json` y la llave CNG de Network Identity; `-PurgeData` elimina Installation Identity, Commercial License, Master Windows Binding y Network Identity.
 - Cada Client de alumnos tendra inicialmente dos cuentas Windows administradas logicas: `PRIMARY` y `SECONDARY`.
 - `ManagedWindowsAccount.accountId` debe ser logico y estable; para las cuentas iniciales coincide con `PRIMARY` o `SECONDARY`.
 - El Master no almacena passwords ni credenciales de cuentas Windows administradas en `classroom.db`.

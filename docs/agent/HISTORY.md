@@ -720,3 +720,71 @@
 ### Commit sugerido
 
 `feat(master): model managed windows account switching`
+
+## 2026-08-27 - Prompt 11
+
+### Realizado
+
+- Implementada Network Identity criptografica permanente del Client en `GaltekClassroom.Agent.Service`.
+- Agregado `network-identity.json` con metadata publica separada de `installation.json`, `license.dat`, `master-binding.json` y `classroom.db`.
+- Agregado `networkIdentityId` propio, `installationId`, `keyId`, `keyName`, `publicKeyFingerprint`, `createdAtUtc` y `schemaVersion`.
+- Agregado almacenamiento de private key mediante Windows CNG/KSP de maquina con Microsoft Software Key Storage Provider.
+- Configurada llave inicial RSA 2048, de uso de firma y no exportable.
+- Agregado resolver conservador: primera ejecucion crea metadata y llave; reapertura conserva identidad y fingerprint.
+- Agregados estados `NOT_CONFIGURED`, `READY`, `INVALID`, `KEY_MISSING` e `INSTALLATION_MISMATCH`.
+- Agregados errores `NETWORK_IDENTITY_INVALID`, `NETWORK_IDENTITY_KEY_MISSING` y `NETWORK_IDENTITY_INSTALLATION_MISMATCH`.
+- Agregada CLI read-only `--network-identity-status`.
+- Actualizado `-PurgeData` para intentar eliminar la llave CNG solo cuando `network-identity.json` contiene un `keyName` seguro con prefijo Galtek.
+- Agregadas pruebas .NET de creacion, reapertura, fingerprint estable, metadata corrupta, key faltante, mismatch de instalacion, metadata sin material privado y diagnostico read-only.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Service/Network/`
+- `agent/src/GaltekClassroom.Agent.Service/Program.cs`
+- `agent/src/GaltekClassroom.Agent.Service/Worker.cs`
+- `agent/src/GaltekClassroom.Agent.Service/AgentCommandLine.cs`
+- `agent/src/GaltekClassroom.Agent.Service/Runtime/AgentRuntimeState.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/NetworkIdentityTests.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/AgentCommandLineTests.cs`
+- `installer/windows/uninstall-agent-service.ps1`
+- `installer/windows/README.md`
+- `docs/context/PROJECT_CONTEXT.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Network Identity pertenece al Agent Service del Client y no al Master Backend.
+- La private key nunca se guarda en JSON, logs, SQLite ni archivos planos.
+- `network-identity.json` contiene solo metadata publica.
+- `keyId` y `keyName` se derivan deterministamente del `installationId` para detectar estados parciales y evitar adopcion silenciosa.
+- Metadata corrupta, fingerprint incompatible, llave faltante o `installationId` distinto no regeneran identidad.
+- Network Identity no genera confianza automatica: pairing, certificados, CA, mTLS, gRPC y discovery quedan pendientes.
+
+### Cambios descartados
+
+- No se implementaron pairing, certificados emitidos por Master, CA, mTLS real, gRPC, discovery, comandos remotos, rotacion automatica de claves, envio de secretos ni UI.
+- No se uso Commercial License, IP, MAC ni hostname como identidad de red.
+- No se agrego IPC de red ni operaciones write.
+- No se hizo commit.
+
+### Pendiente
+
+- Prompt 12 debe usar la Client key como base para pairing, certificado/trust y mTLS.
+- Definir contrato de red y confianza sin convertir discovery en autorizacion.
+- Definir rotacion manual/operacional de claves en una fase posterior.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 101 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 76 pruebas superadas.
+- Parser PowerShell de `installer/windows/uninstall-agent-service.ps1`: correcto.
+- `--network-identity-status` con `GALTEK_CLASSROOM_DATA_DIR` temporal vacio: correcto, devuelve `NOT_CONFIGURED` y no crea directorio ni llave.
+
+### Commit sugerido
+
+`feat(agent): add client network identity`

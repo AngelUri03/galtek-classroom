@@ -46,4 +46,13 @@ public sealed class AgentCommandLineTests
         Assert.False(commandLine.IsValid);
         Assert.Contains("--bind-master-account requires", commandLine.ErrorMessage);
     }
+
+    [Fact]
+    public void Parse_WhenNetworkIdentityStatusIsSelected_UsesStatusMode()
+    {
+        var commandLine = AgentCommandLine.Parse(["--network-identity-status"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.NetworkIdentityStatus, commandLine.Mode);
+    }
 }

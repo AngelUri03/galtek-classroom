@@ -39,6 +39,11 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No confiar en IP o MAC como identidad de autorizacion.
 - No asumir que descubrimiento equivale a confianza.
 - No asumir que una licencia MASTER autoriza control automatico sobre cualquier cliente.
+- Mantener Network Identity separada de Installation Identity, Commercial License y Master Windows Binding.
+- La private key de Network Identity nunca debe guardarse en JSON, logs, SQLite, payload IPC ni archivos planos.
+- `network-identity.json` solo puede contener metadata publica y debe estar ligado al `installationId` actual.
+- Si Network Identity tiene metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto, no regenerar ni adoptar silenciosamente.
+- Network Identity no equivale a pairing, certificado, mTLS ni autorizacion remota.
 - La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
 - Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.

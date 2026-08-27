@@ -1,6 +1,7 @@
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.Runtime;
 
 namespace GaltekClassroom.Agent.Service;
@@ -9,17 +10,20 @@ public sealed class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly InstallationIdentityResolver _installationIdentityResolver;
+    private readonly NetworkIdentityResolver _networkIdentityResolver;
     private readonly CommercialLicenseManager _licenseManager;
     private readonly AgentRuntimeState _runtimeState;
 
     public Worker(
         ILogger<Worker> logger,
         InstallationIdentityResolver installationIdentityResolver,
+        NetworkIdentityResolver networkIdentityResolver,
         CommercialLicenseManager licenseManager,
         AgentRuntimeState runtimeState)
     {
         _logger = logger;
         _installationIdentityResolver = installationIdentityResolver;
+        _networkIdentityResolver = networkIdentityResolver;
         _licenseManager = licenseManager;
         _runtimeState = runtimeState;
     }
@@ -46,6 +50,31 @@ public sealed class Worker : BackgroundService
             resolution.Identity!.InstallationId);
 
         _runtimeState.SetInstallationIdentity(resolution.Identity);
+
+        var networkIdentityResolution = await _networkIdentityResolver.ResolveAsync(
+            resolution.Identity,
+            cancellationToken);
+
+        if (networkIdentityResolution.Status != NetworkIdentityStatus.Ready)
+        {
+            _logger.LogError(
+                "Network identity is not usable at {FilePath}. Status: {Status}. Reason: {ErrorMessage}",
+                networkIdentityResolution.FilePath,
+                networkIdentityResolution.ErrorCode ?? networkIdentityResolution.Status.ToCode(),
+                networkIdentityResolution.ErrorMessage);
+
+            throw new InvalidOperationException(
+                $"Network identity is not usable at {networkIdentityResolution.FilePath}: "
+                + $"{networkIdentityResolution.ErrorCode ?? networkIdentityResolution.Status.ToCode()}: "
+                + networkIdentityResolution.ErrorMessage);
+        }
+
+        _logger.LogInformation(
+            "Network identity ready. NetworkIdentityId: {NetworkIdentityId}. PublicKeyFingerprint: {PublicKeyFingerprint}",
+            networkIdentityResolution.Metadata!.NetworkIdentityId,
+            networkIdentityResolution.Metadata.PublicKeyFingerprint);
+
+        _runtimeState.SetNetworkIdentity(networkIdentityResolution.Metadata);
 
         var licenseState = await _licenseManager.ResolveAsync(resolution.Identity, cancellationToken);
 

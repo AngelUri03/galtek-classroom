@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 11 implementa la Network Identity criptografica permanente del Client en `GaltekClassroom.Agent.Service`. Cada instalacion tiene `networkIdentityId` propio, metadata publica en `network-identity.json` y una llave privada RSA generada localmente en Windows CNG/KSP de maquina. No hay pairing, certificados emitidos por Master, CA, mTLS, gRPC, discovery ni confianza automatica entre equipos.
+
 Prompt 9.6 formaliza el dominio futuro de cuentas Windows administradas en Clients. Cada Client podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar PCs en la cuenta objetivo, clasificando `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y bloqueos. Solo se agregan modelos/enums/planners puros y contratos compartidos; no hay passwords, Credential Provider, login/logoff real, IPC write, gRPC, pairing, mTLS ni UI.
 
 Prompt 10 agrega la primera API administrativa real del Master Backend sobre SQLite. Los endpoints de aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot pasan por `MasterAccessGuard` antes de tocar datos escolares. La UI React/Tauri futura puede iniciar con `GET /api/master/bootstrap`, elegir aula y cargar `GET /api/classrooms/{id}/snapshot` sin N+1.
@@ -16,7 +18,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 9.6 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 11 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -196,16 +198,22 @@ IMPLEMENTADO:
 - Publicacion productiva inicial: `Release`, `win-x64`, self-contained, carpeta no single-file.
 - Binarios instalados en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Scripts PowerShell en `installer/windows/` para publicar, instalar/actualizar y desinstalar.
-- `uninstall-agent-service.ps1` conserva ProgramData por defecto y solo borra identidad/licencia/binding con `-PurgeData`.
+- `uninstall-agent-service.ps1` conserva ProgramData por defecto y solo borra identidad/licencia/binding/Network Identity con `-PurgeData`.
 - Version inicial del ejecutable controlada en `agent/src/GaltekClassroom.Agent.Service/GaltekClassroom.Agent.Service.csproj`.
 - Registra inicio, estado activo y detencion limpia.
 - Es autoridad local de Installation Identity.
 - Es autoridad local de Commercial License.
 - Es autoridad local de Master Windows Binding.
+- Es autoridad local de Network Identity criptografica del Client.
 - Resuelve `installation.json` al arrancar.
 - Crea una identidad permanente cuando no existe.
 - Reutiliza el mismo `installationId` cuando el archivo existe y es valido.
 - Falla de forma controlada si `installation.json` esta corrupto o incompleto.
+- Resuelve `network-identity.json` al arrancar despues de Installation Identity.
+- Crea una Network Identity permanente cuando no existen metadata ni llave CNG previa.
+- Reutiliza el mismo `networkIdentityId`, `keyId`, `keyName` y fingerprint cuando metadata y llave siguen validas.
+- Falla de forma controlada ante metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto.
+- Expone CLI read-only `--network-identity-status`.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.
@@ -407,7 +415,6 @@ IMPLEMENTADO:
 NO IMPLEMENTADO:
 
 - Reparacion automatica de identidades corruptas.
-- Network Identity.
 
 ### Commercial License
 
@@ -472,20 +479,41 @@ NO IMPLEMENTADO:
 
 ### Network Identity
 
-PLANIFICADO:
+IMPLEMENTADO:
 
 - Identidad criptografica de red separada de la licencia comercial.
-- Par de claves del dispositivo.
+- `GaltekClassroom.Agent.Service` es la autoridad local de Network Identity.
+- `network-identity.json` vive en `<CommonApplicationData>\Galtek\Classroom\`.
+- `network-identity.json` contiene solo metadata publica: `schemaVersion`, `networkIdentityId`, `installationId`, `keyId`, `keyName`, `publicKeyFingerprint` y `createdAtUtc`.
+- `networkIdentityId` es un GUID propio y estable, distinto de `installationId` y de cualquier licencia comercial.
+- `installationId` queda asociado en metadata y se valida contra la Installation Identity actual.
+- `keyId` y `keyName` se derivan deterministamente del `installationId` para detectar estados parciales sin adoptar datos de otra instalacion.
+- La llave privada se genera localmente en el Client y no se guarda en JSON.
+- La llave privada usa Windows CNG/KSP de maquina con Microsoft Software Key Storage Provider.
+- La llave inicial es RSA 2048, de uso de firma y no exportable.
+- El fingerprint es SHA-256 de la public key en formato `SubjectPublicKeyInfo`, serializado como hexadecimal minuscula.
+- Primera ejecucion sin metadata ni llave previa crea par de claves y metadata.
+- Reapertura conserva `networkIdentityId`, `keyId`, `keyName`, public key y fingerprint.
+- Metadata corrupta, schema desconocido, `keyId`/`keyName` incompatible o fingerprint que no coincide produce `NETWORK_IDENTITY_INVALID`.
+- Metadata valida con llave CNG faltante produce `NETWORK_IDENTITY_KEY_MISSING`.
+- Metadata de otro `installationId` produce `NETWORK_IDENTITY_INSTALLATION_MISMATCH`.
+- Si falta metadata pero ya existe la llave CNG esperada, no se regenera silenciosamente y se reporta estado invalido.
+- CLI read-only `--network-identity-status` muestra estado, `networkIdentityId` y `publicKeyFingerprint`, nunca llave privada.
+- `-PurgeData` intenta eliminar la llave CNG solo cuando puede leer un `keyName` valido con prefijo de Galtek desde `network-identity.json`; no borra llaves a ciegas.
+
+PLANIFICADO:
+
 - Certificado.
 - Pairing.
 - mTLS.
 
 NO IMPLEMENTADO:
 
-- Claves.
 - Certificados.
 - Pairing.
 - Autorizacion Master-Agent.
+- Confianza automatica entre equipos.
+- Rotacion automatica de claves.
 
 ## Almacenamiento local del Agent
 
@@ -497,13 +525,17 @@ IMPLEMENTADO:
 - Archivo `installation.json` para Installation Identity.
 - Archivo `license.dat` para Commercial License.
 - Archivo `master-binding.json` para Master Windows Binding.
+- Archivo `network-identity.json` para metadata publica de Network Identity.
+- Llave privada de Network Identity fuera de JSON, en Windows CNG/KSP de maquina.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
 - Escritura del Master binding con archivo temporal, flush y reemplazo/movimiento atomico.
+- Escritura de `network-identity.json` mediante archivo temporal, flush y move atomico sin sobrescritura automatica.
 - `license.dat` guarda solo el JWT recibido.
 - `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
+- `network-identity.json` no guarda private key, secretos ni licencia comercial.
 - No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
-- Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat` ni `master-binding.json`.
+- Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json` ni la llave CNG de Network Identity.
 
 NO IMPLEMENTADO:
 
