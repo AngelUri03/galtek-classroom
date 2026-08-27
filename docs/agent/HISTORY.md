@@ -583,3 +583,69 @@
 ### Commit sugerido
 
 `feat(master): authorize local master via agent service`
+
+## 2026-08-26 - Prompt 10
+
+### Realizado
+
+- Implementada la primera API administrativa real del Master Backend sobre SQLite.
+- Agregados DTOs administrativos para aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot.
+- Agregado `MasterAdminRepository` con consultas JDBC agregadas para lecturas batch-friendly, conteos, snapshots, operaciones y retryable targets.
+- Agregado `MasterAdminService` con reglas de validacion, version optimista, archivado seguro, batches de alumnos y preflight de assignments.
+- Agregado `MasterAdminController` bajo `/api` para endpoints administrativos protegidos.
+- Reemplazado el handler especifico de device por un `RestControllerAdvice` uniforme para errores HTTP de API.
+- Documentada la API en `docs/api/master-api-v1.md`.
+- Agregadas pruebas MockMvc para autorizacion, endpoints publicos, CRUD/archive, batches, assignments, snapshot, operaciones y storage unavailable.
+- Actualizados README, arquitectura, modelo funcional, reglas, estado actual y decisiones.
+
+### Archivos principales modificados
+
+- `master-backend/src/main/java/com/galtek/classroom/admin/`
+- `master-backend/src/main/java/com/galtek/classroom/api/`
+- `master-backend/src/main/java/com/galtek/classroom/operations/ErrorCategory.java`
+- `master-backend/src/main/java/com/galtek/classroom/operations/ErrorCode.java`
+- `master-backend/src/test/java/com/galtek/classroom/admin/MasterAdminControllerTest.java`
+- `docs/api/master-api-v1.md`
+- `README.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Todo endpoint administrativo del Master Backend llama a `MasterAccessGuard` antes de leer o escribir datos escolares.
+- Los endpoints publicos sin guard quedan limitados a diagnostico local: health, device status, machine code y Master authorization.
+- Bootstrap y snapshot son modelos de lectura agregados para la UI futura, no entidades de persistencia expuestas directamente.
+- `students/batch` permite resultados independientes por fila; un alumno invalido no cancela el lote completo.
+- `assignments/batch` hace preflight completo antes de escribir y registra una `batch_operation` `ASSIGN_STUDENT`.
+- Assign/close Student -> Device solo modifica metadata SQLite; no mueve `StudentWorkspace` en filesystem.
+- `TARGET_OCCUPIED` no reemplaza automaticamente el assignment actual.
+
+### Cambios descartados
+
+- No se implementaron UI, React, Tauri, gRPC, mTLS, pairing, mDNS, filesystem real, browser automation, captura, bloqueo, wallpaper real ni comandos remotos.
+- No se agrego autenticacion/JWT al Master Backend.
+- No se creo tabla `master_windows_binding` ni se persistio `MasterWindowsBinding` en SQLite.
+- No se leyo `master-binding.json` desde Java.
+- No se versionaron bases SQLite, secretos ni artefactos.
+- No se hizo commit.
+
+### Pendiente
+
+- Prompt 11 debe elegir el siguiente alcance sin reabrir Prompt 10.
+- Mantener cualquier endpoint administrativo nuevo bajo `MasterAccessGuard`.
+- Implementar UI local o ampliar capacidades operacionales solo en fases posteriores.
+- Implementar filesystem real de `StudentWorkspace`, Network Identity, gRPC, mTLS, pairing y discovery en prompts futuros.
+
+### Validaciones
+
+- `mvn clean verify` en `master-backend`: correcto, 67 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 88 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): add protected administrative api`

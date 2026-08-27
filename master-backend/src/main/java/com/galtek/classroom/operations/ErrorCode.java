@@ -1,6 +1,14 @@
 package com.galtek.classroom.operations;
 
 public enum ErrorCode {
+    INVALID_REQUEST(ErrorCategory.OPERATION, false),
+
+    CLASSROOM_NOT_FOUND(ErrorCategory.CLASSROOM, false),
+    CLASSROOM_HAS_ACTIVE_CONTENT(ErrorCategory.CLASSROOM, false),
+
+    GROUP_NOT_FOUND(ErrorCategory.GROUP, false),
+    GROUP_HAS_ACTIVE_STUDENTS(ErrorCategory.GROUP, false),
+
     DEVICE_OFFLINE(ErrorCategory.DEVICE, true),
     DEVICE_NOT_FOUND(ErrorCategory.DEVICE, false),
     AGENT_UNAVAILABLE(ErrorCategory.DEVICE, true),
@@ -16,6 +24,7 @@ public enum ErrorCode {
     STUDENT_NOT_ASSIGNED(ErrorCategory.STUDENT, false),
     STUDENT_ALREADY_ASSIGNED(ErrorCategory.STUDENT, false),
     TARGET_OCCUPIED(ErrorCategory.STUDENT, false),
+    ASSIGNMENT_NOT_FOUND(ErrorCategory.STUDENT, false),
     SELF_SWAP_NOT_ALLOWED(ErrorCategory.STUDENT, false),
     SAME_DEVICE_ASSIGNMENT(ErrorCategory.STUDENT, false),
 
@@ -56,6 +65,7 @@ public enum ErrorCode {
 
     OPERATION_CANCELLED(ErrorCategory.OPERATION, false),
     OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true),
+    OPERATION_NOT_FOUND(ErrorCategory.OPERATION, false),
 
     MASTER_DATABASE_UNAVAILABLE(ErrorCategory.PERSISTENCE, true),
     MASTER_DATABASE_CORRUPT(ErrorCategory.PERSISTENCE, false),

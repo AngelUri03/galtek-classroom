@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 10 agrega la primera API administrativa real del Master Backend sobre SQLite. Los endpoints de aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot pasan por `MasterAccessGuard` antes de tocar datos escolares. La UI React/Tauri futura puede iniciar con `GET /api/master/bootstrap`, elegir aula y cargar `GET /api/classrooms/{id}/snapshot` sin N+1.
+
 Prompt 09 implementa la autoridad real de Master Windows Binding en `GaltekClassroom.Agent.Service`. El binding local se persiste en `master-binding.json`, se liga al `installationId`, se evalua contra `LicenseState` activo con rol `MASTER` y se compara contra el SID real del cliente conectado al Named Pipe mediante impersonation. El Master Backend Java solo consume el resultado derivado por IPC y expone diagnostico.
 
 Prompt 08 agrega persistencia SQLite local del dominio Master mediante Spring JDBC, Flyway programatico y repositories explicitos. El Master Backend ya puede crear, migrar y reabrir una base `classroom.db` con aulas, catalogo de aplicaciones, grupos, alumnos, devices, assignments, workspaces, perfiles de navegador y operaciones batch.
@@ -27,9 +29,38 @@ IMPLEMENTADO:
 - Endpoint `GET /api/device/status`, delegado al Agent Service mediante IPC local.
 - Endpoint `GET /api/device/machine-code`, delegado al Agent Service mediante IPC local.
 - Endpoint `GET /api/master/authorization`, delegado al Agent Service mediante IPC local.
+- Endpoints administrativos protegidos por `MasterAccessGuard`:
+  - `GET /api/master/bootstrap`.
+  - `GET /api/classrooms`.
+  - `POST /api/classrooms`.
+  - `PATCH /api/classrooms/{id}`.
+  - `POST /api/classrooms/{id}/archive`.
+  - `GET /api/classrooms/{id}/groups`.
+  - `POST /api/classrooms/{id}/groups`.
+  - `PATCH /api/groups/{id}`.
+  - `POST /api/groups/{id}/archive`.
+  - `GET /api/classrooms/{id}/students`.
+  - `GET /api/students/{id}`.
+  - `POST /api/classrooms/{id}/students`.
+  - `POST /api/classrooms/{id}/students/batch`.
+  - `PATCH /api/students/{id}`.
+  - `POST /api/students/{id}/archive`.
+  - `POST /api/students/archive-batch`.
+  - `GET /api/classrooms/{id}/assignments`.
+  - `POST /api/assignments`.
+  - `POST /api/assignments/batch`.
+  - `POST /api/assignments/{id}/close`.
+  - `GET /api/applications`.
+  - `GET /api/classrooms/{id}/applications`.
+  - `GET /api/operations`.
+  - `GET /api/operations/{id}`.
+  - `GET /api/operations/{id}/retryable-targets`.
+  - `GET /api/classrooms/{id}/snapshot`.
+- `RestControllerAdvice` uniforme para errores operacionales HTTP.
+- API documentada en `docs/api/master-api-v1.md`.
 - Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
 - Mapeo de Agent Service no disponible a HTTP 503 con codigo `LOCAL_AGENT_UNAVAILABLE`.
-- `MasterAccessGuard` para futuros endpoints administrativos; consulta al Agent Service y falla cerrado cuando `authorized=false`.
+- `MasterAccessGuard` para endpoints administrativos; consulta al Agent Service y falla cerrado cuando `authorized=false`.
 - Prueba automatica del health endpoint.
 - Pruebas de framing IPC, cliente local, endpoints de dispositivo, autorizacion Master, guard y salud.
 - Dominio funcional puro en paquetes por contexto:
@@ -62,8 +93,13 @@ IMPLEMENTADO:
 - Estado de almacenamiento `MasterStorageState` con `READY`, `UNAVAILABLE`, `CORRUPT` y `MIGRATION_FAILED`.
 - Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
 - Servicios transaccionales de administracion de aula, alumnos, devices, assignments, workspaces, perfiles, catalogo y batch.
+- Repositorio administrativo JDBC con modelos de lectura para bootstrap, snapshot, conteos, operaciones y batches sin exponer entidades de persistencia a controllers.
 - Control de version optimista mediante columna `version` y error `CONCURRENT_MODIFICATION`.
 - `device_assignments` como fuente de verdad de asignaciones actuales e historicas.
+- Endpoints de assignment solo modifican metadata SQLite; no mueven `StudentWorkspace`.
+- `students/batch` devuelve resultado independiente por fila y no cancela todo el lote por un alumno invalido.
+- `assignments/batch` hace preflight completo del lote, detecta conflictos internos y registra una `batch_operation` de tipo `ASSIGN_STUDENT`.
+- `GET /api/classrooms/{id}/snapshot` devuelve aula, grupos, alumnos activos, devices, current assignments, aplicaciones y resumen en una sola respuesta batch-friendly.
 - Indices unicos parciales para un assignment actual por alumno y por device.
 - Persistencia de batch operations con targets, estados, errores, attempts y retry de fallidos retryable.
 - Mapeo de errores SQLite a `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` y `CONCURRENT_MODIFICATION`.

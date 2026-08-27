@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. No implementa red, filesystem real, browser automation, UI ni comandos remotos.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. No implementa red, filesystem real, browser automation, UI ni comandos remotos.
 
 ## Principio de producto
 
@@ -36,6 +36,12 @@ Relaciona:
 - soporte planificado de recuperacion de workspace.
 
 Desde Prompt 08, `Classroom` se persiste en SQLite con aplicaciones autorizadas mediante tabla de relacion. La lista de devices, students y groups se reconstruye desde sus repositories por `classroomId`.
+
+API Prompt 10:
+
+- `GET /api/master/bootstrap` devuelve aulas activas con conteos basicos para elegir contexto.
+- `GET /api/classrooms/{id}/snapshot` devuelve aula, grupos, alumnos activos, devices, assignments actuales, aplicaciones y resumen sin requerir N+1 desde la UI.
+- Archivar un aula con grupos, alumnos activos, devices, assignments actuales o aplicaciones asociadas falla con `CLASSROOM_HAS_ACTIVE_CONTENT`.
 
 ## Device
 
@@ -101,6 +107,13 @@ Persistencia Prompt 08:
 - `active = false` lo excluye de listados activos, pero no borra historial ni assignments.
 - `currentDeviceAssignment` se deriva de `device_assignments`.
 
+API Prompt 10:
+
+- `POST /api/classrooms/{id}/students/batch` registra listas completas y devuelve resultado independiente por fila.
+- Un alumno invalido no cancela los demas alumnos del lote.
+- Los nombres duplicados estan permitidos; `studentId` sigue siendo la identidad.
+- Los listados aceptan filtros `groupId`, `active` y `search`.
+
 ## Device != Student
 
 Decision vigente:
@@ -154,6 +167,13 @@ Persistencia Prompt 08:
 - Indices unicos parciales garantizan como maximo un assignment `current = 1` por alumno y por device.
 - Mover un assignment actual cierra el anterior y crea uno nuevo dentro de una transaccion.
 - No se borran assignments historicos al archivar alumnos.
+
+API Prompt 10:
+
+- `POST /api/assignments` crea un assignment actual de metadata SQLite si el alumno y el device pertenecen al mismo aula y estan libres.
+- `POST /api/assignments/{id}/close` cierra un assignment actual y conserva historial.
+- `POST /api/assignments/batch` hace preflight completo antes de escribir, detecta conflictos internos del lote y nunca reemplaza automaticamente un target ocupado.
+- La API no mueve carpetas ni archivos de `StudentWorkspace`.
 
 ## StudentWorkspace
 
@@ -556,6 +576,11 @@ La UI futura debe permitir reintentar solo fallidos y no repetir manualmente los
 
 Prompt 08 persiste `BatchOperation` y `BatchTargetResult` con `operationId`, targets, estados, errores, mensaje operacional, `attempt` y payload JSON versionado. El retry se calcula solo sobre targets fallidos cuyo `ErrorCode` sea retryable.
 
+API Prompt 10:
+
+- `GET /api/operations`, `GET /api/operations/{id}` y `GET /api/operations/{id}/retryable-targets` exponen operaciones persistidas para la UI futura.
+- `assignments/batch` registra una operacion `ASSIGN_STUDENT` con resultados por fila.
+
 ## Preflight general
 
 Antes de ejecutar una operacion masiva, el sistema debe clasificar targets:
@@ -610,6 +635,8 @@ mensaje para usuario
 La UI futura no debe decidir comparando textos ni mostrar excepciones tecnicas como `IOException`, `SocketException`, `Win32Exception` o stack traces.
 
 SQLite debe mapear excepciones tecnicas a codigos operacionales como `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` o `CONCURRENT_MODIFICATION`.
+
+La API administrativa de Prompt 10 usa un `RestControllerAdvice` uniforme: validacion `400`, no encontrado `404`, conflictos/version `409`, Master no autorizado `403`, Agent/storage no disponible `503`.
 
 ## Retry e idempotencia
 

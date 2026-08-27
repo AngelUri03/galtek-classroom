@@ -2,7 +2,7 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, local Master Windows Binding authorization through the Agent Service, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, and SQLite persistence for the Master classroom domain. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, local Master Windows Binding authorization through the Agent Service, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, SQLite persistence for the Master classroom domain, and the first protected Master administrative API. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ The current iteration implements local Installation Identity, development Machin
 - `agent/tests/GaltekClassroom.Agent.Session.Tests/`: automated tests for Session Agent lifecycle, single instance locking, backoff, reconnect behavior, and CLI mode parsing.
 - `protocol/`: cross-language protocol notes, including `protocol/local-ipc-v1.md`.
 - `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service, Session Agent, or full Agent.
-- `docs/`: project context, architecture notes, decisions, and handoff state.
+- `docs/`: project context, API notes, architecture notes, decisions, and handoff state.
 
 Before developing classroom functionality, read `docs/context/FUNCTIONAL_MODEL.md`. It is the stable domain contract for Devices, Students, Student Workspaces, Master Windows Binding, batch-first operations, error handling, retry, and rollback.
 
@@ -71,6 +71,31 @@ Invoke-RestMethod http://localhost:8080/api/master/authorization
 ```
 
 If the Agent Service is not available, `/api/device/status`, `/api/device/machine-code` and `/api/master/authorization` return HTTP `503` with code `LOCAL_AGENT_UNAVAILABLE`. `/api/system/health` only reports Master Backend health and does not depend on the Agent Service.
+
+### Master Administrative API
+
+Administrative endpoints are documented in `docs/api/master-api-v1.md`.
+
+They require local Master authorization through `MasterAccessGuard`. The only public diagnostic endpoints are:
+
+- `GET /api/system/health`
+- `GET /api/device/status`
+- `GET /api/device/machine-code`
+- `GET /api/master/authorization`
+
+Bootstrap for the future UI:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/master/bootstrap
+```
+
+Classroom snapshot:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/classrooms/<classroomId>/snapshot
+```
+
+The API includes protected endpoints for classrooms, groups, students, batch student registration, assignments, assignment batch preflight/write, applications, operations and retryable targets. Assignment endpoints only change SQLite metadata in this phase; they do not move files or run remote commands.
 
 ### Master SQLite Data
 

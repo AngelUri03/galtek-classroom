@@ -40,6 +40,8 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No asumir que descubrimiento equivale a confianza.
 - No asumir que una licencia MASTER autoriza control automatico sobre cualquier cliente.
 - La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
+- Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares.
+- Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
 - Nunca confiar en un SID declarado por JSON, UI, request HTTP o payload IPC.
 - El SID local del caller debe derivarse del token real del cliente Named Pipe mediante APIs Windows soportadas.
 - Cualquier error o duda en autorizacion Master debe fallar cerrado con `authorized=false`.
@@ -80,6 +82,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No persistir passwords, cookies, tokens, cache protegido ni secretos de navegador.
 - No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado es el Agent Service.
 - Consultas de listados deben ser batch-friendly; evitar N+1 para classroom, group, devices, assignments y targets batch.
+- Bootstrap y snapshot deben devolver modelos de lectura agregados para la UI, no entidades de persistencia.
 - Las escrituras multi-tabla deben ser transaccionales y tener pruebas de rollback cuando afecten invariantes.
 - Usar version optimista en updates mutables y mapear conflictos a `CONCURRENT_MODIFICATION`.
 

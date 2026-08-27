@@ -166,4 +166,17 @@
 - Reemplazar binding requiere `--replace-master-binding`; no se sobrescribe silenciosamente.
 - Binding corrupto, incompleto, schema desconocido o SID invalido no tumba el Agent Service y bloquea Master como `MASTER_BINDING_INVALID`.
 - Ante Agent Service no disponible, el Master Backend falla cerrado con HTTP 503 `LOCAL_AGENT_UNAVAILABLE`.
+- Los endpoints administrativos del Master Backend deben ejecutar `MasterAccessGuard` antes de acceder a datos escolares.
+- Solo `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization` quedan publicos como diagnostico local.
+- La API administrativa usa errores HTTP uniformes con `code`, `message` y `detail`, sin exponer excepciones tecnicas ni SQL.
+- `GET /api/master/bootstrap` es el entrypoint inicial de la UI futura: autorizacion derivada, storage y aulas disponibles con conteos.
+- `GET /api/classrooms/{id}/snapshot` es la lectura agregada para pintar aula, alumnos, devices, assignments actuales y aplicaciones sin N+1 desde UI.
+- Los controllers administrativos usan DTOs; no exponen entidades de persistencia.
+- La API administrativa usa un repositorio JDBC de modelos de lectura/escritura para conteos, snapshots y batches batch-friendly.
+- `students/batch` permite parcialidad por fila; un registro invalido no cancela los demas registros del lote.
+- `assignments/batch` hace preflight del lote completo antes de escribir y registra una `batch_operation` `ASSIGN_STUDENT`.
+- Assign/close Student -> Device en Prompt 10 solo cambia metadata SQLite; no mueve `StudentWorkspace` en filesystem.
+- `POST /api/assignments/{id}/close` es el endpoint vigente para cerrar/unassign un assignment actual.
+- Archivar un `SchoolGroup` con alumnos activos falla con `GROUP_HAS_ACTIVE_STUDENTS`.
+- Archivar un `Classroom` con grupos, alumnos activos, devices, assignments actuales o aplicaciones asociadas falla con `CLASSROOM_HAS_ACTIVE_CONTENT`.
 - Desinstalacion normal preserva `master-binding.json`; `-PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding.
