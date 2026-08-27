@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 9.6 formaliza el dominio futuro de cuentas Windows administradas en Clients. Cada Client podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar PCs en la cuenta objetivo, clasificando `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y bloqueos. Solo se agregan modelos/enums/planners puros y contratos compartidos; no hay passwords, Credential Provider, login/logoff real, IPC write, gRPC, pairing, mTLS ni UI.
+
 Prompt 10 agrega la primera API administrativa real del Master Backend sobre SQLite. Los endpoints de aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot pasan por `MasterAccessGuard` antes de tocar datos escolares. La UI React/Tauri futura puede iniciar con `GET /api/master/bootstrap`, elegir aula y cargar `GET /api/classrooms/{id}/snapshot` sin N+1.
 
 Prompt 09 implementa la autoridad real de Master Windows Binding en `GaltekClassroom.Agent.Service`. El binding local se persiste en `master-binding.json`, se liga al `installationId`, se evalua contra `LicenseState` activo con rol `MASTER` y se compara contra el SID real del cliente conectado al Named Pipe mediante impersonation. El Master Backend Java solo consume el resultado derivado por IPC y expone diagnostico.
@@ -14,7 +16,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 09 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 9.6 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -72,11 +74,15 @@ IMPLEMENTADO:
   - `application`: catalogo de aplicaciones por `applicationId`.
   - `operations`: catalogo de acciones, batch, preflight, resultados, errores, conflict policy y workflows.
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
+  - `windows`: cuentas administradas `PRIMARY`/`SECONDARY`, estado de sesion Windows y preflight batch para cambio de cuenta.
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
+- `ManagedAccountSwitchPlanner` para preflight de `SWITCH_MANAGED_ACCOUNT` sin iniciar ni cerrar sesiones reales.
 - `BatchOperationPlanner` para clasificar targets `READY`, `WARNING`, `BLOCKED`.
 - Modelo central `ErrorCode` con categorias y bandera retryable, separado de mensajes para usuario.
+- Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- Estado de resultado por target `NO_CHANGE` tratado como exito no retryable.
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
 - Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
@@ -111,6 +117,7 @@ PLANIFICADO:
 - gRPC/Protobuf para comunicacion con Agents.
 - Visualizacion de equipos, miniaturas y estado.
 - UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
+- Consulta y cambio masivo de sesion Windows administrada por `accountId` logico.
 - Integracion real de workspaces, navegador, transferencia, wallpaper, proyeccion y auditoria.
 - Auditoria administrativa.
 
@@ -123,6 +130,8 @@ NO IMPLEMENTADO:
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
+- Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
+- Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
 
 ## Almacenamiento local del Master
 
@@ -233,6 +242,8 @@ PLANIFICADO:
 - Heartbeat.
 - Recepcion de comandos estructurados.
 - Operaciones privilegiadas.
+- Custodia futura de credenciales de cuentas Windows administradas de Client, protegidas con mecanismos seguros de Windows.
+- Integracion futura soportada por Windows para logon/switch, contemplando Credential Provider.
 - Coordinacion con Session Agent.
 - Coordinacion funcional con Session Agent para operaciones futuras.
 
@@ -247,6 +258,12 @@ NO IMPLEMENTADO:
 - DPAPI o endurecimiento avanzado de ACL.
 - Clock rollback.
 - Enforcements de features.
+- Passwords reales de cuentas Windows administradas.
+- DPAPI aplicado a secretos de cuentas administradas.
+- Credential Provider.
+- Login/logoff Windows real.
+- Cambio real de usuario Windows.
+- Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Comandos MASTER protegidos por autorizacion.
 - Comandos remotos.
 - Comunicacion de red.
@@ -317,6 +334,7 @@ IMPLEMENTADO:
 - Framing IPC v1.
 - Constantes de operaciones, errores, nombre de pipe y limite de mensaje.
 - Contratos futuros minimos para operaciones tipadas, estados batch, estados por target, preflight, destinos logicos, conflict policies y errores operacionales.
+- Constantes futuras para cuentas administradas `PRIMARY`/`SECONDARY`, estados de sesion Windows y acciones `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING`, `BLOCKED`.
 
 PLANIFICADO:
 
@@ -483,6 +501,7 @@ IMPLEMENTADO:
 - Escritura del Master binding con archivo temporal, flush y reemplazo/movimiento atomico.
 - `license.dat` guarda solo el JWT recibido.
 - `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
+- No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
 - Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat` ni `master-binding.json`.
 
@@ -491,6 +510,7 @@ NO IMPLEMENTADO:
 - Base de datos local.
 - Logs persistentes en disco.
 - DPAPI/ACL hardening avanzado para `license.dat`.
+- Almacenamiento seguro futuro de credenciales `PRIMARY`/`SECONDARY`.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
@@ -501,6 +521,15 @@ VIGENTE DESDE AHORA:
 - No permitir ejecucion remota arbitraria.
 - No aceptar `cmd.exe /c`, PowerShell arbitrario, shell remota ni rutas arbitrarias enviadas por un Master.
 - Usar comandos futuros explicitos y estructurados, por ejemplo `LOCK_INPUT`, `UNLOCK_INPUT`, `OPEN_APPLICATION` con `appId`, `SHUTDOWN`, `RESTART`, `START_PROJECTION`, `STOP_PROJECTION`.
+- Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- Los comandos futuros para cuentas administradas solo enviaran `accountId` logico (`PRIMARY`/`SECONDARY`), nunca passwords.
+- El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
+- La UI futura nunca recibira passwords ni secretos de cuentas administradas.
+- Logs no deben mostrar passwords ni material equivalente.
+- La credencial real futura pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
+- No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar o cambiar sesion Windows.
+- El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
+- Mantener siempre una via estandar de acceso/recovery de Windows fuera de Galtek.
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
 - Operaciones de contenido deben usar destinos logicos de `StudentWorkspace`; el Master no debe enviar rutas absolutas arbitrarias ni path traversal.
 - `Device` y `Student` son entidades independientes; mover un alumno es un workflow de alumno/workspace, no una copia manual de una carpeta de PC a PC.
@@ -520,4 +549,5 @@ VIGENTE DESDE AHORA:
 - Rebinding de Master siempre requiere intencion explicita.
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
+- Solo un Master autorizado y, posteriormente, emparejado por red podra ordenar logon/logoff/switch en Clients.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

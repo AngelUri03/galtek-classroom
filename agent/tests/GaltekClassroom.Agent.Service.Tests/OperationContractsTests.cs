@@ -15,6 +15,10 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.DistributeFile, operations);
         Assert.Contains(ClassroomOperationTypes.MoveStudent, operations);
         Assert.Contains(ClassroomOperationTypes.SwapStudents, operations);
+        Assert.Contains(ClassroomOperationTypes.GetWindowsSessionState, operations);
+        Assert.Contains(ClassroomOperationTypes.LogonManagedAccount, operations);
+        Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
+        Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
     }
 
     [Fact]
@@ -39,6 +43,38 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomWorkspaceDestinations.ClassroomShared, destinations);
         Assert.DoesNotContain(@"C:\Windows\System32", destinations);
         Assert.DoesNotContain("..\\..\\Windows", destinations);
+    }
+
+    [Fact]
+    public void ManagedWindowsAccountContracts_ExposeLogicalIdsAndSessionStatesOnly()
+    {
+        var accountTypes = ConstantValues(typeof(ClassroomManagedWindowsAccountTypes));
+        var sessionStates = ConstantValues(typeof(ClassroomWindowsSessionStates));
+        var switchActions = ConstantValues(typeof(ClassroomManagedAccountSwitchActions));
+
+        Assert.Contains(ClassroomManagedWindowsAccountTypes.Primary, accountTypes);
+        Assert.Contains(ClassroomManagedWindowsAccountTypes.Secondary, accountTypes);
+        Assert.DoesNotContain("Administrator", accountTypes);
+        Assert.Contains(ClassroomWindowsSessionStates.NoSession, sessionStates);
+        Assert.Contains(ClassroomWindowsSessionStates.PrimaryActive, sessionStates);
+        Assert.Contains(ClassroomWindowsSessionStates.SecondaryActive, sessionStates);
+        Assert.Contains(ClassroomManagedAccountSwitchActions.NoChange, switchActions);
+        Assert.Contains(ClassroomManagedAccountSwitchActions.Logon, switchActions);
+        Assert.Contains(ClassroomManagedAccountSwitchActions.Switch, switchActions);
+    }
+
+    [Fact]
+    public void ManagedWindowsAccountErrors_AreStructuredOperationCodes()
+    {
+        var errorCodes = ConstantValues(typeof(ClassroomOperationErrorCodes));
+
+        Assert.Contains(ClassroomOperationErrorCodes.AccountNotConfigured, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialNotConfigured, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionUnknown, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.CredentialProviderUnavailable, errorCodes);
     }
 
     private static HashSet<string> ConstantValues(Type type)

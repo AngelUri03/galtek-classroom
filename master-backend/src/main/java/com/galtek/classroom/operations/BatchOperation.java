@@ -66,7 +66,7 @@ public record BatchOperation(
             return BatchOperationStatus.PLANNED;
         }
 
-        if (targets.stream().allMatch(target -> target.status() == TargetExecutionStatus.SUCCESS)) {
+        if (targets.stream().allMatch(BatchOperation::completedSuccessfully)) {
             return BatchOperationStatus.SUCCESS;
         }
 
@@ -83,10 +83,15 @@ public record BatchOperation(
         }
 
         if (targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.FAILED)
-                && targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.SUCCESS)) {
+                && targets.stream().anyMatch(BatchOperation::completedSuccessfully)) {
             return BatchOperationStatus.PARTIAL_SUCCESS;
         }
 
         return BatchOperationStatus.RUNNING;
+    }
+
+    private static boolean completedSuccessfully(BatchTargetResult target) {
+        return target.status() == TargetExecutionStatus.SUCCESS
+                || target.status() == TargetExecutionStatus.NO_CHANGE;
     }
 }

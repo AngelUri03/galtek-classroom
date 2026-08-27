@@ -48,6 +48,16 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Un administrador Windows distinto no hereda Master si su SID no esta ligado.
 - `MasterWindowsBinding` nunca va en SQLite ni dentro de `installation.json` o `license.dat`.
 - Rebinding de Master siempre debe ser explicito.
+- El Master no debe almacenar passwords de cuentas Windows administradas en `classroom.db`.
+- El Master no debe enviar passwords en comandos normales.
+- La UI nunca debe recibir passwords ni secretos de cuentas administradas.
+- Los logs nunca deben mostrar passwords ni material equivalente.
+- Los comandos futuros de cuentas Windows administradas deben enviar solo `accountId` logico (`PRIMARY`/`SECONDARY`).
+- La credencial real futura pertenece al Agent Service del Client y debe protegerse con mecanismos seguros de Windows.
+- No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
+- El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
+- Mantener siempre una via estandar de acceso/recovery de Windows.
+- Solo un Master autorizado y posteriormente emparejado por red podra ordenar logon/logoff/switch en Clients.
 
 ## Dominio funcional y UX masiva
 
@@ -63,6 +73,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Un Master se autoriza por Windows SID ligado, no solo por username ni por pertenecer a Administrators.
 - Errores tecnicos deben mapearse a errores operacionales antes de llegar a UI.
 - Las futuras UI deben priorizar acciones masivas, recuperacion y minima intervencion manual.
+- El cambio futuro de cuenta Windows administrada debe ser batch-first: una sola accion sobre aula/grupo/devices, con `NO_CHANGE`, exitos, fallidos y retry solo de fallidos.
 
 ## Persistencia Master SQLite
 
@@ -80,6 +91,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Mapear excepciones SQLite a `ErrorCode`; no propagar mensajes SQL tecnicos a UI.
 - Minimizar PII: guardar solo datos necesarios para aula, alumno, workspace, perfiles y operaciones.
 - No persistir passwords, cookies, tokens, cache protegido ni secretos de navegador.
+- No persistir credenciales ni passwords de cuentas Windows administradas en `classroom.db`.
 - No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado es el Agent Service.
 - Consultas de listados deben ser batch-friendly; evitar N+1 para classroom, group, devices, assignments y targets batch.
 - Bootstrap y snapshot deben devolver modelos de lectura agregados para la UI, no entidades de persistencia.

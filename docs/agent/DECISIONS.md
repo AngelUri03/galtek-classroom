@@ -180,3 +180,23 @@
 - Archivar un `SchoolGroup` con alumnos activos falla con `GROUP_HAS_ACTIVE_STUDENTS`.
 - Archivar un `Classroom` con grupos, alumnos activos, devices, assignments actuales o aplicaciones asociadas falla con `CLASSROOM_HAS_ACTIVE_CONTENT`.
 - Desinstalacion normal preserva `master-binding.json`; `-PurgeData` elimina Installation Identity, Commercial License y Master Windows Binding.
+- Cada Client de alumnos tendra inicialmente dos cuentas Windows administradas logicas: `PRIMARY` y `SECONDARY`.
+- `ManagedWindowsAccount.accountId` debe ser logico y estable; para las cuentas iniciales coincide con `PRIMARY` o `SECONDARY`.
+- El Master no almacena passwords ni credenciales de cuentas Windows administradas en `classroom.db`.
+- El Master no envia passwords en comandos normales y la UI futura nunca recibe passwords.
+- Logs no deben mostrar passwords ni material equivalente.
+- La credencial real futura de cuentas administradas pertenece al Agent Service del Client.
+- El almacenamiento futuro de esa credencial debe protegerse con mecanismos seguros de Windows.
+- Los comandos futuros de cuentas administradas solo enviaran `accountId` logico, no username como autoridad ni password.
+- `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT` son operaciones futuras tipadas; no implican IPC write ni ejecucion real en Prompt 9.6.
+- `WindowsSessionState` distingue `NO_SESSION`, `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE`, `OTHER_SESSION_ACTIVE` y `UNKNOWN`.
+- `ManagedAccountSwitchPlanner` decide por target entre `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y `BLOCKED`.
+- `NO_CHANGE` cuenta como resultado exitoso no retryable para operaciones idempotentes como `SWITCH_MANAGED_ACCOUNT(PRIMARY)`.
+- `DEVICE_OFFLINE` sigue siendo el error correcto para Clients no disponibles durante cambio de cuenta.
+- `ACCOUNT_NOT_CONFIGURED` y `MANAGED_CREDENTIAL_NOT_CONFIGURED` requieren configuracion previa; no se resuelven con retry automatico.
+- `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED` y `SESSION_SWITCH_FAILED` son errores retryable por target.
+- `CREDENTIAL_PROVIDER_UNAVAILABLE` bloquea la accion hasta corregir instalacion/configuracion.
+- No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar/cerrar/cambiar sesion Windows.
+- El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
+- Mantener siempre una via estandar de acceso/recovery de Windows.
+- Solo un Master autorizado y posteriormente emparejado por red podra ordenar logon/logoff/switch en Clients.

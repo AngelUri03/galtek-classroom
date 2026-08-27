@@ -10,6 +10,8 @@ public enum ErrorCategory {
     BROWSER,
     APPLICATION,
     CONTENT,
+    WINDOWS_ACCOUNT,
+    WINDOWS_SESSION,
     AUTHORIZATION,
     OPERATION,
     PERSISTENCE

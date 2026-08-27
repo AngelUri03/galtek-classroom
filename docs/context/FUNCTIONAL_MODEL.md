@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. No implementa red, filesystem real, browser automation, UI ni comandos remotos.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. No implementa red, filesystem real, browser automation, UI, login/logoff Windows ni comandos remotos.
 
 ## Principio de producto
 
@@ -81,6 +81,81 @@ Persistencia Prompt 08:
 - `Device` se persiste por `device_id` logico del Master.
 - `installationId` tiene indice unico.
 - `assignedStudentId` se deriva del assignment actual; no es la fuente de verdad.
+
+## ManagedWindowsAccount
+
+`ManagedWindowsAccount` representa una cuenta Windows administrada futura en un Client. Cada PC de alumnos tendra inicialmente dos slots logicos:
+
+```text
+PRIMARY
+SECONDARY
+```
+
+Campos:
+
+- `accountId`: identificador logico estable enviado en comandos futuros; debe ser `PRIMARY` o `SECONDARY`.
+- `accountType`: `PRIMARY` o `SECONDARY`.
+- `accountReference`: referencia informativa de cuenta local/dominio cuando exista; no es password.
+- `configured`: indica si el slot esta configurado en el Client.
+- `credentialConfigured`: indica si el Client tiene credencial usable.
+- `status`: estado operacional del slot, por ejemplo `READY`, `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` o `UNKNOWN`.
+
+Reglas:
+
+- El Master no almacena passwords de estas cuentas en `classroom.db`.
+- El Master no envia passwords en comandos normales.
+- La UI futura nunca recibe passwords.
+- Logs nunca deben mostrar passwords ni material equivalente.
+- La credencial real futura pertenece al Agent Service del Client.
+- El almacenamiento futuro del secreto debe protegerse con mecanismos seguros de Windows.
+- Los comandos remotos futuros solo enviaran `accountId` logico como `PRIMARY` o `SECONDARY`.
+- No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar sesion.
+- El mecanismo productivo de login/cambio de usuario debe disenarse despues con integracion soportada por Windows, contemplando Credential Provider.
+- Siempre debe conservarse una via estandar de acceso/recovery de Windows.
+
+Prompt 9.6 solo agrega modelo puro; no implementa passwords, DPAPI, Credential Provider, login/logoff real ni almacenamiento de credenciales.
+
+## WindowsSessionState
+
+`WindowsSessionState` representa el estado observado futuro de sesion Windows en un Client:
+
+```text
+NO_SESSION
+PRIMARY_ACTIVE
+SECONDARY_ACTIVE
+OTHER_SESSION_ACTIVE
+UNKNOWN
+```
+
+`OTHER_SESSION_ACTIVE` no debe tratarse como permiso para forzar una cuenta administrada sin preflight y reglas explicitas. `UNKNOWN` bloquea acciones automaticas hasta obtener estado confiable o reportar error operacional.
+
+## ManagedAccountSwitchPlanner
+
+`ManagedAccountSwitchPlanner` planifica una operacion futura `SWITCH_MANAGED_ACCOUNT(targetAccountType)` sobre devices. No inicia sesion, no cierra sesion, no toca Windows y no conoce passwords.
+
+Decisiones por target:
+
+- Cuenta objetivo ya activa: `READY` con accion `NO_CHANGE`.
+- Otra cuenta administrada activa: `READY` con accion `SWITCH`.
+- Sin sesion: `READY` con accion `LOGON`.
+- Device offline/no disponible: `BLOCKED` con accion `PENDING` y error operacional del device, por ejemplo `DEVICE_OFFLINE`.
+- Cuenta no configurada: `BLOCKED` con `ACCOUNT_NOT_CONFIGURED`.
+- Credencial no configurada: `BLOCKED` con `MANAGED_CREDENTIAL_NOT_CONFIGURED`.
+- Sesion desconocida u otra sesion no administrada: `BLOCKED` con `WINDOWS_SESSION_UNKNOWN`.
+
+Ejemplo batch-first:
+
+```text
+Objetivo: PRIMARY
+
+PC01 PRIMARY    -> NO_CHANGE
+PC02 SECONDARY  -> SWITCH
+PC03 NO_SESSION -> LOGON
+PC04 PRIMARY    -> NO_CHANGE
+PC05 OFFLINE    -> PENDING
+```
+
+La maestra ejecuta una sola accion masiva. La UI futura debe permitir actuar solo sobre PCs que necesitan cambio y mostrar cuales quedaron sin cambio.
 
 ## Student
 
@@ -383,6 +458,15 @@ SHUTDOWN
 RESTART
 ```
 
+Sesion Windows administrada:
+
+```text
+GET_WINDOWS_SESSION_STATE
+LOGON_MANAGED_ACCOUNT
+LOGOFF_WINDOWS_SESSION
+SWITCH_MANAGED_ACCOUNT
+```
+
 Aplicaciones:
 
 ```text
@@ -572,6 +656,8 @@ message
 attempt
 ```
 
+`NO_CHANGE` es un resultado valido por target para operaciones idempotentes como `SWITCH_MANAGED_ACCOUNT(PRIMARY)`: significa que el equipo ya estaba en el estado objetivo, cuenta como exito y no entra en retry.
+
 La UI futura debe permitir reintentar solo fallidos y no repetir manualmente los exitosos.
 
 Prompt 08 persiste `BatchOperation` y `BatchTargetResult` con `operationId`, targets, estados, errores, mensaje operacional, `attempt` y payload JSON versionado. El retry se calcula solo sobre targets fallidos cuyo `ErrorCode` sea retryable.
@@ -580,6 +666,18 @@ API Prompt 10:
 
 - `GET /api/operations`, `GET /api/operations/{id}` y `GET /api/operations/{id}/retryable-targets` exponen operaciones persistidas para la UI futura.
 - `assignments/batch` registra una operacion `ASSIGN_STUDENT` con resultados por fila.
+
+Ejemplo futuro:
+
+```text
+SWITCH_MANAGED_ACCOUNT(PRIMARY) sobre 25 PCs
+
+21 NO_CHANGE
+3 SUCCESS
+1 FAILED
+```
+
+El retry posterior debe actuar solo sobre el target `FAILED` si su `errorCode` es retryable; nunca debe repetir los 21 `NO_CHANGE` ni los 3 `SUCCESS`.
 
 ## Preflight general
 
@@ -616,6 +714,8 @@ Categorias:
 - Browser.
 - Application.
 - Content.
+- Windows Account.
+- Windows Session.
 - Authorization.
 - Operation.
 - Persistence.
@@ -638,6 +738,20 @@ SQLite debe mapear excepciones tecnicas a codigos operacionales como `MASTER_DAT
 
 La API administrativa de Prompt 10 usa un `RestControllerAdvice` uniforme: validacion `400`, no encontrado `404`, conflictos/version `409`, Master no autorizado `403`, Agent/storage no disponible `503`.
 
+Errores de cuentas/sesion Windows administrada formalizados en Prompt 9.6:
+
+```text
+ACCOUNT_NOT_CONFIGURED
+MANAGED_CREDENTIAL_NOT_CONFIGURED
+WINDOWS_SESSION_UNKNOWN
+WINDOWS_LOGON_FAILED
+WINDOWS_LOGOFF_FAILED
+SESSION_SWITCH_FAILED
+CREDENTIAL_PROVIDER_UNAVAILABLE
+```
+
+`DEVICE_OFFLINE` sigue siendo el error correcto cuando el Client no esta disponible.
+
 ## Retry e idempotencia
 
 Errores potencialmente reintentables:
@@ -648,6 +762,10 @@ AGENT_UNAVAILABLE
 SESSION_NOT_AVAILABLE temporal
 TRANSFER_FAILED
 FILE_WRITE_FAILED
+WINDOWS_SESSION_UNKNOWN
+WINDOWS_LOGON_FAILED
+WINDOWS_LOGOFF_FAILED
+SESSION_SWITCH_FAILED
 ```
 
 Errores que requieren intervencion:
@@ -657,6 +775,9 @@ INVALID_URL
 APPLICATION_NOT_INSTALLED
 TARGET_OCCUPIED
 INSUFFICIENT_DISK_SPACE
+ACCOUNT_NOT_CONFIGURED
+MANAGED_CREDENTIAL_NOT_CONFIGURED
+CREDENTIAL_PROVIDER_UNAVAILABLE
 ```
 
 No debe existir retry infinito.
@@ -672,6 +793,8 @@ SHUTDOWN
 REPLACE_FILE
 MOVE_STUDENT
 SWAP_STUDENTS
+LOGOFF_WINDOWS_SESSION
+SWITCH_MANAGED_ACCOUNT
 PURGE/DELETE futuro
 ```
 

@@ -649,3 +649,74 @@
 ### Commit sugerido
 
 `feat(master): add protected administrative api`
+
+## 2026-08-26 - Prompt 9.6
+
+### Realizado
+
+- Formalizado el requisito futuro de cuentas Windows administradas en Clients.
+- Agregados modelos puros Java para `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
+- Agregado `ManagedAccountSwitchPlanner` con plan batch por device para `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y `BLOCKED`.
+- Agregadas operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- Agregado `TargetExecutionStatus.NO_CHANGE` como resultado exitoso no retryable para operaciones idempotentes.
+- Agregados errores estructurados para cuenta/sesion Windows administrada.
+- Actualizados contratos compartidos C# con tipos de cuenta, estados de sesion, acciones de switch, operaciones y errores futuros.
+- Agregadas pruebas Java del planner y pruebas .NET de contratos compartidos.
+- Actualizados contexto, arquitectura, modelo funcional, reglas de desarrollo, estado actual, decisiones e historial.
+
+### Archivos principales modificados
+
+- `master-backend/src/main/java/com/galtek/classroom/windows/`
+- `master-backend/src/main/java/com/galtek/classroom/operations/OperationType.java`
+- `master-backend/src/main/java/com/galtek/classroom/operations/TargetExecutionStatus.java`
+- `master-backend/src/main/java/com/galtek/classroom/operations/BatchOperation.java`
+- `master-backend/src/main/java/com/galtek/classroom/operations/ErrorCategory.java`
+- `master-backend/src/main/java/com/galtek/classroom/operations/ErrorCode.java`
+- `master-backend/src/test/java/com/galtek/classroom/windows/ManagedAccountSwitchPlannerTest.java`
+- `agent/src/GaltekClassroom.Agent.Shared/OperationContracts.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/OperationContractsTests.cs`
+- `docs/context/PROJECT_CONTEXT.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Cada Client tendra inicialmente dos cuentas administradas logicas: `PRIMARY` y `SECONDARY`.
+- Los comandos futuros de cuentas administradas enviaran solo `accountId`; no enviaran passwords.
+- El Master no almacenara credenciales de cuentas administradas en `classroom.db`.
+- La UI futura no recibira passwords ni secretos.
+- La credencial real futura pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
+- `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir `NO_CHANGE`, `SUCCESS` y `FAILED`; retry solo de fallidos retryable.
+- `DEVICE_OFFLINE` se conserva como error para Clients no disponibles.
+- `ACCOUNT_NOT_CONFIGURED` y `MANAGED_CREDENTIAL_NOT_CONFIGURED` bloquean hasta configuracion explicita.
+- Productivamente, login/switch debera disenarse despues con integracion soportada por Windows, contemplando Credential Provider.
+
+### Cambios descartados
+
+- No se implementaron passwords reales, DPAPI, Credential Provider ni almacenamiento de credenciales.
+- No se implemento login/logoff Windows real ni cambio real de usuario.
+- No se agrego IPC write, gRPC, pairing, mTLS ni UI.
+- No se tocaron endpoints de la API administrativa de Prompt 10.
+- No se usaron SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria.
+- No se hizo commit.
+
+### Pendiente
+
+- Disenar la custodia segura de credenciales en el Agent Service del Client.
+- Disenar el mecanismo productivo soportado por Windows para logon/logoff/switch.
+- Definir contratos de red, autorizacion por pairing/mTLS e IPC write cuando corresponda.
+- Integrar la UI futura batch-first sin exponer secretos.
+
+### Validaciones
+
+- `mvn clean verify` en `master-backend`: correcto, 76 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 90 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): model managed windows account switching`

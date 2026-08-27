@@ -14,6 +14,10 @@ public static class ClassroomOperationTypes
     public const string CreateFolder = "CREATE_FOLDER";
     public const string SetWallpaper = "SET_WALLPAPER";
     public const string RestoreWallpaper = "RESTORE_WALLPAPER";
+    public const string GetWindowsSessionState = "GET_WINDOWS_SESSION_STATE";
+    public const string LogonManagedAccount = "LOGON_MANAGED_ACCOUNT";
+    public const string LogoffWindowsSession = "LOGOFF_WINDOWS_SESSION";
+    public const string SwitchManagedAccount = "SWITCH_MANAGED_ACCOUNT";
     public const string AssignStudent = "ASSIGN_STUDENT";
     public const string MoveStudent = "MOVE_STUDENT";
     public const string SwapStudents = "SWAP_STUDENTS";
@@ -33,6 +37,7 @@ public static class ClassroomOperationStatuses
 public static class ClassroomTargetStatuses
 {
     public const string Pending = "PENDING";
+    public const string NoChange = "NO_CHANGE";
     public const string Success = "SUCCESS";
     public const string Failed = "FAILED";
     public const string Skipped = "SKIPPED";
@@ -63,6 +68,30 @@ public static class ClassroomConflictPolicies
     public const string Skip = "SKIP";
     public const string Replace = "REPLACE";
     public const string Rename = "RENAME";
+}
+
+public static class ClassroomManagedWindowsAccountTypes
+{
+    public const string Primary = "PRIMARY";
+    public const string Secondary = "SECONDARY";
+}
+
+public static class ClassroomWindowsSessionStates
+{
+    public const string NoSession = "NO_SESSION";
+    public const string PrimaryActive = "PRIMARY_ACTIVE";
+    public const string SecondaryActive = "SECONDARY_ACTIVE";
+    public const string OtherSessionActive = "OTHER_SESSION_ACTIVE";
+    public const string Unknown = "UNKNOWN";
+}
+
+public static class ClassroomManagedAccountSwitchActions
+{
+    public const string NoChange = "NO_CHANGE";
+    public const string Logon = "LOGON";
+    public const string Switch = "SWITCH";
+    public const string Pending = "PENDING";
+    public const string Blocked = "BLOCKED";
 }
 
 public static class ClassroomOperationErrorCodes
@@ -99,6 +128,13 @@ public static class ClassroomOperationErrorCodes
     public const string InvalidFolderName = "INVALID_FOLDER_NAME";
     public const string InvalidDestination = "INVALID_DESTINATION";
     public const string ImageInvalid = "IMAGE_INVALID";
+    public const string AccountNotConfigured = "ACCOUNT_NOT_CONFIGURED";
+    public const string ManagedCredentialNotConfigured = "MANAGED_CREDENTIAL_NOT_CONFIGURED";
+    public const string WindowsSessionUnknown = "WINDOWS_SESSION_UNKNOWN";
+    public const string WindowsLogonFailed = "WINDOWS_LOGON_FAILED";
+    public const string WindowsLogoffFailed = "WINDOWS_LOGOFF_FAILED";
+    public const string SessionSwitchFailed = "SESSION_SWITCH_FAILED";
+    public const string CredentialProviderUnavailable = "CREDENTIAL_PROVIDER_UNAVAILABLE";
     public const string MasterNotLicensed = "MASTER_NOT_LICENSED";
     public const string MasterWindowsAccountNotAuthorized = "MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED";
     public const string MasterNotPaired = "MASTER_NOT_PAIRED";

@@ -2,15 +2,15 @@
 
 ## Ultima actualizacion
 
-2026-08-26 - Prompt 10.
+2026-08-26 - Prompt 9.6.
 
 ## Estado del proyecto
 
-Prompt 10 deja implementada la primera API administrativa real del Master Backend sobre SQLite. Aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot estan protegidos por `MasterAccessGuard`, por lo que el Agent Service autoriza antes de exponer datos escolares.
+Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
-El Master Backend Java no lee `master-binding.json`, no conoce su ruta y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
+El Master Backend Java sigue sin leer `master-binding.json`, no conoce su ruta y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing, captura, bloqueo, filesystem real, browser automation, wallpaper real ni comandos remotos.
+El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
 
 ## Implementado
 
@@ -30,6 +30,12 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - `GET /api/classrooms/{id}/snapshot` protegido, con aula, grupos, alumnos activos, devices, assignments actuales, aplicaciones y resumen.
 - Endpoints protegidos de aplicaciones y operaciones.
 - `RestControllerAdvice` uniforme para errores HTTP: validacion 400, no encontrado 404, conflicto/version 409, Master no autorizado 403, Agent/storage no disponible 503.
+- Modelos puros Java para cuentas Windows administradas: `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
+- `ManagedAccountSwitchPlanner` puro para decidir `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` o `BLOCKED` por device.
+- Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- `TargetExecutionStatus.NO_CHANGE` tratado como exito no retryable en `BatchOperation`.
+- Errores estructurados para cuentas/sesion Windows administrada: `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `WINDOWS_SESSION_UNKNOWN`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED`, `SESSION_SWITCH_FAILED` y `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- Contratos compartidos C# para operaciones, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
@@ -51,14 +57,16 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 10.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 9.6.
 
 ## Pendiente inmediato
 
-- Prompt 11 debe elegir el siguiente alcance sin reabrir Prompt 10.
+- Prompt siguiente debe elegir el siguiente alcance sin implementar login real de Windows salvo que se defina explicitamente.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
+- Disenar posteriormente almacenamiento seguro de credenciales administradas en el Agent Service del Client.
+- Disenar posteriormente login/logoff/switch con integracion soportada por Windows, contemplando Credential Provider.
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
 - Implementar gRPC, mTLS, pairing, mDNS y Network Identity en fases posteriores.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -76,6 +84,9 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - Bootstrap/snapshot usan modelos de lectura agregados batch-friendly para la UI futura.
 - `students/batch` permite parcialidad por fila; un alumno invalido no cancela los demas.
 - `assignments/batch` preflight completo antes de writes; `TARGET_OCCUPIED` no reemplaza automaticamente.
+- El Master no almacena ni envia passwords de cuentas Windows administradas; la UI no recibe secretos.
+- Los comandos futuros de cuentas administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`).
+- `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir targets `NO_CHANGE`, `SUCCESS` y `FAILED`; el retry posterior solo aplica a fallidos retryable.
 
 ## Cambios rechazados / No repetir
 
@@ -87,6 +98,8 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 - No exponer SID completo, JWT, hashes de hardware, rutas internas ni ACLs internas en respuestas IPC/HTTP.
 - No reintroducir endpoints administrativos sin `MasterAccessGuard`.
 - No implementar UI, gRPC, pairing, comandos remotos ni filesystem real en Prompt 10.
+- No implementar passwords reales, DPAPI, Credential Provider, login/logoff Windows real, cambio real de usuario ni almacenamiento de credenciales en Prompt 9.6.
+- No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para automatizar sesiones Windows.
 - No hacer commits automaticamente.
 
 ## Problemas conocidos
@@ -101,8 +114,8 @@ El producto todavia no tiene UI, comunicacion de red, gRPC, mTLS, mDNS, pairing,
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 88 pruebas superadas.
-- `mvn clean verify` en `master-backend`: correcto, 67 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 90 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 76 pruebas superadas.
 
 ## Proximo paso recomendado
 

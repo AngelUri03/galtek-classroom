@@ -31,6 +31,8 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Vista en vivo de un cliente seleccionado.
 - Proyeccion de pantalla del Master hacia clientes.
 - Bloqueo y desbloqueo de teclado/mouse.
+- Cuentas Windows administradas en Clients con slots logicos `PRIMARY` y `SECONDARY`.
+- Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
 - Distribucion de archivos a destinos logicos de workspace.
@@ -70,4 +72,6 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.
 - El Master local se autoriza por licencia MASTER, Installation Identity y Windows SID ligado.
 - Las operaciones futuras deben ser tipadas, batch-first, idempotentes cuando sea posible y con errores operacionales por target.
+- Las operaciones futuras de cuentas Windows administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`); el Master no almacenara ni enviara passwords.
+- La credencial real futura de cuentas administradas pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
 - La persistencia local del dominio Master vive en SQLite y debe conservar historial e invariantes de assignments.
