@@ -24,6 +24,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Multiples Masters.
 - Master ligado a una cuenta Windows concreta mediante SID.
 - Clientes administrados por Masters autorizados.
+- Pairing explicito Master-Client antes de permitir administracion remota.
 - Modelo independiente de Devices, Students y SchoolGroups.
 - Student Workspaces pertenecientes al alumno.
 - Browser profiles de alumno y Master sin almacenar contrasenas ni cookies.
@@ -57,6 +58,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Comunicacion futura Master-Agent: gRPC y Protobuf.
 - Seguridad futura de red: mTLS y certificados de dispositivo.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
+- Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
 - Descubrimiento futuro: mDNS/DNS-SD.
 - IPC local Service-Session Agent y Master Backend-Agent Service: Windows Named Pipes.
 - Almacenamiento local Master: SQLite.
@@ -67,8 +69,18 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - El sistema debe ser LAN/offline-first.
 - Galtek Hub es el proveedor externo de licencias comerciales.
 - Descubrimiento no implica confianza.
+- Un Client descubierto no puede administrarse hasta completar pairing explicito.
+- Discovery y pairing son fases distintas: discovery solo encuentra equipos; pairing establece confianza por intencion explicita.
 - La licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
-- La Network Identity criptografica del Client no genera confianza automatica entre equipos; solo prepara pairing, certificados y mTLS futuros.
+- Una licencia MASTER valida no crea pairing con ningun Client.
+- Las Network Identities criptograficas de Master y Client no generan confianza automatica entre equipos; solo prueban posesion de llaves durante pairing y preparan certificados/mTLS futuros.
+- Network Identity no equivale a trust: el trust aparece solo despues de pairing y se persiste en ambos lados.
+- El challenge/response de pairing demuestra posesion de las private keys del Master y del Client sin exponerlas.
+- El pairing se revoca sin borrar Installation Identity ni Network Identity.
+- Un pairing en estado `REVOKED` no puede administrar el Client.
+- IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
+- Todavia no existe gRPC real, mTLS real, mDNS ni comandos remotos.
+- Prompt 13 sera transporte seguro usando el trust ya establecido.
 - El producto no debe convertirse en un canal de ejecucion remota arbitraria.
 - `Device != Student`; los nombres visibles no son identidad.
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.

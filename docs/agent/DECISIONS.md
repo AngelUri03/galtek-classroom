@@ -78,7 +78,22 @@
 - Si `installationId` de metadata no coincide con la Installation Identity actual, el estado es `NETWORK_IDENTITY_INSTALLATION_MISMATCH`.
 - Si falta metadata pero existe la llave CNG esperada, se trata como estado invalido y no se regenera silenciosamente.
 - `--network-identity-status` es diagnostico read-only y no expone private key ni `keyName`.
-- Network Identity no crea confianza automatica entre equipos; pairing, certificados, CA, mTLS y gRPC siguen pendientes.
+- Network Identity no crea confianza automatica entre equipos; Network Identity no equivale a trust.
+- El Master tiene Network Identity propia con metadata publica en `master-network-identity.json`.
+- La private key del Master se guarda cifrada fuera de SQLite y fuera de JSON plano en `master-network-identity.key`.
+- `master-network-identity.protector` guarda el material local de proteccion de la private key del Master.
+- `paired-clients.json` es el trust store del Master para Clients emparejados y challenges.
+- `authorized-masters.json` es el trust store del Client para Masters autorizados y challenges consumidos.
+- Discovery no es pairing; discovery solo puede encontrar candidatos.
+- Pairing requiere intencion/aprobacion explicita.
+- Pairing usa challenge/response firmado para demostrar posesion de private keys del Master y del Client.
+- Los challenges de pairing expiran y deben tener proteccion contra replay.
+- El trust debe persistirse en ambos lados antes de permitir administracion remota.
+- `REVOKED` bloquea administracion del Client y no se reutiliza silenciosamente.
+- IP, MAC y hostname no autorizan administracion.
+- Licencia MASTER valida no crea pairing con Clients.
+- Certificados, CA, mTLS real, gRPC real, mDNS real y comandos remotos siguen pendientes.
+- Prompt 13 debe implementar transporte seguro usando el trust ya establecido.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
 - La validacion completa de Commercial License obtiene el fingerprint de hardware actual al arrancar y al activar/renovar; el monitor de 60 segundos solo revisa expiracion temporal.
@@ -128,9 +143,9 @@
 - Otro administrador Windows no obtiene automaticamente rol Master si su SID no esta ligado.
 - La autoridad final para persistir/verificar Master Windows Binding reside en Agent Service; Master Backend consume estado derivado por IPC.
 - Prompt 07 no agrega IPC write; cualquier escritura futura requiere autorizacion local disenada.
-- IP y MAC no son identidad suficiente para autorizacion.
-- Descubrimiento no implica confianza.
-- Una licencia MASTER valida no autoriza automaticamente controlar clientes.
+- IP, MAC y hostname no son identidad suficiente para autorizacion.
+- Descubrimiento no implica confianza ni pairing.
+- Una licencia MASTER valida no autoriza automaticamente controlar clientes ni crea pairing.
 - Las operaciones futuras que aumenten control requeriran licencia activa, pero las operaciones de recuperacion como desbloquear entrada o detener proyeccion no deberan bloquearse por expiracion.
 - El almacenamiento local del Master ya usa SQLite en `classroom.db`.
 - La ruta productiva por defecto del Master es `<CommonApplicationData>\Galtek\Classroom\Master\`.
@@ -213,4 +228,4 @@
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar/cerrar/cambiar sesion Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
-- Solo un Master autorizado y posteriormente emparejado por red podra ordenar logon/logoff/switch en Clients.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista transporte seguro.

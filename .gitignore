@@ -57,6 +57,12 @@ installer/**/temp/
 installation.json
 license.dat
 master-binding.json
+network-identity.json
+authorized-masters.json
+paired-clients.json
+master-network-identity.json
+master-network-identity.key
+master-network-identity.protector
 *.jwt
 *private*.pem
 dev-public-key.pem

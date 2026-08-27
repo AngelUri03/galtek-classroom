@@ -40,10 +40,19 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No asumir que descubrimiento equivale a confianza.
 - No asumir que una licencia MASTER autoriza control automatico sobre cualquier cliente.
 - Mantener Network Identity separada de Installation Identity, Commercial License y Master Windows Binding.
+- Network Identity no equivale a trust: solo identifica una llave publica y permite verificar firmas.
+- Discovery no equivale a pairing: discovery solo encuentra candidatos en LAN.
+- Pairing siempre requiere intencion/aprobacion explicita de la maestra o administrador.
+- El challenge/response de pairing debe demostrar posesion de private keys en ambos lados sin exponerlas.
+- Un challenge debe tener expiracion y proteccion contra replay.
+- El trust resultante del pairing debe persistirse tanto en Master como en Client.
+- Un registro `REVOKED` no puede administrar el Client ni reactivarse silenciosamente.
 - La private key de Network Identity nunca debe guardarse en JSON, logs, SQLite, payload IPC ni archivos planos.
 - `network-identity.json` solo puede contener metadata publica y debe estar ligado al `installationId` actual.
 - Si Network Identity tiene metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto, no regenerar ni adoptar silenciosamente.
-- Network Identity no equivale a pairing, certificado, mTLS ni autorizacion remota.
+- Network Identity no equivale a pairing, certificado, mTLS, trust ni autorizacion remota.
+- IP, MAC y hostname no autorizan administracion.
+- Una licencia MASTER valida no crea pairing ni trust con Clients.
 - La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
 - Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
@@ -62,7 +71,8 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
-- Solo un Master autorizado y posteriormente emparejado por red podra ordenar logon/logoff/switch en Clients.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista transporte seguro.
+- Todavia no existe gRPC real, mTLS real, mDNS ni comandos remotos; Prompt 13 debe usar el trust ya establecido para transporte seguro.
 
 ## Dominio funcional y UX masiva
 

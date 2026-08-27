@@ -80,6 +80,88 @@ public sealed record NetworkIdentityKeyLookupResult(
     }
 }
 
+public enum NetworkIdentityPublicKeyStatus
+{
+    Found,
+    Missing,
+    Invalid
+}
+
+public sealed record NetworkIdentityPublicKeyResult(
+    NetworkIdentityPublicKeyStatus Status,
+    string? PublicKeyFingerprint,
+    string? SubjectPublicKeyInfoBase64,
+    string? ErrorMessage)
+{
+    public static NetworkIdentityPublicKeyResult Found(
+        string publicKeyFingerprint,
+        string subjectPublicKeyInfoBase64)
+    {
+        return new NetworkIdentityPublicKeyResult(
+            NetworkIdentityPublicKeyStatus.Found,
+            publicKeyFingerprint,
+            subjectPublicKeyInfoBase64,
+            null);
+    }
+
+    public static NetworkIdentityPublicKeyResult Missing(string keyName)
+    {
+        return new NetworkIdentityPublicKeyResult(
+            NetworkIdentityPublicKeyStatus.Missing,
+            null,
+            null,
+            $"CNG key is missing: {keyName}");
+    }
+
+    public static NetworkIdentityPublicKeyResult Invalid(string errorMessage)
+    {
+        return new NetworkIdentityPublicKeyResult(
+            NetworkIdentityPublicKeyStatus.Invalid,
+            null,
+            null,
+            errorMessage);
+    }
+}
+
+public enum NetworkIdentitySignatureStatus
+{
+    Signed,
+    Missing,
+    Invalid
+}
+
+public sealed record NetworkIdentitySignatureResult(
+    NetworkIdentitySignatureStatus Status,
+    string? SignatureBase64,
+    string? ErrorMessage)
+{
+    public bool Signed => Status == NetworkIdentitySignatureStatus.Signed;
+
+    public static NetworkIdentitySignatureResult Success(string signatureBase64)
+    {
+        return new NetworkIdentitySignatureResult(
+            NetworkIdentitySignatureStatus.Signed,
+            signatureBase64,
+            null);
+    }
+
+    public static NetworkIdentitySignatureResult Missing(string keyName)
+    {
+        return new NetworkIdentitySignatureResult(
+            NetworkIdentitySignatureStatus.Missing,
+            null,
+            $"CNG key is missing: {keyName}");
+    }
+
+    public static NetworkIdentitySignatureResult Invalid(string errorMessage)
+    {
+        return new NetworkIdentitySignatureResult(
+            NetworkIdentitySignatureStatus.Invalid,
+            null,
+            errorMessage);
+    }
+}
+
 public enum NetworkIdentityKeyDeleteStatus
 {
     Deleted,
@@ -116,6 +198,10 @@ public interface INetworkIdentityKeyStore
     NetworkIdentityKeyCreationResult Create(string keyName);
 
     NetworkIdentityKeyLookupResult GetPublicKeyFingerprint(string keyName);
+
+    NetworkIdentityPublicKeyResult GetPublicKey(string keyName);
+
+    NetworkIdentitySignatureResult Sign(string keyName, byte[] data);
 
     NetworkIdentityKeyDeleteResult Delete(string keyName);
 }
@@ -200,8 +286,9 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         try
         {
             using var key = CngKey.Open(keyName, Provider, OpenOptions);
+            var publicKey = ExportPublicKey(key);
 
-            return NetworkIdentityKeyLookupResult.Found(ComputePublicKeyFingerprint(key));
+            return NetworkIdentityKeyLookupResult.Found(publicKey.Fingerprint);
         }
         catch (CryptographicException exception)
         {
@@ -212,6 +299,76 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         {
             return NetworkIdentityKeyLookupResult.Invalid(
                 $"CNG network identity key could not be opened: {exception.Message}");
+        }
+    }
+
+    public NetworkIdentityPublicKeyResult GetPublicKey(string keyName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return NetworkIdentityPublicKeyResult.Invalid("Windows CNG/KSP is required for Network Identity.");
+        }
+
+        if (!Exists(keyName))
+        {
+            return NetworkIdentityPublicKeyResult.Missing(keyName);
+        }
+
+        try
+        {
+            using var key = CngKey.Open(keyName, Provider, OpenOptions);
+            var publicKey = ExportPublicKey(key);
+
+            return NetworkIdentityPublicKeyResult.Found(
+                publicKey.Fingerprint,
+                publicKey.SubjectPublicKeyInfoBase64);
+        }
+        catch (CryptographicException exception)
+        {
+            return NetworkIdentityPublicKeyResult.Invalid(
+                $"CNG network identity key could not be opened: {exception.Message}");
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            return NetworkIdentityPublicKeyResult.Invalid(
+                $"CNG network identity key could not be opened: {exception.Message}");
+        }
+    }
+
+    public NetworkIdentitySignatureResult Sign(string keyName, byte[] data)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+        ArgumentNullException.ThrowIfNull(data);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return NetworkIdentitySignatureResult.Invalid("Windows CNG/KSP is required for Network Identity.");
+        }
+
+        if (!Exists(keyName))
+        {
+            return NetworkIdentitySignatureResult.Missing(keyName);
+        }
+
+        try
+        {
+            using var key = CngKey.Open(keyName, Provider, OpenOptions);
+            using var rsa = new RSACng(key);
+            var signature = rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+            return NetworkIdentitySignatureResult.Success(Convert.ToBase64String(signature));
+        }
+        catch (CryptographicException exception)
+        {
+            return NetworkIdentitySignatureResult.Invalid(
+                $"CNG network identity key could not sign data: {exception.Message}");
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            return NetworkIdentitySignatureResult.Invalid(
+                $"CNG network identity key could not sign data: {exception.Message}");
         }
     }
 
@@ -279,14 +436,25 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         return bytes;
     }
 
-    private static string ComputePublicKeyFingerprint(CngKey key)
+    private static NetworkIdentityPublicKey ExportPublicKey(CngKey key)
     {
         using var rsa = new RSACng(key);
         var publicKey = rsa.ExportSubjectPublicKeyInfo();
         var fingerprint = SHA256.HashData(publicKey);
 
-        return Convert.ToHexString(fingerprint).ToLowerInvariant();
+        return new NetworkIdentityPublicKey(
+            Convert.ToHexString(fingerprint).ToLowerInvariant(),
+            Convert.ToBase64String(publicKey));
     }
+
+    private static string ComputePublicKeyFingerprint(CngKey key)
+    {
+        return ExportPublicKey(key).Fingerprint;
+    }
+
+    private sealed record NetworkIdentityPublicKey(
+        string Fingerprint,
+        string SubjectPublicKeyInfoBase64);
 }
 
 public sealed class UnsupportedNetworkIdentityKeyStore : INetworkIdentityKeyStore
@@ -311,6 +479,23 @@ public sealed class UnsupportedNetworkIdentityKeyStore : INetworkIdentityKeyStor
         ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
 
         return NetworkIdentityKeyLookupResult.Invalid(
+            "Windows CNG/KSP is required for Network Identity.");
+    }
+
+    public NetworkIdentityPublicKeyResult GetPublicKey(string keyName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+
+        return NetworkIdentityPublicKeyResult.Invalid(
+            "Windows CNG/KSP is required for Network Identity.");
+    }
+
+    public NetworkIdentitySignatureResult Sign(string keyName, byte[] data)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+        ArgumentNullException.ThrowIfNull(data);
+
+        return NetworkIdentitySignatureResult.Invalid(
             "Windows CNG/KSP is required for Network Identity.");
     }
 

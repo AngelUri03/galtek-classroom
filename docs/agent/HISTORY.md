@@ -788,3 +788,73 @@
 ### Commit sugerido
 
 `feat(agent): add client network identity`
+
+## 2026-08-27 - Prompt 12 / cierre 12.1
+
+### Realizado
+
+- Recuperado el Prompt 12 interrumpido sin rehacer la implementacion.
+- Implementada Network Identity local del Master en Java, separada de SQLite.
+- Agregado `master-network-identity.json` con metadata publica del Master.
+- Agregado almacenamiento privado del Master fuera de SQLite/JSON plano mediante `master-network-identity.key` cifrado y `master-network-identity.protector`.
+- Extendido el keystore del Client para exportar public key y firmar payloads con su Network Identity sin exponer private key.
+- Implementado pairing criptografico Master-Client con challenge/response firmado.
+- Agregada expiracion de challenge de 5 minutos y proteccion contra replay.
+- Agregado trust store del Master en `paired-clients.json`.
+- Agregado trust store del Client en `authorized-masters.json`.
+- Agregados estados `UNPAIRED`, `PAIRING_PENDING`, `PAIRED` y `REVOKED`.
+- Agregada autorizacion por trust vigente y bloqueo cerrado con `MASTER_NOT_PAIRED`.
+- Agregada revocacion sin borrar Installation Identity ni Network Identity.
+- Cubierto soporte conceptual para multiples Clients por Master y multiples Masters por Client.
+- Actualizada memoria del proyecto para dejar claro que Network Identity no es trust, discovery no es pairing y Prompt 13 sera transporte seguro usando el trust ya establecido.
+- Reforzado `.gitignore` para excluir archivos reales de Network Identity, trust stores y private key/protector del Master.
+
+### Archivos principales modificados
+
+- `agent/src/GaltekClassroom.Agent.Service/Network/NetworkIdentityKeyStore.cs`
+- `agent/src/GaltekClassroom.Agent.Service/Pairing/`
+- `agent/src/GaltekClassroom.Agent.Service/Program.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/NetworkIdentityTests.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/ClientPairingServiceTests.cs`
+- `master-backend/src/main/java/com/galtek/classroom/network/`
+- `master-backend/src/test/java/com/galtek/classroom/network/MasterPairingServiceTest.java`
+- `.gitignore`
+- `docs/context/PROJECT_CONTEXT.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- Network Identity no equivale a trust.
+- Discovery no equivale a pairing.
+- Pairing requiere intencion/aprobacion explicita.
+- Challenge/response demuestra posesion de private keys de Master y Client sin exponerlas.
+- Trust se persiste en ambos lados antes de permitir administracion remota.
+- `REVOKED` no puede administrar el Client.
+- IP, MAC, hostname y licencia MASTER no autorizan ni crean pairing.
+- Prompt 13 debe implementar transporte seguro usando el trust ya establecido.
+
+### Cambios descartados
+
+- No se implementaron gRPC real, mTLS real, mDNS, certificados emitidos por Master, discovery real, endpoints reales de pairing sobre red ni comandos remotos.
+- No se modifico `FUNCTIONAL_MODEL.md` porque no habia contradiccion real.
+- No se hizo commit.
+
+### Pendiente
+
+- Implementar transporte seguro en Prompt 13 usando `paired-clients.json` y `authorized-masters.json`.
+- Definir `.proto`, mTLS/certificados y discovery real en fases posteriores.
+- Mantener comandos remotos y operaciones privilegiadas fuera de alcance hasta existir transporte seguro y autorizacion completa.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 110 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 86 pruebas superadas.
+
+### Commit sugerido
+
+`feat(network): add secure master client pairing`

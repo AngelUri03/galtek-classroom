@@ -314,6 +314,25 @@ public sealed class NetworkIdentityTests : IDisposable
                 : NetworkIdentityKeyLookupResult.Missing(keyName);
         }
 
+        public NetworkIdentityPublicKeyResult GetPublicKey(string keyName)
+        {
+            return _publicFingerprints.TryGetValue(keyName, out var fingerprint)
+                ? NetworkIdentityPublicKeyResult.Found(
+                    fingerprint,
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"PUBLIC:{keyName}")))
+                : NetworkIdentityPublicKeyResult.Missing(keyName);
+        }
+
+        public NetworkIdentitySignatureResult Sign(string keyName, byte[] data)
+        {
+            ArgumentNullException.ThrowIfNull(data);
+
+            return _publicFingerprints.ContainsKey(keyName)
+                ? NetworkIdentitySignatureResult.Success(
+                    Convert.ToBase64String(SHA256.HashData(data)))
+                : NetworkIdentitySignatureResult.Missing(keyName);
+        }
+
         public NetworkIdentityKeyDeleteResult Delete(string keyName)
         {
             _publicFingerprints.Remove(keyName);

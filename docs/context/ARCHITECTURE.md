@@ -2,9 +2,9 @@
 
 ## Estado general
 
-Prompt 11 implementa la Network Identity criptografica permanente del Client en `GaltekClassroom.Agent.Service`. Cada instalacion tiene `networkIdentityId` propio, metadata publica en `network-identity.json` y una llave privada RSA generada localmente en Windows CNG/KSP de maquina. No hay pairing, certificados emitidos por Master, CA, mTLS, gRPC, discovery ni confianza automatica entre equipos.
+Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion. No hay gRPC real, mTLS real, mDNS, certificados emitidos por Master, discovery real ni comandos remotos.
 
-Prompt 9.6 formaliza el dominio futuro de cuentas Windows administradas en Clients. Cada Client podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar PCs en la cuenta objetivo, clasificando `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y bloqueos. Solo se agregan modelos/enums/planners puros y contratos compartidos; no hay passwords, Credential Provider, login/logoff real, IPC write, gRPC, pairing, mTLS ni UI.
+Prompt 9.6 formaliza el dominio futuro de cuentas Windows administradas en Clients. Cada Client podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar PCs en la cuenta objetivo, clasificando `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y bloqueos. Solo se agregan modelos/enums/planners puros y contratos compartidos; no hay passwords, Credential Provider, login/logoff real, IPC write, gRPC, mTLS ni UI.
 
 Prompt 10 agrega la primera API administrativa real del Master Backend sobre SQLite. Los endpoints de aulas, grupos, alumnos, assignments, aplicaciones, operaciones, bootstrap y snapshot pasan por `MasterAccessGuard` antes de tocar datos escolares. La UI React/Tauri futura puede iniciar con `GET /api/master/bootstrap`, elegir aula y cargar `GET /api/classrooms/{id}/snapshot` sin N+1.
 
@@ -18,7 +18,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 11 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC, mTLS, mDNS, pairing, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 12 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC real, mTLS real, mDNS, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -77,6 +77,7 @@ IMPLEMENTADO:
   - `operations`: catalogo de acciones, batch, preflight, resultados, errores, conflict policy y workflows.
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
   - `windows`: cuentas administradas `PRIMARY`/`SECONDARY`, estado de sesion Windows y preflight batch para cambio de cuenta.
+  - `network`: Network Identity del Master, Client descriptors, pairing challenge/response, trust store y revocacion.
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
@@ -112,11 +113,19 @@ IMPLEMENTADO:
 - Persistencia de batch operations con targets, estados, errores, attempts y retry de fallidos retryable.
 - Mapeo de errores SQLite a `MASTER_DATABASE_UNAVAILABLE`, `MASTER_DATABASE_CORRUPT`, `MASTER_DATABASE_MIGRATION_FAILED`, `MASTER_DATABASE_BUSY`, `MASTER_STORAGE_FULL`, `PERSISTENCE_CONSTRAINT_VIOLATION` y `CONCURRENT_MODIFICATION`.
 - Pruebas de integracion SQLite para creacion, migracion, reapertura, constraints, historial de assignments, batch retry, rollback, versionado y base corrupta.
+- Master Network Identity local con metadata publica en `master-network-identity.json`.
+- Private key del Master cifrada fuera de SQLite/JSON plano en `master-network-identity.key`, con protector separado en `master-network-identity.protector`.
+- `MasterPairingService` crea challenges con intencion explicita, firma con la private key del Master y persiste challenges pendientes.
+- `MasterPairingService` completa pairing validando la respuesta firmada del Client, expiracion y replay.
+- `paired-clients.json` persiste trust del lado Master, incluyendo estado `PAIRING_PENDING`, `PAIRED` o `REVOKED`.
+- `MasterClientAuthorization` falla cerrado con `MASTER_NOT_PAIRED` cuando el Client no esta emparejado o fue revocado.
+- Pruebas Java para Master Network Identity, challenge/response, expiracion, replay, persistencia, revocacion y multiples Clients.
 
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
 - gRPC/Protobuf para comunicacion con Agents.
+- Exponer el pairing mediante el transporte seguro futuro.
 - Visualizacion de equipos, miniaturas y estado.
 - UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
 - Consulta y cambio masivo de sesion Windows administrada por `accountId` logico.
@@ -129,6 +138,9 @@ NO IMPLEMENTADO:
 - Autenticacion.
 - gRPC funcional.
 - Descubrimiento.
+- mTLS real.
+- mDNS real.
+- Comandos remotos hacia Clients.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
@@ -168,6 +180,10 @@ IMPLEMENTADO:
 - `busy_timeout` default 5000 ms.
 - `maximum-pool-size` default 4.
 - Corruption check con `PRAGMA quick_check`.
+- Archivos de Network Identity y trust del Master viven junto al data directory del Master, separados de `classroom.db`.
+- `master-network-identity.json` guarda solo metadata publica del Master.
+- `master-network-identity.key` contiene private key cifrada; `master-network-identity.protector` contiene el material local de proteccion.
+- `paired-clients.json` persiste Clients emparejados, challenges pendientes/consumidos y revocaciones.
 
 NO IMPLEMENTADO:
 
@@ -175,6 +191,7 @@ NO IMPLEMENTADO:
 - Backup/restore automatico.
 - Auditoria persistente de acciones administrativas reales.
 - Borrado seguro/retencion configurable de PII.
+- DPAPI/keystore del sistema para private key del Master.
 
 ## Agent
 
@@ -214,6 +231,14 @@ IMPLEMENTADO:
 - Reutiliza el mismo `networkIdentityId`, `keyId`, `keyName` y fingerprint cuando metadata y llave siguen validas.
 - Falla de forma controlada ante metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto.
 - Expone CLI read-only `--network-identity-status`.
+- `ClientPairingService` acepta challenges de pairing solo con aprobacion explicita.
+- Valida que el challenge apunte al `installationId`, `networkIdentityId`, public key y fingerprint locales del Client.
+- Verifica la firma del Master sobre el challenge y firma la respuesta con la private key del Client.
+- Rechaza challenges expirados, malformados, con fingerprint inconsistente o ya consumidos.
+- Persiste trust de Masters autorizados en `authorized-masters.json`, separado de `installation.json`, `license.dat`, `master-binding.json` y `network-identity.json`.
+- `authorized-masters.json` conserva estados `PAIRING_PENDING`, `PAIRED` y `REVOKED`, y challenges consumidos para bloquear replay.
+- Revocar un Master cambia su trust a `REVOKED` sin borrar Installation Identity ni Network Identity.
+- Un Master `REVOKED` o no emparejado no puede administrar el Client; la autorizacion falla cerrado con `MASTER_NOT_PAIRED`.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.
@@ -246,7 +271,7 @@ PLANIFICADO:
 
 - Empaquetar la llave publica real de Galtek Hub como recurso/mecanismo productivo.
 - Revalidacion completa explicita invocable por IPC.
-- Comunicacion segura.
+- Transporte seguro gRPC/mTLS usando el trust establecido por pairing.
 - Heartbeat.
 - Recepcion de comandos estructurados.
 - Operaciones privilegiadas.
@@ -272,7 +297,8 @@ NO IMPLEMENTADO:
 - Login/logoff Windows real.
 - Cambio real de usuario Windows.
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
-- Comandos MASTER protegidos por autorizacion.
+- Endpoints/IPC de pairing reales expuestos a UI/transporte.
+- Comandos MASTER protegidos por autorizacion de red.
 - Comandos remotos.
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
@@ -351,12 +377,23 @@ PLANIFICADO:
 
 ## Comunicacion futura de red
 
+IMPLEMENTADO:
+
+- Modelo local de pairing criptografico Master-Client con challenge/response firmado.
+- `PAIRING_PENDING`, `PAIRED`, `REVOKED` y error funcional `MASTER_NOT_PAIRED`.
+- Persistencia bilateral de trust: `paired-clients.json` en Master y `authorized-masters.json` en Client.
+- Proteccion contra replay mediante challenges pendientes/consumidos y nonce.
+- Expiracion de challenge de 5 minutos.
+- Soporte conceptual para multiples Clients por Master y multiples Masters por Client.
+- Revocacion bilateral conceptual: un registro `REVOKED` bloquea administracion y no se reutiliza silenciosamente.
+
 PLANIFICADO:
 
 - Los Clientes iniciaran conexiones persistentes autenticadas hacia el Master.
 - El protocolo sera gRPC con Protobuf.
 - La confianza de red usara mTLS y certificados de dispositivo.
 - El descubrimiento usara mDNS/DNS-SD.
+- Prompt 13 debe construir el transporte seguro sobre el trust ya establecido, sin redefinir pairing como discovery.
 
 NO IMPLEMENTADO:
 
@@ -364,10 +401,11 @@ NO IMPLEMENTADO:
 - Servidores o clientes gRPC.
 - mTLS.
 - Certificados.
-- Pairing.
 - Descubrimiento real.
+- APIs reales de discovery/pairing sobre red.
+- Comandos remotos.
 
-Nota de seguridad: descubrir un equipo no significa confiar en el.
+Nota de seguridad: descubrir un equipo no significa confiar en el. Network Identity tampoco equivale a trust; el trust aparece solo tras pairing explicito y puede revocarse.
 
 ## IPC local
 
@@ -474,15 +512,15 @@ PLANIFICADO:
 
 NO IMPLEMENTADO:
 
-- Reemplazo de Network Identity, pairing o mTLS.
-- Autorizacion remota entre equipos.
+- Reemplazo de Network Identity o mTLS.
+- Autorizacion remota por transporte real entre equipos.
 
 ### Network Identity
 
 IMPLEMENTADO:
 
 - Identidad criptografica de red separada de la licencia comercial.
-- `GaltekClassroom.Agent.Service` es la autoridad local de Network Identity.
+- `GaltekClassroom.Agent.Service` es la autoridad local de Network Identity del Client.
 - `network-identity.json` vive en `<CommonApplicationData>\Galtek\Classroom\`.
 - `network-identity.json` contiene solo metadata publica: `schemaVersion`, `networkIdentityId`, `installationId`, `keyId`, `keyName`, `publicKeyFingerprint` y `createdAtUtc`.
 - `networkIdentityId` es un GUID propio y estable, distinto de `installationId` y de cualquier licencia comercial.
@@ -500,20 +538,59 @@ IMPLEMENTADO:
 - Si falta metadata pero ya existe la llave CNG esperada, no se regenera silenciosamente y se reporta estado invalido.
 - CLI read-only `--network-identity-status` muestra estado, `networkIdentityId` y `publicKeyFingerprint`, nunca llave privada.
 - `-PurgeData` intenta eliminar la llave CNG solo cuando puede leer un `keyName` valido con prefijo de Galtek desde `network-identity.json`; no borra llaves a ciegas.
+- El Master Backend tiene una Network Identity local propia, separada de la del Client.
+- `master-network-identity.json` contiene metadata publica del Master: `schemaVersion`, `masterNetworkIdentityId`, `keyId`, `publicKeyFingerprint`, `publicKeySubjectPublicKeyInfoBase64` y `createdAtUtc`.
+- La private key del Master se guarda fuera de SQLite y fuera de JSON plano, cifrada en `master-network-identity.key`.
+- `master-network-identity.protector` guarda el material local que protege la private key del Master.
+- El Master no usa `classroom.db` para private keys ni trust.
+- Network Identity no equivale a trust: una identidad valida solo permite firmar/verificar challenge y response.
 
 PLANIFICADO:
 
 - Certificado.
-- Pairing.
 - mTLS.
+- Rotacion manual/operacional de claves.
 
 NO IMPLEMENTADO:
 
 - Certificados.
-- Pairing.
-- Autorizacion Master-Agent.
+- gRPC real.
+- mTLS real.
+- mDNS/discovery real.
+- Comandos remotos.
+- Autorizacion Master-Agent sobre transporte real.
 - Confianza automatica entre equipos.
 - Rotacion automatica de claves.
+
+### Pairing y Trust
+
+IMPLEMENTADO:
+
+- Pairing criptografico Master-Client basado en Network Identity de ambos lados.
+- El Master crea un `PairingChallenge` con `challengeId`, nonce, timestamps UTC, fingerprints y public keys de Master y Client.
+- El challenge expira a los 5 minutos.
+- El challenge se firma con la private key del Master.
+- El Client acepta el challenge solo con aprobacion explicita de pairing.
+- El Client valida formato, expiracion, destino local, fingerprints y firma del Master.
+- El Client responde con `PairingResponse` firmado con su private key.
+- El Master valida que la respuesta coincida con un challenge pendiente, no expirado y no consumido.
+- El Master verifica la firma del Client usando la public key incluida y fijada en el challenge.
+- La proteccion contra replay usa challenges pendientes/consumidos, `challengeId` y nonces.
+- El trust se persiste en ambos lados:
+  - Master: `paired-clients.json`.
+  - Client: `authorized-masters.json`.
+- Estados de trust: `UNPAIRED`, `PAIRING_PENDING`, `PAIRED`, `REVOKED`.
+- `REVOKED` bloquea administracion y no se reutiliza silenciosamente.
+- IP, MAC, hostname, discovery y licencia MASTER no crean pairing ni autorizan Clients.
+- Soporte conceptual para multiples Clients por Master y multiples Masters por Client.
+
+NO IMPLEMENTADO:
+
+- Endpoints HTTP/gRPC reales de pairing.
+- mTLS real.
+- Certificados emitidos por Master.
+- mDNS/discovery real.
+- Comandos remotos.
 
 ## Almacenamiento local del Agent
 
@@ -526,6 +603,7 @@ IMPLEMENTADO:
 - Archivo `license.dat` para Commercial License.
 - Archivo `master-binding.json` para Master Windows Binding.
 - Archivo `network-identity.json` para metadata publica de Network Identity.
+- Archivo `authorized-masters.json` para trust persistido de Masters emparejados con el Client.
 - Llave privada de Network Identity fuera de JSON, en Windows CNG/KSP de maquina.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
 - Escritura del Master binding con archivo temporal, flush y reemplazo/movimiento atomico.
@@ -533,9 +611,10 @@ IMPLEMENTADO:
 - `license.dat` guarda solo el JWT recibido.
 - `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
 - `network-identity.json` no guarda private key, secretos ni licencia comercial.
+- `authorized-masters.json` no guarda private keys, passwords, JWT ni secretos; guarda public keys/fingerprints y estados de trust.
 - No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
-- Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json` ni la llave CNG de Network Identity.
+- Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json` ni la llave CNG de Network Identity.
 
 NO IMPLEMENTADO:
 
@@ -569,7 +648,12 @@ VIGENTE DESDE AHORA:
 - Batch-first es obligatorio: targets pueden ser classroom, group, students, devices o items individuales cuando la accion tenga sentido.
 - `PARTIAL_SUCCESS` y retry solo de fallidos deben formar parte del modelo de cualquier operacion masiva.
 - `TARGET_OCCUPIED` nunca debe sobrescribir ni borrar al alumno que ocupa el equipo.
-- IP y MAC no son identidad de autorizacion.
+- IP, MAC y hostname no son identidad de autorizacion.
+- Discovery no es pairing; discovery solo encuentra candidatos.
+- Network Identity no es trust; una identidad valida no autoriza administracion sin pairing.
+- Pairing requiere intencion explicita y challenge/response firmado por ambas private keys.
+- El trust de pairing se persiste en Master y Client.
+- Un trust `REVOKED` no puede administrar el Client.
 - Licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
 - Licencia MASTER valida no equivale a permiso automatico para controlar clientes de la LAN.
 - Autorizacion Master productiva proviene del Agent Service, no del Master Backend.
@@ -581,5 +665,7 @@ VIGENTE DESDE AHORA:
 - Rebinding de Master siempre requiere intencion explicita.
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
-- Solo un Master autorizado y, posteriormente, emparejado por red podra ordenar logon/logoff/switch en Clients.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista el transporte seguro futuro.
+- Todavia no existe gRPC real, mTLS real, mDNS, certificados ni comandos remotos.
+- Prompt 13 debe implementar transporte seguro usando el trust ya establecido.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

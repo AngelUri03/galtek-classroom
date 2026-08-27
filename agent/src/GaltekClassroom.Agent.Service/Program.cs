@@ -4,6 +4,7 @@ using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Network;
+using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Shared;
 
 var commandLine = AgentCommandLine.Parse(args);
@@ -20,6 +21,7 @@ builder.Services.AddInstallationIdentityServices();
 builder.Services.AddCommercialLicenseServices();
 builder.Services.AddMasterAuthorizationServices();
 builder.Services.AddNetworkIdentityServices();
+builder.Services.AddClientPairingServices();
 builder.Services.AddLocalIpcServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
