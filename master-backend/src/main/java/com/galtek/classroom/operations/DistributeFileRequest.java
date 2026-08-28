@@ -12,7 +12,17 @@ public record DistributeFileRequest(
         String sourceFileReference,
         LogicalWorkspaceDestination logicalDestination,
         ConflictPolicy conflictPolicy,
+        boolean openAfterDistribution,
         List<OperationTarget> targets) {
+
+    public DistributeFileRequest(
+            String operationId,
+            String sourceFileReference,
+            LogicalWorkspaceDestination logicalDestination,
+            ConflictPolicy conflictPolicy,
+            List<OperationTarget> targets) {
+        this(operationId, sourceFileReference, logicalDestination, conflictPolicy, false, targets);
+    }
 
     public DistributeFileRequest {
         operationId = requireNonBlank(operationId, "operationId");
@@ -20,5 +30,9 @@ public record DistributeFileRequest(
         requireNonNull(logicalDestination, "logicalDestination");
         requireNonNull(conflictPolicy, "conflictPolicy");
         targets = copyList(targets, "targets");
+    }
+
+    public boolean batch() {
+        return targets.size() > 1;
     }
 }

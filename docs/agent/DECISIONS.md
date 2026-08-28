@@ -253,3 +253,32 @@
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
+- Hardware objetivo real: Master i5 8a gen aprox., 8 GB RAM y SSD 500 GB; Clients mixtos con legacy lentos HDD y renovados SSD.
+- El Master absorbe orquestacion, SQLite, canonical workspaces, metadata, manifests/checksums futuros, distribucion planificada, recovery coordination y classroom state.
+- El Master no debe convertirse en terminal server; Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas se ejecutan localmente en cada Client.
+- `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco.
+- Galtek en `PRIMARY` agrega una capa de administracion de aula sobre Windows sin bloquear input al iniciar clase.
+- Galtek en `SECONDARY` puede permanecer en background sin bloquear aplicaciones, cambiar archivos del alumno, forzar programas, restringir Windows ni cambiar sesion automaticamente salvo accion administrativa explicita futura.
+- Estrategias de asignacion soportadas: `LIST_ORDER`, `RANDOM`, `PREVIOUS`, `MANUAL`.
+- `DeviceAssignment` sigue siendo fuente de verdad de `Student -> Device` sin importar la estrategia de asignacion.
+- La preparacion futura de alumno/device sigue `ASSIGNED -> PREPARING_WINDOWS_SESSION -> PREPARING_WORKSPACE -> PREPARING_BROWSER -> APPLYING_CLASS_CONTEXT -> READY`.
+- La preparacion debe admitir `PARTIAL_READY`, `RECOVERY_REQUIRED` y `FAILED` por target.
+- Una etapa fallida en un Device no bloquea la preparacion de otros Devices.
+- El aula no tiene un unico boolean `READY`; debe expresar conteos por target y permitir empezar con subset listo.
+- `CLASS_TIME_TO_READY` es KPI principal: equipos rapidos disponibles primero, lentos incorporandose progresivamente.
+- `StudentWorkspace` pertenece al `Student`; Master conserva copia canonica y Client conserva working copy local mientras ese alumno usa la PC.
+- No disenar el trabajo principal del alumno directamente sobre un share SMB.
+- Regla de integridad de workspace: `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM -> CLEANUP CLIENT`.
+- Nunca usar `DELETE CLIENT -> COPY TO MASTER`.
+- Si red, energia o ACK fallan antes de confirmacion, conservar working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- Mover un alumno debe preservar/sincronizar origen cuando sea posible, usar ultima copia canonica segura, preparar destino y no borrar datos para completar el move.
+- `REMOVABLE_STORAGE` es destino logico futuro autorizado para documentos del alumno; no enviar rutas arbitrarias desde Master.
+- Las zonas de escritura futuras aplican a documentos visibles del alumno; Windows y aplicaciones conservan acceso a `AppData`, `Temp`, caches y configuracion interna.
+- Distribucion futura es batch-first hacia `StudentWorkspace`, con `OPEN_AFTER_DISTRIBUTION` opcional, partial success por target y preparacion para checksum, resume, staging, verify, atomic commit y concurrencia limitada.
+- El Master envia `applicationId`, nunca rutas ejecutables.
+- `ProjectionMode` distingue `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
+- `OPEN_URL` y `OPEN_WEB_CONTENT` deben preferir abrir URL localmente en Chrome del Client; YouTube no debe modelarse como captura 30 FPS a 26 PCs por default.
+- Preview futuro debe usar thumbnails pequenos, baja frecuencia, solo Devices visibles y concurrencia limitada; no iniciar captura al boot ni por `ClientHello`.
+- Prioridad operacional comun: `CRITICAL > HIGH > NORMAL > LOW`.
+- `UNLOCK_INPUT`, `STOP_PROJECTION` y recovery de control son `CRITICAL`; transferencias grandes, thumbnails, inventario y prefetch no deben bloquearlas.
+- Fallas normales del dominio: Client offline, perdida de red, Master temporalmente no disponible, Client reiniciado, operacion sin ACK, corte electrico, HDD lento, almacenamiento lleno y archivo parcialmente transferido.

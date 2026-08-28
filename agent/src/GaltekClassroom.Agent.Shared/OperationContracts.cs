@@ -61,6 +61,72 @@ public static class ClassroomWorkspaceDestinations
     public const string Downloads = "DOWNLOADS";
     public const string Desktop = "DESKTOP";
     public const string ClassroomShared = "CLASSROOM_SHARED";
+    public const string RemovableStorage = "REMOVABLE_STORAGE";
+}
+
+public static class ClassroomStudentAssignmentStrategies
+{
+    public const string ListOrder = "LIST_ORDER";
+    public const string Random = "RANDOM";
+    public const string Previous = "PREVIOUS";
+    public const string Manual = "MANUAL";
+}
+
+public static class ClassroomStudentPreparationStages
+{
+    public const string Assigned = "ASSIGNED";
+    public const string PreparingWindowsSession = "PREPARING_WINDOWS_SESSION";
+    public const string PreparingWorkspace = "PREPARING_WORKSPACE";
+    public const string PreparingBrowser = "PREPARING_BROWSER";
+    public const string ApplyingClassContext = "APPLYING_CLASS_CONTEXT";
+    public const string Ready = "READY";
+}
+
+public static class ClassroomStudentPreparationStatuses
+{
+    public const string Pending = "PENDING";
+    public const string InProgress = "IN_PROGRESS";
+    public const string Ready = "READY";
+    public const string PartialReady = "PARTIAL_READY";
+    public const string RecoveryRequired = "RECOVERY_REQUIRED";
+    public const string Failed = "FAILED";
+}
+
+public static class ClassroomWorkspaceResidencyStates
+{
+    public const string NotMaterialized = "NOT_MATERIALIZED";
+    public const string Materializing = "MATERIALIZING";
+    public const string Ready = "READY";
+    public const string RecoveryRequired = "RECOVERY_REQUIRED";
+    public const string Error = "ERROR";
+}
+
+public static class ClassroomWorkspaceSyncStates
+{
+    public const string Synced = "SYNCED";
+    public const string DirtyLocal = "DIRTY_LOCAL";
+    public const string Syncing = "SYNCING";
+    public const string PendingSync = "PENDING_SYNC";
+    public const string RecoveryRequired = "RECOVERY_REQUIRED";
+    public const string Conflict = "CONFLICT";
+    public const string Error = "ERROR";
+}
+
+public static class ClassroomProjectionModes
+{
+    public const string ScreenShare = "SCREEN_SHARE";
+    public const string Whiteboard = "WHITEBOARD";
+    public const string Pointer = "POINTER";
+    public const string LocalMedia = "LOCAL_MEDIA";
+    public const string OpenWebContent = "OPEN_WEB_CONTENT";
+}
+
+public static class ClassroomOperationPriorities
+{
+    public const string Critical = "CRITICAL";
+    public const string High = "HIGH";
+    public const string Normal = "NORMAL";
+    public const string Low = "LOW";
 }
 
 public static class ClassroomConflictPolicies

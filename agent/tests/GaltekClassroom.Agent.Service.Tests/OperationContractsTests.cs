@@ -41,8 +41,37 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomWorkspaceDestinations.WorkspaceRoot, destinations);
         Assert.Contains(ClassroomWorkspaceDestinations.Homework, destinations);
         Assert.Contains(ClassroomWorkspaceDestinations.ClassroomShared, destinations);
+        Assert.Contains(ClassroomWorkspaceDestinations.RemovableStorage, destinations);
         Assert.DoesNotContain(@"C:\Windows\System32", destinations);
         Assert.DoesNotContain("..\\..\\Windows", destinations);
+    }
+
+    [Fact]
+    public void OperationalModelContracts_ExposeClassroomReadinessWorkspaceProjectionAndPriorityNames()
+    {
+        var assignmentStrategies = ConstantValues(typeof(ClassroomStudentAssignmentStrategies));
+        var preparationStages = ConstantValues(typeof(ClassroomStudentPreparationStages));
+        var preparationStatuses = ConstantValues(typeof(ClassroomStudentPreparationStatuses));
+        var residencyStates = ConstantValues(typeof(ClassroomWorkspaceResidencyStates));
+        var syncStates = ConstantValues(typeof(ClassroomWorkspaceSyncStates));
+        var projectionModes = ConstantValues(typeof(ClassroomProjectionModes));
+        var priorities = ConstantValues(typeof(ClassroomOperationPriorities));
+
+        Assert.Contains(ClassroomStudentAssignmentStrategies.ListOrder, assignmentStrategies);
+        Assert.Contains(ClassroomStudentAssignmentStrategies.Random, assignmentStrategies);
+        Assert.Contains(ClassroomStudentAssignmentStrategies.Previous, assignmentStrategies);
+        Assert.Contains(ClassroomStudentAssignmentStrategies.Manual, assignmentStrategies);
+        Assert.Contains(ClassroomStudentPreparationStages.PreparingWindowsSession, preparationStages);
+        Assert.Contains(ClassroomStudentPreparationStages.Ready, preparationStages);
+        Assert.Contains(ClassroomStudentPreparationStatuses.PartialReady, preparationStatuses);
+        Assert.Contains(ClassroomWorkspaceResidencyStates.NotMaterialized, residencyStates);
+        Assert.Contains(ClassroomWorkspaceSyncStates.DirtyLocal, syncStates);
+        Assert.Contains(ClassroomWorkspaceSyncStates.PendingSync, syncStates);
+        Assert.Contains(ClassroomWorkspaceSyncStates.Conflict, syncStates);
+        Assert.Contains(ClassroomProjectionModes.ScreenShare, projectionModes);
+        Assert.Contains(ClassroomProjectionModes.OpenWebContent, projectionModes);
+        Assert.Contains(ClassroomOperationPriorities.Critical, priorities);
+        Assert.Contains(ClassroomOperationPriorities.Low, priorities);
     }
 
     [Fact]

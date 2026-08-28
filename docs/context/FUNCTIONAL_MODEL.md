@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. No implementa red, filesystem real, browser automation, UI, login/logoff Windows ni comandos remotos.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. No implementa filesystem real, browser automation, UI, login/logoff Windows, USB, captura, proyeccion ni comandos remotos funcionales.
 
 ## Principio de producto
 
@@ -19,6 +19,43 @@ Maestra
 ```
 
 No se debe disenar un flujo que obligue a repetir manualmente una accion exitosa equipo por equipo.
+
+KPI principal:
+
+```text
+CLASS_TIME_TO_READY
+```
+
+El objetivo principal es minimizar el tiempo desde que la maestra llega/enciende equipos hasta que los alumnos pueden comenzar actividad. El sistema debe liberar primero a los equipos rapidos y permitir que los lentos se incorporen progresivamente.
+
+## Hardware objetivo
+
+Master de profesora:
+
+- Intel Core i5 8a generacion aprox.
+- 8 GB RAM.
+- SSD 500 GB.
+
+Clients:
+
+- Legacy aprox. 16: Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD 256 GB, muy lentos.
+- Renovados aprox. 10: Core i5 6a generacion, 8 GB RAM, SSD 256 GB.
+
+El Master absorbe orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion y estado del aula. Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas de alumnos corren localmente en cada Client.
+
+## Flujo real de primaria
+
+La maestra:
+
+1. llega;
+2. enciende las PCs;
+3. abre Galtek en el Master;
+4. selecciona aula/grupo;
+5. asigna alumnos a PCs;
+6. Galtek prepara cada PC independientemente;
+7. los primeros equipos `READY` pueden empezar clase sin esperar a los lentos.
+
+Nunca esperar a que todos los Clients esten listos. Una etapa fallida en PC07 no bloquea la preparacion de PC08.
 
 ## Classroom
 
@@ -128,6 +165,16 @@ Reglas:
 - Siempre debe conservarse una via estandar de acceso/recovery de Windows.
 
 Prompt 9.6 solo agrega modelo puro; no implementa passwords, DPAPI, Credential Provider, login/logoff real ni almacenamiento de credenciales.
+
+Prompt 14.2 aclara:
+
+- `SECONDARY` no es kiosco.
+- `PRIMARY` no es kiosco.
+- Ambos conservan escritorio Windows, mouse, teclado y aplicaciones normales.
+- Galtek Service/Session Agent pueden permanecer en background sin bloquear aplicaciones, cambiar archivos del alumno, forzar programas, restringir Windows, cambiar sesion automaticamente ni bloquear input al iniciar clase.
+- Cualquier restriccion futura requiere accion administrativa explicita, tipada y auditada.
+
+`ManagedWindowsAccountOperatingPolicy` deja ambos defaults como Windows normal: `restrictedMode=false`, `blockInputOnClassStart=false` y `forceSessionSwitchOnAssignment=false`.
 
 ## WindowsSessionState
 
@@ -250,6 +297,43 @@ Reglas:
 
 `DeviceAssignmentPolicy` valida assignment nuevo contra assignments actuales.
 
+Estrategias de asignacion formalizadas:
+
+```text
+LIST_ORDER
+RANDOM
+PREVIOUS
+MANUAL
+```
+
+`DeviceAssignment` sigue siendo la fuente de verdad de `Student -> Device`, sin importar la estrategia usada para proponer la asignacion.
+
+Al asignar un alumno a una PC, el flujo futuro conceptual queda:
+
+```text
+ASSIGNED
+  -> PREPARING_WINDOWS_SESSION
+  -> PREPARING_WORKSPACE
+  -> PREPARING_BROWSER
+  -> APPLYING_CLASS_CONTEXT
+  -> READY
+```
+
+`StudentPreparationState` permite tambien `PARTIAL_READY`, `RECOVERY_REQUIRED` y `FAILED` por target. `ClassroomReadinessPlan` permite representar aulas parcialmente listas; no existe un unico boolean de aula lista.
+
+Ejemplo:
+
+```text
+26 targets
+18 READY
+4 PREPARING
+2 OFFLINE
+1 RECOVERY_REQUIRED
+1 FAILED
+```
+
+La maestra puede comenzar con los 18 `READY`.
+
 Persistencia Prompt 08:
 
 - `device_assignments` es la fuente de verdad del vinculo actual e historico.
@@ -286,6 +370,57 @@ Prompt 07 no implementa filesystem real. Solo modela identidad, estado, destinos
 
 Prompt 08 persiste metadata del workspace, destinos logicos permitidos y flags de recovery planificado. No crea carpetas reales ni toca archivos de alumno.
 
+Prompt 14.2 fija la arquitectura de residency:
+
+```text
+MASTER CANONICAL WORKSPACE
+        -> materialize/sync
+CLIENT LOCAL WORKING COPY
+        -> incremental sync
+MASTER
+```
+
+No disenar trabajo directo del alumno sobre un share SMB como almacenamiento principal. La working copy local permite seguir trabajando durante fallos temporales de red.
+
+Estados conceptuales:
+
+```text
+WorkspaceResidencyState:
+NOT_MATERIALIZED
+MATERIALIZING
+READY
+RECOVERY_REQUIRED
+ERROR
+
+WorkspaceSyncState:
+SYNCED
+DIRTY_LOCAL
+SYNCING
+PENDING_SYNC
+RECOVERY_REQUIRED
+CONFLICT
+ERROR
+```
+
+Regla de integridad:
+
+```text
+SYNC
+  -> VERIFY
+  -> COMMIT CANONICAL
+  -> CONFIRM
+  -> CLEANUP CLIENT
+```
+
+Nunca:
+
+```text
+DELETE CLIENT
+  -> COPY TO MASTER
+```
+
+Si desaparece red/energia antes de confirmar, la working copy local se conserva. El sistema debe reportar `PENDING_SYNC` o `RECOVERY_REQUIRED` y no asumir perdida ni `SUCCESS`.
+
 ## Destinos logicos
 
 El Master no debe enviar rutas arbitrarias del filesystem a equipos remotos.
@@ -300,6 +435,7 @@ WORK
 DOWNLOADS
 DESKTOP
 CLASSROOM_SHARED
+REMOVABLE_STORAGE
 ```
 
 Queda prohibido aceptar como destino comun:
@@ -318,6 +454,14 @@ Protecciones requeridas para Prompt 08+:
 - bloquear rutas absolutas arbitrarias.
 - escribir solo dentro del scope permitido.
 - mapear errores tecnicos a errores operacionales.
+
+Zonas de escritura:
+
+- La politica futura aplica a documentos visibles del alumno, no a bloquear todo Windows.
+- Windows y aplicaciones conservan acceso normal a `AppData`, `Temp`, caches y configuracion interna.
+- Destinos conceptualmente permitidos para documentos: `StudentWorkspace` y `REMOVABLE_STORAGE` autorizado.
+- Destinos no permitidos para documentos: carpetas de otros alumnos, raiz `C:`, `Windows`, directorios administrativos y rutas arbitrarias.
+- Office/Chrome/Scratch deberan dirigir guardados visibles al workspace cuando se implemente, sin interceptar todo el filesystem en Prompt 14.2.
 
 ## Workspace Recovery
 
@@ -367,6 +511,8 @@ BROWSER_REAUTH_REQUIRED
 ```
 
 Galtek Classroom no debe copiar directamente archivos como `Login Data`, `Cookies` o `Local State` ni extraer secretos. La portabilidad futura debe usar cuentas sincronizadas, perfiles administrados o mecanismos oficiales.
+
+La portabilidad real de sesiones Google/Chrome puede requerir mecanismo seguro/oficial y reautenticacion. No prometer portabilidad copiando perfiles Chrome crudos.
 
 Persistencia Prompt 08:
 
@@ -456,6 +602,8 @@ launchPolicy
 ```
 
 El Master no debe enviar rutas ejecutables arbitrarias como `C:\algo.exe`. Las operaciones futuras deben enviar `applicationId`.
+
+Las aplicaciones continuan ejecutandose localmente en los Clients. Ejemplos futuros reales: Conejito Lector, Nimbus/libros digitales, RoboMind, Scratch, Word, Excel, PowerPoint y Chrome.
 
 Prompt 08 persiste el catalogo por `applicationId` y permite asociarlo a aulas. No ejecuta aplicaciones.
 
@@ -558,6 +706,21 @@ Prompt 07 valida esquemas `http` y `https`; rechaza `file`, `javascript` y `data
 
 No confundir con `START_PROJECTION`, donde el Master reproduce y transmite su pantalla.
 
+Para YouTube o contenido web, preferir:
+
+```text
+Master envia URL
+  -> cada Client abre Chrome localmente
+```
+
+No preferir:
+
+```text
+Master reproduce
+  -> captura 30 FPS
+  -> transmite a 26 PCs
+```
+
 ## Operaciones de contenido
 
 `DISTRIBUTE_FILE` modela:
@@ -567,6 +730,7 @@ sourceFile
 logicalDestination
 targets
 conflictPolicy
+openAfterDistribution
 ```
 
 `ConflictPolicy`:
@@ -580,6 +744,75 @@ RENAME
 `CREATE_FOLDER` usa destinos logicos del workspace y debe ser idempotente cuando sea seguro.
 
 `SET_WALLPAPER` y `RESTORE_WALLPAPER` quedan modeladas como acciones previstas, sin aplicar wallpapers reales.
+
+La distribucion futura debe ser batch-first:
+
+```text
+Teacher Content
+  -> uno/muchos Students
+  -> StudentWorkspace
+  -> opcional OPEN_AFTER_DISTRIBUTION
+```
+
+Una PC fallida no cancela las demas. La arquitectura futura debe contemplar hash/checksum, skip si ya existe, resume, staging, verify, atomic commit y concurrencia limitada. El Master no debe enviar pesadamente el mismo contenido de forma ingenua si puede cachearse o reutilizarse.
+
+## Projection modes
+
+`ProjectionMode` diferencia costos:
+
+```text
+SCREEN_SHARE
+WHITEBOARD
+POINTER
+LOCAL_MEDIA
+OPEN_WEB_CONTENT
+```
+
+Reglas:
+
+- `SCREEN_SHARE`: stream real futuro.
+- `WHITEBOARD`: enviar eventos/vector drawing, no frames completos.
+- `POINTER`: enviar coordenadas/eventos ligeros.
+- `OPEN_WEB_CONTENT`: abrir URL localmente en Chrome del Client cuando sea posible.
+- `LOCAL_MEDIA`: preferir distribucion/cache local y reproduccion sincronizada cuando sea posible.
+
+No tratar todo como captura de pantalla.
+
+## Preview de PCs
+
+Politica futura:
+
+- Classroom overview: thumbnails pequenos, baja frecuencia, solo Devices visibles y concurrencia limitada.
+- Selected Device: elevar calidad/frecuencia temporalmente.
+- No iniciar captura al boot ni por `ClientHello`.
+
+No hay captura implementada en Prompt 14.2.
+
+## Prioridades operacionales
+
+`OperationPriority` formaliza:
+
+```text
+CRITICAL
+HIGH
+NORMAL
+LOW
+```
+
+Orden:
+
+```text
+CRITICAL > HIGH > NORMAL > LOW
+```
+
+Ejemplos:
+
+- `CRITICAL`: `UNLOCK_INPUT`, `STOP_PROJECTION`, recovery de control.
+- `HIGH`: preparar `PRIMARY`, asignar alumno, recuperar/sincronizar workspace necesario para iniciar clase.
+- `NORMAL`: distribuir actividad, `OPEN_APPLICATION`, `OPEN_URL`.
+- `LOW`: thumbnails, inventario, metadata secundaria, prefetch.
+
+Una transferencia grande nunca debe impedir una operacion `CRITICAL`. No hay scheduler real en Prompt 14.2.
 
 ## MOVE_STUDENT
 
@@ -631,6 +864,16 @@ Si falla la transferencia, la fuente se preserva y debe existir retry.
 - `SOURCE_DEVICE_UNAVAILABLE`.
 - `TARGET_DEVICE_UNAVAILABLE`.
 - `WORKSPACE_BUSY`.
+
+Mover `Santiago PC07 -> PC18` debe significar conceptualmente:
+
+1. preservar/sincronizar PC07 cuando sea posible;
+2. usar la ultima copia canonica segura;
+3. preparar PC18;
+4. actualizar assignment solo siguiendo workflow consistente;
+5. no bloquear toda la clase si PC07 esta muerta.
+
+Si hay cambios locales potencialmente no sincronizados, reportarlo claramente. No borrar datos para completar un move.
 
 ## SWAP_STUDENTS
 
@@ -818,6 +1061,24 @@ CREDENTIAL_PROVIDER_UNAVAILABLE
 No debe existir retry infinito.
 
 Las operaciones futuras deben llevar `operationId` como idempotency key para tolerar reintentos sin duplicar efectos, por ejemplo `CREATE_FOLDER`.
+
+## Failure model
+
+Condiciones normales desde ahora:
+
+- Client offline.
+- Perdida de red.
+- Master temporalmente no disponible.
+- Client reiniciado.
+- Operacion sin ACK.
+- Corte electrico.
+- HDD extremadamente lento.
+- Almacenamiento lleno.
+- Archivo parcialmente transferido.
+
+Los workflows futuros deben ser idempotentes cuando aplique, reconciliar estado, no asumir `SUCCESS` sin confirmacion, conservar origen antes de commit, permitir partial success y permitir retry solo donde corresponde.
+
+Prompt 14.2 no implementa recovery tecnico de apagones; eso queda para Prompt 14.4.
 
 ## Operaciones destructivas
 

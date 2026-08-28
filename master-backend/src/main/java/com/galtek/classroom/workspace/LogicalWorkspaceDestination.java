@@ -7,9 +7,18 @@ public enum LogicalWorkspaceDestination {
     WORK,
     DOWNLOADS,
     DESKTOP,
-    CLASSROOM_SHARED;
+    CLASSROOM_SHARED,
+    REMOVABLE_STORAGE;
 
     public boolean studentScoped() {
-        return this != CLASSROOM_SHARED;
+        return this != CLASSROOM_SHARED && this != REMOVABLE_STORAGE;
+    }
+
+    public boolean authorizedStudentDocumentDestination() {
+        return studentScoped() || this == REMOVABLE_STORAGE;
+    }
+
+    public boolean requiresRemovableStorageAuthorization() {
+        return this == REMOVABLE_STORAGE;
     }
 }

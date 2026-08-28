@@ -6,6 +6,12 @@ Galtek Classroom es un software de administracion de aulas de computo y cibercaf
 
 El producto queda orientado principalmente a maestras de kinder y primaria que administran alumnos pequenos. El flujo funcional debe minimizar acciones repetitivas computadora por computadora: la maestra ejecuta una accion sobre todos, un grupo, alumnos seleccionados o equipos seleccionados, y Galtek reporta exitos y excepciones por target.
 
+## Hardware objetivo
+
+El Master previsto de primaria es una PC de profesora con Intel Core i5 de 8a generacion aprox., 8 GB RAM y SSD de 500 GB. Debe absorber orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion, estado del aula y procesamiento administrativo razonable.
+
+Los Clients previstos son mixtos: aprox. 16 equipos legacy con Celeron/Core Duo/Pentium o similar, 4 GB RAM y HDD de 256 GB, mas aprox. 10 equipos renovados con Core i5 6a generacion, 8 GB RAM y SSD de 256 GB. El diseno funcional debe operar sobre el peor Client sin hacer que los equipos rapidos esperen a los lentos.
+
 ## Problema que resuelve
 
 Permite operar laboratorios con muchas computadoras desde una consola central, reduciendo pasos manuales para supervision, bloqueo, proyeccion, apertura controlada de aplicaciones, contenido escolar, asignacion de alumnos a equipos, recuperacion de trabajos y mantenimiento basico.
@@ -27,16 +33,18 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Pairing explicito Master-Client antes de permitir administracion remota.
 - Modelo independiente de Devices, Students y SchoolGroups.
 - Student Workspaces pertenecientes al alumno.
+- Workspace canonico en Master con working copy local en Client mientras el alumno usa la PC.
 - Browser profiles de alumno y Master sin almacenar contrasenas ni cookies.
 - Miniaturas de pantallas de clientes.
 - Vista en vivo de un cliente seleccionado.
-- Proyeccion de pantalla del Master hacia clientes.
+- Proyeccion diferenciada por modo: screen share, whiteboard, pointer, media local y apertura local de contenido web.
 - Bloqueo y desbloqueo de teclado/mouse.
 - Cuentas Windows administradas en Clients con slots logicos `PRIMARY` y `SECONDARY`.
+- `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni implican bloqueo automatico.
 - Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
-- Distribucion de archivos a destinos logicos de workspace.
+- Distribucion batch de archivos a destinos logicos de workspace con apertura opcional posterior.
 - Creacion masiva de carpetas de trabajo.
 - Cambio y restauracion futura de wallpaper.
 - Movimiento de alumno entre computadoras.
@@ -96,3 +104,13 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Las operaciones futuras de cuentas Windows administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`); el Master no almacenara ni enviara passwords.
 - La credencial real futura de cuentas administradas pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
 - La persistencia local del dominio Master vive en SQLite y debe conservar historial e invariantes de assignments.
+- El Master no debe convertirse en terminal server: Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas corren localmente en cada Client.
+- `PRIMARY` conserva escritorio Windows, mouse y teclado normales; Galtek agrega una capa de administracion de aula sobre Windows.
+- `SECONDARY` conserva Windows normal; Galtek Service/Session Agent pueden permanecer en background sin restringir aplicaciones, archivos, sesion ni input salvo futura accion administrativa explicita.
+- La asignacion Student -> Device sigue usando `DeviceAssignment` como fuente de verdad.
+- La preparacion de equipos debe ser progresiva por Device: los primeros targets `READY` pueden empezar clase sin esperar a PCs lentas, offline o en recovery.
+- El aula no tiene un unico boolean `READY`; debe representar conteos por target como `READY`, `PREPARING`, `OFFLINE`, `RECOVERY_REQUIRED` y `FAILED`.
+- `CLASS_TIME_TO_READY` es KPI principal: minimizar el tiempo desde llegada/encendido hasta que los alumnos pueden iniciar actividad.
+- El Master conserva el workspace canonico; el Client conserva una working copy local durante el uso y solo puede limpiarse despues de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
+- Si falta confirmacion de sync, no asumir exito ni perdida: conservar working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- Operaciones pesadas como distribucion, thumbnails o inventario nunca deben impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.

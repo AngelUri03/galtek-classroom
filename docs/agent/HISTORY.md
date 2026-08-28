@@ -977,3 +977,54 @@
 ### Commit sugerido
 
 `feat(devices): register network clients and operation framework`
+
+## 2026-08-28 - Prompt 14.2
+
+### Realizado
+
+- Formalizado el modelo operativo real del aula primaria sin implementar operaciones Windows reales.
+- Documentado hardware objetivo: Master i5 8a gen/8 GB/SSD 500 GB, Clients legacy lentos HDD y Clients renovados SSD.
+- Documentado que el Master orquesta y conserva workspaces canonicos, sin convertirse en terminal server.
+- Documentado que los Clients ejecutan localmente Windows, Chrome, Office, Scratch, RoboMind, USB futuro, working copy local y rendering/captura cuando se implemente.
+- Formalizado que `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco.
+- Agregados modelos puros Java para estrategias de assignment, preparacion progresiva por Device, readiness parcial del aula, residency/sync de workspace, limpieza segura, modos de proyeccion, prioridades y politica normal de cuentas administradas.
+- Agregado `REMOVABLE_STORAGE` como destino logico futuro autorizado.
+- Agregado `openAfterDistribution` en `DistributeFileRequest` para modelar apertura opcional posterior sin transferencia real.
+- Ampliados contratos compartidos C# con nombres conceptuales de assignment, preparacion, workspace, proyeccion, prioridades y removable storage.
+- Agregadas pruebas Java para estrategias validas, readiness parcial independiente, limpieza segura de workspace, recovery sin confirmacion, prioridades, proyeccion, distribucion, removable storage y politica no restringida de `PRIMARY`/`SECONDARY`.
+- Actualizada documentacion de contexto, arquitectura, modelo funcional, reglas, estado, decisiones e historial.
+
+### Decisiones tomadas
+
+- `CLASS_TIME_TO_READY` es KPI principal.
+- El aula no tiene un unico boolean `READY`; debe poder representar conteos por target y permitir iniciar con subset listo.
+- Una PC lenta, offline o fallida no bloquea a las demas.
+- La secuencia conceptual de preparacion es `ASSIGNED -> PREPARING_WINDOWS_SESSION -> PREPARING_WORKSPACE -> PREPARING_BROWSER -> APPLYING_CLASS_CONTEXT -> READY`.
+- El workspace canonico vive en Master; la working copy local vive en Client mientras el alumno usa la PC.
+- La working copy local solo puede limpiarse despues de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
+- Si falta ACK/confirmacion, no se asume exito ni perdida; se conserva la working copy y se reporta `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- `OPEN_URL`/`OPEN_WEB_CONTENT` son distintos de `SCREEN_SHARE`; YouTube debe preferir abrirse localmente en Chrome del Client.
+- Las prioridades operacionales quedan como `CRITICAL > HIGH > NORMAL > LOW`.
+
+### Cambios descartados
+
+- No se implementaron login/logoff Windows real, Credential Provider, filesystem real, sync real, USB real, Chrome automation, captura, proyeccion, distribucion real, OPEN_APPLICATION real, OPEN_URL real, power-loss recovery tecnico, performance tuning, mDNS ni UI.
+- No se agregaron migrations ni persistencia nueva.
+- No se implemento Prompt 14.3.
+- No se hizo commit.
+
+### Pendiente
+
+- Implementar en fases posteriores workflows reales de preparacion, sync/recovery, distribucion, USB, proyeccion/captura y comandos remotos tipados.
+- Disenar scheduler real despues, respetando prioridades y evitando que trabajos grandes bloqueen operaciones `CRITICAL`.
+- Implementar Prompt 14.3 solo cuando se solicite explicitamente.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 121 pruebas superadas (14 Session, 107 Service).
+- `mvn clean verify` en `master-backend`: correcto, 117 pruebas superadas.
+
+### Commit sugerido
+
+`docs(domain): align classroom operational architecture`

@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 14.2 fija el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. Agrega modelos/enums/planners puros para estrategias de asignacion, preparacion progresiva por Device, estados de workspace canonico/local, prioridad operacional, modos de proyeccion, politica normal de `PRIMARY`/`SECONDARY` y reglas de limpieza segura de working copies. No agrega migraciones ni persistencia nueva.
+
 Prompt 14 registra Clients paired como Devices persistentes del Master sin redisenar pairing ni mTLS. El Master conserva la autoridad sobre `deviceId`, persiste el vinculo vigente en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, acepta capabilities tipadas reportadas por `ClientHello` y superpone presencia viva en memoria sobre Devices registrados. El framework de operaciones remotas queda tipado en Protobuf y en el Agent, pero ninguna operacion funcional real se ejecuta todavia; toda operacion sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
@@ -25,6 +27,32 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
 Las capacidades operativas de administracion remota siguen planificadas. Prompt 14 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
+
+## Modelo operativo Master/Client
+
+El Master de la profesora debe absorber orquestacion, SQLite, workspaces canonicos, metadata escolar, manifests/checksums futuros, planeacion de distribucion, coordinacion batch, recuperacion y estado del aula. No debe convertirse en terminal server ni ejecutar interactivamente las aplicaciones de los alumnos.
+
+Los Clients ejecutan localmente Windows, aplicaciones interactivas, Chrome, USB, working copy local de workspace, captura cuando se solicite, rendering de proyeccion y acciones fisicas Windows futuras. El diseno debe seguir funcionando sobre los Clients legacy mas lentos.
+
+Hardware objetivo documentado:
+
+- Master: Intel Core i5 8a generacion aprox., 8 GB RAM, SSD 500 GB.
+- Clients legacy: aprox. 16 equipos Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD 256 GB.
+- Clients renovados: aprox. 10 equipos Core i5 6a generacion, 8 GB RAM, SSD 256 GB.
+
+Flujo real de primaria:
+
+1. La maestra llega.
+2. Enciende PCs.
+3. Abre Galtek en el Master.
+4. Selecciona aula/grupo.
+5. Asigna alumnos a PCs.
+6. Galtek prepara cada PC independientemente.
+7. Los primeros equipos `READY` pueden empezar sin esperar a los lentos.
+
+El aula no tiene un unico boolean `READY`; la arquitectura debe poder expresar conteos por target como `18 READY`, `4 PREPARING`, `2 OFFLINE`, `1 RECOVERY_REQUIRED` y `1 FAILED`. Una PC fallida o lenta no cancela la preparacion de otras.
+
+`CLASS_TIME_TO_READY` queda como KPI principal de producto: minimizar el tiempo desde que la maestra llega/enciende equipos hasta que los alumnos pueden iniciar actividad. Performance, preview FPS y features deben subordinarse a ese objetivo cuando compitan por recursos.
 
 ## Master
 
@@ -86,6 +114,14 @@ IMPLEMENTADO:
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
   - `windows`: cuentas administradas `PRIMARY`/`SECONDARY`, estado de sesion Windows y preflight batch para cambio de cuenta.
   - `network`: Network Identity del Master, Client descriptors, pairing challenge/response, trust store y revocacion.
+- Modelos puros Prompt 14.2:
+  - `StudentAssignmentStrategy`: `LIST_ORDER`, `RANDOM`, `PREVIOUS`, `MANUAL`.
+  - `StudentPreparationStage` y `StudentPreparationState` para `ASSIGNED -> PREPARING_WINDOWS_SESSION -> PREPARING_WORKSPACE -> PREPARING_BROWSER -> APPLYING_CLASS_CONTEXT -> READY`, con estados `PENDING`, `IN_PROGRESS`, `READY`, `PARTIAL_READY`, `RECOVERY_REQUIRED` y `FAILED`.
+  - `ClassroomReadinessPlan` para readiness progresiva por target.
+  - `WorkspaceResidencyState`, `WorkspaceSyncState`, `WorkspaceCommitStage` y `WorkspaceSyncSafetyPlanner` para canonico Master, working copy Client y limpieza solo tras confirmacion.
+  - `ProjectionMode`: `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA`, `OPEN_WEB_CONTENT`.
+  - `OperationPriority`: `CRITICAL`, `HIGH`, `NORMAL`, `LOW`.
+  - `ManagedWindowsAccountOperatingPolicy` para documentar que `PRIMARY` y `SECONDARY` son Windows normal por default.
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
@@ -96,7 +132,10 @@ IMPLEMENTADO:
 - Estado de resultado por target `NO_CHANGE` tratado como exito no retryable.
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
+- `DistributeFileRequest` modela apertura opcional posterior mediante `openAfterDistribution` sin transferencia real.
+- `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, no como ruta arbitraria.
 - Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
+- Pruebas Java de Prompt 14.2 para estrategias de assignment, readiness parcial, limpieza segura de workspace, prioridades, proyeccion, removable storage, distribucion y politica normal de `PRIMARY`/`SECONDARY`.
 - Persistencia SQLite local del dominio Master con Spring JDBC.
 - Dependencias `spring-boot-starter-jdbc`, `flyway-core` y `sqlite-jdbc` en el backend Master.
 - Flyway programatico para migraciones SQLite desde `classpath:db/migration/sqlite`.
@@ -166,6 +205,7 @@ NO IMPLEMENTADO:
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
+- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, power-loss recovery tecnico, performance tuning y mDNS.
 
 ## Almacenamiento local del Master
 
@@ -685,6 +725,16 @@ VIGENTE DESDE AHORA:
 - Operaciones de contenido deben usar destinos logicos de `StudentWorkspace`; el Master no debe enviar rutas absolutas arbitrarias ni path traversal.
 - `Device` y `Student` son entidades independientes; mover un alumno es un workflow de alumno/workspace, no una copia manual de una carpeta de PC a PC.
 - Browser profiles modelan portabilidad sin copiar passwords, cookies ni cache protegido.
+- `PRIMARY` y `SECONDARY` no son kiosco por default; no deben bloquear aplicaciones, modificar archivos de alumno, forzar programas, restringir Windows, cambiar sesion ni bloquear input al iniciar clase salvo accion administrativa futura explicita.
+- Office, Chrome, Scratch, RoboMind y aplicaciones escolares siguen ejecutandose localmente en Clients.
+- Los documentos del alumno usan destinos logicos; Windows y aplicaciones conservan acceso normal a `AppData`, `Temp`, caches y configuracion interna necesaria.
+- `REMOVABLE_STORAGE` es un destino logico futuro para USB autorizado; el Master no envia rutas arbitrarias de unidades removibles.
+- El workspace canonico vive en el Master y la working copy local vive en el Client mientras el alumno usa esa PC.
+- Nunca limpiar la working copy local antes de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
+- Si red o energia fallan antes de confirmar, conservar la working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`, sin asumir `SUCCESS`.
+- Una distribucion grande no debe impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
+- `OPEN_URL`/`OPEN_WEB_CONTENT` deben preferir abrir Chrome localmente en el Client; no convertir YouTube en captura 30 FPS hacia 26 PCs.
+- Preview de PCs futuro debe ser opt-in operacional: thumbnails pequenos, baja frecuencia, solo devices visibles y concurrencia limitada; no iniciar captura al boot ni por `ClientHello`.
 - Batch-first es obligatorio: targets pueden ser classroom, group, students, devices o items individuales cuando la accion tenga sentido.
 - `PARTIAL_SUCCESS` y retry solo de fallidos deben formar parte del modelo de cualquier operacion masiva.
 - `TARGET_OCCUPIED` nunca debe sobrescribir ni borrar al alumno que ocupa el equipo.

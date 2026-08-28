@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-28 - Prompt 14.
+2026-08-28 - Prompt 14.2.
 
 ## Estado del proyecto
 
@@ -10,13 +10,15 @@ Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity.
 
 Prompt 14 implementa registro real de Devices sobre Clients paired, capabilities tipadas y framework de operaciones no ejecutable. El Master genera `deviceId`, persiste el vinculo Device -> Network Identity en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, y mantiene presencia viva principalmente en memoria. El Agent anuncia capabilities reales (`HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`) y responde operaciones sin handler con `OPERATION_NOT_IMPLEMENTED`, sin ejecutar acciones Windows.
 
+Prompt 14.2 formaliza el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. El Master conserva workspaces canonicos y orquestacion; los Clients ejecutan aplicaciones localmente y conservan working copies. `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco. La preparacion del aula es progresiva por Device, `CLASS_TIME_TO_READY` queda como KPI principal y ninguna PC lenta debe bloquear a las demas.
+
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
+El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni comandos remotos funcionales.
 
 ## Implementado
 
@@ -39,12 +41,21 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `POST /api/classrooms/{classroomId}/devices/register` protegido, registra un Client `PAIRED` como Device del aula y crea binding; rechaza `REVOKED`, no paired y doble registro.
 - Endpoints protegidos de aplicaciones y operaciones.
 - `RestControllerAdvice` uniforme para errores HTTP: validacion 400, no encontrado 404, conflicto/version 409, Master no autorizado 403, Agent/storage no disponible 503.
+- Modelos puros Java de Prompt 14.2 para `StudentAssignmentStrategy`, `StudentPreparationStage`, `StudentPreparationStatus`, `StudentPreparationState`, `ClassroomReadinessPlan`, `WorkspaceResidencyState`, `WorkspaceSyncState`, `WorkspaceCommitStage`, `WorkspaceSyncSafetyPlanner`, `ProjectionMode`, `OperationPriority` y `ManagedWindowsAccountOperatingPolicy`.
+- `StudentAssignmentStrategy` formaliza `LIST_ORDER`, `RANDOM`, `PREVIOUS` y `MANUAL`.
+- `ClassroomReadinessPlan` permite representar readiness parcial por target; un aula puede tener targets `READY`, `PREPARING`, `RECOVERY_REQUIRED` y `FAILED` simultaneamente.
+- `WorkspaceSyncSafetyPlanner` bloquea limpieza de working copy local hasta completar `SYNC`, `VERIFY`, `COMMIT_CANONICAL` y `CONFIRM`; sin confirmacion devuelve estado recuperable y conserva la copia local.
+- `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, sin rutas arbitrarias.
+- `DistributeFileRequest.openAfterDistribution` modela apertura opcional posterior sin transferencia real.
+- `ProjectionMode` distingue `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
+- `OperationPriority` define `CRITICAL > HIGH > NORMAL > LOW` y defaults conceptuales para operaciones existentes.
+- `ManagedWindowsAccountOperatingPolicy` deja `PRIMARY` y `SECONDARY` como Windows normal por default, sin modo restringido, bloqueo de input ni cambio forzado de sesion.
 - Modelos puros Java para cuentas Windows administradas: `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
 - `ManagedAccountSwitchPlanner` puro para decidir `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` o `BLOCKED` por device.
 - Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - `TargetExecutionStatus.NO_CHANGE` tratado como exito no retryable en `BatchOperation`.
 - Errores estructurados para cuentas/sesion Windows administrada: `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `WINDOWS_SESSION_UNKNOWN`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED`, `SESSION_SWITCH_FAILED` y `CREDENTIAL_PROVIDER_UNAVAILABLE`.
-- Contratos compartidos C# para operaciones, tipos de cuenta, estados de sesion y acciones de switch administrado.
+- Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
@@ -104,21 +115,23 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Indices unicos parciales garantizan maximo un Device vigente por Network Identity y una Network Identity vigente por Device.
 - No existe tabla `master_windows_binding` en SQLite.
 - Session Agent background/autostart via Scheduled Task `GaltekClassroomSessionAgent`; sin cambios funcionales en Prompt 09.
-- Documentacion de API, contexto, arquitectura, decisiones e historial actualizada.
+- Documentacion de API, contexto, arquitectura, modelo funcional, reglas, decisiones, estado e historial actualizada.
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 14.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 14.2.
 
 ## Pendiente inmediato
 
-- No queda pendiente inmediato dentro del alcance de Prompt 14.
+- No queda pendiente inmediato dentro del alcance de Prompt 14.2.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
 - Disenar posteriormente almacenamiento seguro de credenciales administradas en el Agent Service del Client.
 - Disenar posteriormente login/logoff/switch con integracion soportada por Windows, contemplando Credential Provider.
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
+- Implementar sync real, USB real y distribucion real en fases posteriores sin romper la regla `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
+- Implementar preview/captura/proyeccion real en fases posteriores distinguiendo modos y costos.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -154,6 +167,17 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - El Master no almacena ni envia passwords de cuentas Windows administradas; la UI no recibe secretos.
 - Los comandos futuros de cuentas administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir targets `NO_CHANGE`, `SUCCESS` y `FAILED`; el retry posterior solo aplica a fallidos retryable.
+- El hardware objetivo real queda documentado: Master i5 8a gen/8 GB/SSD y Clients mixtos legacy HDD + renovados SSD.
+- El Master no es terminal server; aplicaciones interactivas de alumnos corren localmente en Clients.
+- `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni restringen apps/input/sesion sin accion administrativa explicita futura.
+- El aula se prepara progresivamente y los primeros Devices `READY` pueden iniciar clase sin esperar al resto.
+- `CLASS_TIME_TO_READY` es KPI principal de producto.
+- El workspace canonico vive en Master y la working copy local en Client; no usar share SMB como almacenamiento principal del alumno.
+- La working copy local no se limpia antes de sync, verify, commit canonico y confirmacion.
+- Si falta ACK/confirmacion, conservar datos locales y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- `REMOVABLE_STORAGE` es destino logico futuro autorizado.
+- `OPEN_URL`/`OPEN_WEB_CONTENT` se diferencian de `SCREEN_SHARE`; YouTube debe preferir abrirse localmente en Chrome del Client.
+- Las prioridades operacionales deben impedir que transferencias grandes, thumbnails o inventario bloqueen operaciones `CRITICAL`.
 
 ## Cambios rechazados / No repetir
 
@@ -172,6 +196,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - No guardar private key de Network Identity en JSON, logs, SQLite ni archivos planos.
 - No usar Commercial License, IP, MAC ni hostname como Network Identity, trust ni autorizacion.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para automatizar sesiones Windows.
+- No convertir `PRIMARY` ni `SECONDARY` en kiosco dentro de Prompt 14.2.
+- No implementar login/logoff Windows real, Credential Provider, filesystem real, sync real, USB real, Chrome automation, captura, proyeccion, distribucion real, OPEN_APPLICATION real, OPEN_URL real, power-loss recovery tecnico, performance tuning, mDNS ni UI como parte de Prompt 14.2.
+- No borrar working copies locales para completar sync o move.
+- No modelar YouTube como screen share obligatorio.
 - No hacer commits automaticamente.
 
 ## Problemas conocidos
@@ -189,9 +217,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 120 pruebas superadas (14 Session, 106 Service).
-- `mvn clean verify` en `master-backend`: correcto, 105 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 121 pruebas superadas (14 Session, 107 Service).
+- `mvn clean verify` en `master-backend`: correcto, 117 pruebas superadas.
 
 ## Proximo paso recomendado
 
-Elegir explicitamente el siguiente alcance. Prompt 14 queda cerrado; discovery/mDNS, UI y handlers reales de operaciones remotas siguen para fases posteriores.
+Elegir explicitamente el siguiente alcance. Prompt 14.2 queda cerrado; Prompt 14.3 no fue implementado. Discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real y handlers reales de operaciones remotas siguen para fases posteriores.

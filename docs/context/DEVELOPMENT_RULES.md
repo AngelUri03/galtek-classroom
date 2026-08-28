@@ -84,10 +84,17 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Capabilities reportadas por `ClientHello` son operativas y no autorizan por si mismas.
 - El heartbeat no debe escribir SQLite en cada ciclo; presencia viva debe mantenerse principalmente en memoria.
 - Cualquier handler futuro de `OperationRequest` debe ser tipado, idempotente por `operationId` cuando aplique y debe fallar cerrado con `OPERATION_NOT_IMPLEMENTED` mientras no este implementado.
+- `PRIMARY` y `SECONDARY` son Windows normal por default; no implementar modo kiosco, restricciones de aplicaciones, cambio automatico de sesion ni bloqueo de input al iniciar clase salvo alcance explicito futuro.
+- El Master no debe enviar rutas ejecutables, rutas de workspace, rutas USB ni rutas absolutas arbitrarias; usar `applicationId` y destinos logicos.
+- No copiar perfiles Chrome crudos (`Login Data`, `Cookies`, `Local State`, tokens o secretos protegidos).
+- No limpiar working copies locales antes de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
+- Ante operacion sin ACK, red perdida o energia perdida, no asumir `SUCCESS`; conservar origen/local working copy y reportar estado recuperable.
 
 ## Dominio funcional y UX masiva
 
 - El usuario principal es una maestra que administra alumnos pequenos.
+- `CLASS_TIME_TO_READY` es el KPI principal del aula: equipos rapidos deben quedar disponibles primero y los lentos incorporarse progresivamente.
+- Nunca esperar a que todos los Clients esten listos para permitir iniciar clase con los targets `READY`.
 - Toda operacion repetitiva debe analizarse primero como operacion batch/grupo antes de disenar un flujo uno por uno.
 - Nunca obligar a la maestra a repetir manualmente una operacion que ya tuvo exito en otros equipos.
 - `PARTIAL_SUCCESS` debe manejarse explicitamente en operaciones masivas.
@@ -95,6 +102,12 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `Device` y `Student` son entidades independientes; no usar nombres de PC como identidad de alumno.
 - Los archivos del alumno pertenecen a `StudentWorkspace`, no a `PC01`.
 - Operaciones destructivas preservan el origen hasta verificar destino cuando haya transferencia de datos.
+- El workspace canonico pertenece al Master; el Client conserva una working copy local mientras el alumno usa la PC.
+- No disenar trabajo principal del alumno directamente sobre share SMB.
+- `REMOVABLE_STORAGE` es destino logico futuro autorizado, no una ruta libre.
+- Una distribucion grande, thumbnails o inventario no deben bloquear operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
+- `OPEN_URL` y `OPEN_WEB_CONTENT` deben preferir ejecucion local en el Client; no convertir YouTube en screen share por default.
+- Projection debe distinguir `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
 - Chrome passwords, cookies y cache no se copian directamente como estrategia de portabilidad.
 - Un Master se autoriza por Windows SID ligado, no solo por username ni por pertenecer a Administrators.
 - Errores tecnicos deben mapearse a errores operacionales antes de llegar a UI.
