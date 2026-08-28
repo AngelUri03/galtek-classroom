@@ -32,19 +32,26 @@ import com.galtek.classroom.admin.AdminDtos.UpdateStudentRequest;
 import com.galtek.classroom.api.ApiException;
 import com.galtek.classroom.localagent.MasterAuthorizationResponse;
 import com.galtek.classroom.master.MasterAccessGuard;
+import com.galtek.classroom.network.ClientConnectionRegistry;
+import com.galtek.classroom.network.ClientConnectionSnapshot;
+import com.galtek.classroom.network.DeviceNetworkBindingRepository;
+import com.galtek.classroom.network.RegisteredNetworkDevice;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.persistence.MasterStorageException;
 import com.galtek.classroom.persistence.MasterStorageHealth;
 import com.galtek.classroom.persistence.MasterStorageState;
 import com.galtek.classroom.persistence.MasterStorageStatus;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -66,16 +73,22 @@ public class MasterAdminService {
     private final MasterAccessGuard masterAccessGuard;
     private final MasterStorageState storageState;
     private final MasterAdminRepository repository;
+    private final DeviceNetworkBindingRepository deviceNetworkBindingRepository;
+    private final ClientConnectionRegistry connectionRegistry;
     private final Clock clock;
 
     public MasterAdminService(
             MasterAccessGuard masterAccessGuard,
             MasterStorageState storageState,
             MasterAdminRepository repository,
+            DeviceNetworkBindingRepository deviceNetworkBindingRepository,
+            ClientConnectionRegistry connectionRegistry,
             Clock clock) {
         this.masterAccessGuard = masterAccessGuard;
         this.storageState = storageState;
         this.repository = repository;
+        this.deviceNetworkBindingRepository = deviceNetworkBindingRepository;
+        this.connectionRegistry = connectionRegistry;
         this.clock = clock;
     }
 
@@ -481,7 +494,7 @@ public class MasterAdminService {
         ClassroomResponse classroom = classroomOr404(classroomId);
         List<GroupResponse> groups = repository.findGroups(classroomId, true);
         List<StudentResponse> students = repository.findStudents(classroomId, null, true, null);
-        List<DeviceResponse> devices = repository.findDevicesByClassroom(classroomId);
+        List<DeviceResponse> devices = applyLivePresence(repository.findDevicesByClassroom(classroomId));
         List<AssignmentResponse> currentAssignments = repository.findAssignmentsByClassroom(classroomId, true);
         List<ApplicationResponse> applications = repository.findClassroomApplications(classroomId);
 
@@ -750,9 +763,74 @@ public class MasterAdminService {
         return new BatchResultResponse(operationId, results.size(), results.size() - failed, failed, results);
     }
 
+    private List<DeviceResponse> applyLivePresence(List<DeviceResponse> devices) {
+        List<String> deviceIds = devices.stream()
+                .map(DeviceResponse::deviceId)
+                .toList();
+        Map<String, RegisteredNetworkDevice> bindings = deviceNetworkBindingRepository.findCurrentByDeviceIds(deviceIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        RegisteredNetworkDevice::deviceId,
+                        Function.identity(),
+                        (left, right) -> left));
+        Map<String, ClientConnectionSnapshot> liveByDevice = connectionRegistry.snapshots().stream()
+                .filter(snapshot -> snapshot.deviceId() != null)
+                .collect(Collectors.toMap(
+                        ClientConnectionSnapshot::deviceId,
+                        Function.identity(),
+                        (left, right) -> left));
+
+        return devices.stream()
+                .map(device -> {
+                    RegisteredNetworkDevice binding = bindings.get(device.deviceId());
+                    if (binding == null) {
+                        return device;
+                    }
+
+                    ClientConnectionSnapshot snapshot = liveByDevice.get(device.deviceId());
+                    Set<String> capabilities = snapshot != null && !snapshot.capabilities().isEmpty()
+                            ? capabilityNames(snapshot.capabilities())
+                            : capabilityNames(binding.capabilities());
+                    return new DeviceResponse(
+                            device.deviceId(),
+                            device.classroomId(),
+                            device.installationId(),
+                            device.displayName(),
+                            device.hostname(),
+                            snapshot == null ? "OFFLINE" : snapshot.status().name(),
+                            snapshot == null ? fallbackLastSeen(device, binding) : lastSeen(snapshot),
+                            capabilities,
+                            device.assignedStudentId(),
+                            device.assignedStudentDisplayName(),
+                            device.active(),
+                            device.version());
+                })
+                .toList();
+    }
+
     private boolean batchRecoverableStorageError(MasterStorageException exception) {
         return exception.errorCode() == ErrorCode.PERSISTENCE_CONSTRAINT_VIOLATION
                 || exception.errorCode() == ErrorCode.CONCURRENT_MODIFICATION;
+    }
+
+    private Set<String> capabilityNames(Set<com.galtek.classroom.device.DeviceCapability> capabilities) {
+        if (capabilities == null || capabilities.isEmpty()) {
+            return Set.of();
+        }
+        return capabilities.stream()
+                .map(Enum::name)
+                .collect(Collectors.toCollection(TreeSet::new));
+    }
+
+    private OffsetDateTime fallbackLastSeen(DeviceResponse device, RegisteredNetworkDevice binding) {
+        return binding.lastConnectedAtUtc() == null ? device.lastSeenUtc() : binding.lastConnectedAtUtc();
+    }
+
+    private OffsetDateTime lastSeen(ClientConnectionSnapshot snapshot) {
+        Instant signal = snapshot.lastHeartbeatUtc() == null
+                ? (snapshot.disconnectedAtUtc() == null ? snapshot.connectedAtUtc() : snapshot.disconnectedAtUtc())
+                : snapshot.lastHeartbeatUtc();
+        return signal == null ? null : OffsetDateTime.ofInstant(signal, ZoneOffset.UTC);
     }
 
     private MasterAuthorizationResponse requireAuthorizedAndStorage() {

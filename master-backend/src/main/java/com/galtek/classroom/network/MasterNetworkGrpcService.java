@@ -16,14 +16,17 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
 
     private final MasterNetworkConnectionAuthenticator authenticator;
     private final ClientConnectionRegistry connectionRegistry;
+    private final NetworkClientConnectionService networkClientConnectionService;
     private final Clock clock;
 
     public MasterNetworkGrpcService(
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
+            NetworkClientConnectionService networkClientConnectionService,
             Clock clock) {
         this.authenticator = authenticator;
         this.connectionRegistry = connectionRegistry;
+        this.networkClientConnectionService = networkClientConnectionService;
         this.clock = clock;
     }
 
@@ -55,6 +58,8 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                 switch (envelope.getPayloadCase()) {
                     case CLIENT_HELLO -> handleHello(envelope.getClientHello());
                     case HEARTBEAT -> handleHeartbeat(envelope.getHeartbeat());
+                    case OPERATION_ACCEPTED -> handleOperationResponse("OperationAccepted");
+                    case OPERATION_RESULT -> handleOperationResponse("OperationResult");
                     default -> reject(
                             clientNetworkIdentityId == null ? "" : clientNetworkIdentityId.toString(),
                             MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
@@ -100,7 +105,9 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
 
                 clientNetworkIdentityId = authorization.clientNetworkIdentityId();
                 descriptor = authorization.descriptor();
-                connectionRegistry.markConnecting(descriptor, hello, connectionId);
+                RegisteredNetworkDevice registeredDevice =
+                        networkClientConnectionService.recordAcceptedHello(descriptor, hello);
+                connectionRegistry.markConnecting(descriptor, hello, connectionId, registeredDevice);
                 sendStatus(
                         clientNetworkIdentityId.toString(),
                         ConnectionState.CONNECTION_STATE_CONNECTING,
@@ -146,6 +153,27 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                                 .setStatus(ConnectionState.CONNECTION_STATE_ONLINE)
                                 .build())
                         .build());
+            }
+
+            private void handleOperationResponse(String messageName) {
+                if (!accepted || clientNetworkIdentityId == null) {
+                    reject(
+                            "",
+                            MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
+                            messageName + " requires an accepted ClientHello.");
+                    return;
+                }
+
+                MasterNetworkConnectionAuthorization authorization = authenticator.authorizeExisting(
+                        descriptor,
+                        tlsFingerprint);
+                if (!authorization.accepted()) {
+                    connectionRegistry.markOffline(clientNetworkIdentityId, connectionId, authorization.reasonCode());
+                    reject(
+                            clientNetworkIdentityId.toString(),
+                            authorization.reasonCode(),
+                            authorization.message());
+                }
             }
 
             private void reject(String clientIdentityId, String reasonCode, String message) {

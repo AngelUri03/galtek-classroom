@@ -55,7 +55,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion y heartbeat.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas y framework de operaciones sin ejecucion real todavia.
 - Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
@@ -80,10 +80,15 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS minimo para `ClientHello`, estado de conexion y heartbeat; todavia no existe mDNS real ni comandos remotos.
+- Existe transporte gRPC/mTLS minimo para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; todavia no existe mDNS real ni comandos remotos funcionales.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
-- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre este transporte, sin redisenar pairing/mTLS.
+- Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - El producto no debe convertirse en un canal de ejecucion remota arbitraria.
+- `Network Identity != Pairing != Device != Student`.
+- El Master genera y controla `deviceId`; nunca se confia en un `deviceId` declarado por el Client como identidad.
+- `device_network_bindings` vincula Devices persistentes con Network Identities paired, pero el trust sigue viviendo en `paired-clients.json`.
+- Un Client `PAIRED + ONLINE` sin Device se considera `AVAILABLE_FOR_REGISTRATION`; un Client `PAIRED + Device` queda `REGISTERED`; un trust `REVOKED` nunca es registrable ni administrable.
+- Capabilities son informacion operativa, no autorizacion.
 - `Device != Student`; los nombres visibles no son identidad.
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.
 - El Master local se autoriza por licencia MASTER, Installation Identity y Windows SID ligado.

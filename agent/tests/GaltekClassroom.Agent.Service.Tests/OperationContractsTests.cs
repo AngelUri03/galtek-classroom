@@ -75,6 +75,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.CredentialProviderUnavailable, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.OperationNotImplemented, errorCodes);
     }
 
     private static HashSet<string> ConstantValues(Type type)

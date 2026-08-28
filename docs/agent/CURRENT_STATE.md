@@ -2,13 +2,15 @@
 
 ## Ultima actualizacion
 
-2026-08-27 - Prompt 13.
+2026-08-28 - Prompt 14.
 
 ## Estado del proyecto
 
 Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity. El Client conserva su Network Identity en `GaltekClassroom.Agent.Service`; el Master Backend agrega una Network Identity propia, private key cifrada fuera de SQLite/JSON plano y trust store local. El pairing requiere intencion explicita, usa challenge/response firmado, expira challenges, bloquea replay, persiste trust en ambos lados y permite revocacion.
 
-Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12 ni agrega comandos administrativos.
+Prompt 14 implementa registro real de Devices sobre Clients paired, capabilities tipadas y framework de operaciones no ejecutable. El Master genera `deviceId`, persiste el vinculo Device -> Network Identity en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, y mantiene presencia viva principalmente en memoria. El Agent anuncia capabilities reales (`HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`) y responde operaciones sin handler con `OPERATION_NOT_IMPLEMENTED`, sin ejecutar acciones Windows.
+
+Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
@@ -32,6 +34,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Endpoints protegidos de assignments: listar por aula, asignar alumno a device, batch assign y cerrar assignment actual.
 - `assignments/batch` hace preflight del lote completo, detecta conflictos internos antes de escribir y registra una `batch_operation` `ASSIGN_STUDENT`.
 - `GET /api/classrooms/{id}/snapshot` protegido, con aula, grupos, alumnos activos, devices, assignments actuales, aplicaciones y resumen.
+- `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin generar N+1 ni depender de writes por heartbeat.
+- `GET /api/network/clients` protegido, lista Clients conocidos/paired con `networkIdentityId`, estado de trust, estado de conexion, registro, Device/aula si existe, display name, version de Agent, capabilities y timestamps seguros.
+- `POST /api/classrooms/{classroomId}/devices/register` protegido, registra un Client `PAIRED` como Device del aula y crea binding; rechaza `REVOKED`, no paired y doble registro.
 - Endpoints protegidos de aplicaciones y operaciones.
 - `RestControllerAdvice` uniforme para errores HTTP: validacion 400, no encontrado 404, conflicto/version 409, Master no autorizado 403, Agent/storage no disponible 503.
 - Modelos puros Java para cuentas Windows administradas: `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
@@ -68,15 +73,18 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Soporte conceptual para multiples Clients por Master y multiples Masters por Client.
 - Protobuf versionado en `protocol/network/v1/galtek-classroom-network-v1.proto`.
 - gRPC Java/.NET generado desde el contrato compartido.
-- Servicio Master `NetworkConnection.Connect` para `ClientHello`, `ConnectionStatus`, `Heartbeat` y `HeartbeatAck`.
+- Servicio Master `NetworkConnection.Connect` para `ClientHello`, `ConnectionStatus`, `Heartbeat`, `HeartbeatAck`, `OperationRequest`, `OperationAccepted` y `OperationResult`.
 - Conexion persistente saliente iniciada por el Client; no depende de puertos entrantes en cada PC Client.
 - TLS/mTLS obligatorio, sin fallback plaintext.
 - Certificados self-signed de corta vida emitidos desde Network Identity y validados por fingerprint `SubjectPublicKeyInfo` ya persistido en trust.
 - Sin CA global que confie automaticamente en cualquier instalacion.
 - El Master valida certificados de Client contra `paired-clients.json`, exige `PAIRED` y bloquea `REVOKED`.
 - El Client valida el certificado del Master contra `authorized-masters.json`, exige `PAIRED` y bloquea `REVOKED`.
-- `ClientHello` transporta ids/fingerprints/public SPKI necesarios, nunca secretos.
-- `ClientConnectionRegistry` mantiene estado real de Devices conectados como `CONNECTING`, `ONLINE` u `OFFLINE`.
+- `ClientHello` transporta ids/fingerprints/public SPKI necesarios, version de Agent y capabilities tipadas, nunca secretos.
+- `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
+- `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`; capabilities desconocidas se ignoran y no autorizan.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler, sin ejecutar acciones Windows.
 - Heartbeat del Client cada 15 segundos por default; timeout Master default 45 segundos.
 - Reconexión del Client con backoff `2s`, `5s`, `10s`, `30s`.
 - Servidor gRPC del Master configurable con `galtek.classroom.master.network.grpc.enabled`; por defecto no abre puerto.
@@ -92,17 +100,19 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Identidad real del cliente IPC obtenida con `NamedPipeServerStream.RunAsClient(...)`.
 - Respuesta Master Authorization segura: no expone SID completo, JWT, ruta de binding ni ACLs internas.
 - Persistencia SQLite local del dominio Master con Spring JDBC, Flyway programatico y repositories explicitos.
+- Migracion V2 `device_network_bindings` para vincular Device persistente con `networkIdentityId`, `installationId`, fingerprint publico, version de Agent, capabilities, `registeredAt` y `lastConnectedAt`.
+- Indices unicos parciales garantizan maximo un Device vigente por Network Identity y una Network Identity vigente por Device.
 - No existe tabla `master_windows_binding` en SQLite.
 - Session Agent background/autostart via Scheduled Task `GaltekClassroomSessionAgent`; sin cambios funcionales en Prompt 09.
-- Documentacion de API, contexto, arquitectura, decisiones, historial y README actualizada.
+- Documentacion de API, contexto, arquitectura, decisiones e historial actualizada.
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 13.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 14.
 
 ## Pendiente inmediato
 
-- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
+- No queda pendiente inmediato dentro del alcance de Prompt 14.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
@@ -133,6 +143,12 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Nunca se adopta `network-identity.json` de otra instalacion.
 - La API administrativa falla cerrado: si Agent Service esta caido devuelve `503 LOCAL_AGENT_UNAVAILABLE`; si Master no esta autorizado devuelve `403`.
 - Bootstrap/snapshot usan modelos de lectura agregados batch-friendly para la UI futura.
+- `Network Identity != Pairing != Device != Student`; el Master genera y controla `deviceId`.
+- `device_network_bindings` vincula Device y Network Identity paired, pero `paired-clients.json` sigue siendo la autoridad de trust.
+- `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
+- Capabilities son informacion operativa, no autorizacion.
+- El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
+- El framework de operaciones remotas queda tipado, deduplicado por `operationId` y sin handlers Windows reales; operaciones no implementadas devuelven `OPERATION_NOT_IMPLEMENTED`.
 - `students/batch` permite parcialidad por fila; un alumno invalido no cancela los demas.
 - `assignments/batch` preflight completo antes de writes; `TARGET_OCCUPIED` no reemplaza automaticamente.
 - El Master no almacena ni envia passwords de cuentas Windows administradas; la UI no recibe secretos.
@@ -151,6 +167,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - No implementar UI, gRPC, pairing, comandos remotos ni filesystem real en Prompt 10.
 - No implementar passwords reales, DPAPI, Credential Provider, login/logoff Windows real, cambio real de usuario ni almacenamiento de credenciales en Prompt 9.6.
 - No implementar pairing, certificados emitidos por Master, CA, mTLS real, gRPC, discovery, comandos remotos, rotacion automatica de claves ni UI en Prompt 11.
+- No implementar acciones reales `LOCK_INPUT`, `UNLOCK_INPUT`, `SHUTDOWN`, `RESTART`, `OPEN_APPLICATION`, `OPEN_URL`, login Windows, archivos, wallpaper, captura, proyeccion, mDNS, discovery ni UI como parte del cierre de Prompt 14.
 - No redisenar ni reimplementar pairing despues de Prompt 13; usar el trust ya persistido.
 - No guardar private key de Network Identity en JSON, logs, SQLite ni archivos planos.
 - No usar Commercial License, IP, MAC ni hostname como Network Identity, trust ni autorizacion.
@@ -172,11 +189,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 118 pruebas superadas.
-- `mvn clean verify` en `master-backend`: correcto, 97 pruebas superadas.
-- Parser PowerShell de `installer/windows/uninstall-agent-service.ps1`: correcto.
-- `--network-identity-status` con `GALTEK_CLASSROOM_DATA_DIR` temporal vacio: correcto, devuelve `NOT_CONFIGURED` y no crea directorio ni llave.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 120 pruebas superadas (14 Session, 106 Service).
+- `mvn clean verify` en `master-backend`: correcto, 105 pruebas superadas.
 
 ## Proximo paso recomendado
 
-Prompt 14 recomendado: construir registro/capabilities y framework de operaciones sobre el transporte gRPC/mTLS existente, sin redisenar pairing/mTLS, sin avanzar discovery/mDNS y sin comandos remotos genericos.
+Elegir explicitamente el siguiente alcance. Prompt 14 queda cerrado; discovery/mDNS, UI y handlers reales de operaciones remotas siguen para fases posteriores.

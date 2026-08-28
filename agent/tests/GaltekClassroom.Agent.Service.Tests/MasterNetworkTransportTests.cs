@@ -4,6 +4,7 @@ using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Protocol.Network.V1;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 
@@ -131,6 +132,8 @@ public sealed class MasterNetworkTransportTests : IDisposable
         var hello = new ClientHelloFactory(
             _keys,
             new FixedHostNameProvider("PC01"),
+            new ClientCapabilityProvider(),
+            new AgentVersionProvider(),
             new MutableClock(FixedNow))
             .Create(clientIdentity, new MasterConnectionOptions
             {
@@ -142,10 +145,63 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Equal(ClientNetworkIdentityId.ToString("D"), hello.Hello!.ClientNetworkIdentityId);
         Assert.Equal(InstallationId.ToString("D"), hello.Hello.ClientInstallationId);
         Assert.Equal(clientIdentity.PublicKeyFingerprint, hello.Hello.ClientPublicKeyFingerprint);
-        Assert.Equal("PC01", hello.Hello.DeviceId);
+        Assert.Empty(hello.Hello.DeviceId);
         Assert.Equal("PC01", hello.Hello.DisplayName);
         Assert.Equal("PC01", hello.Hello.Hostname);
+        Assert.NotEmpty(hello.Hello.AgentVersion);
+        Assert.Contains(NetworkCapability.HeartbeatV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.OperationFrameworkV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.SessionAgentAvailable, hello.Hello.Capabilities);
+        Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UnknownOperationReturnsNotImplementedAndDoesNotExecuteWindowsAction()
+    {
+        var dispatcher = new RemoteOperationDispatcher(
+            [],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        RemoteOperationDispatchResult dispatch = await dispatcher.DispatchAsync(new OperationRequest
+        {
+            OperationId = "operation-1",
+            OperationType = NetworkOperationType.OpenUrl,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds()
+        }, CancellationToken.None);
+
+        Assert.Equal(OperationAcceptanceStatus.Accepted, dispatch.Accepted.Status);
+        Assert.Equal(OperationExecutionStatus.Failed, dispatch.Result.Status);
+        Assert.Equal(NetworkOperationErrorCode.OperationNotImplemented, dispatch.Result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DuplicateOperationIdIsNotProcessedTwice()
+    {
+        var handler = new CountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+        var request = new OperationRequest
+        {
+            OperationId = "operation-duplicate",
+            OperationType = NetworkOperationType.LockInput,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds()
+        };
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(request, CancellationToken.None);
+        RemoteOperationDispatchResult second = await dispatcher.DispatchAsync(request, CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.True(second.Duplicate);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(first.Result.CompletedAtUnixMs, second.Result.CompletedAtUnixMs);
     }
 
     [Fact]
@@ -295,6 +351,21 @@ public sealed class MasterNetworkTransportTests : IDisposable
         public string GetHostName()
         {
             return _hostName;
+        }
+    }
+
+    private sealed class CountingOperationHandler : IRemoteOperationHandler
+    {
+        public int Calls { get; private set; }
+
+        public NetworkOperationType OperationType => NetworkOperationType.LockInput;
+
+        public Task<RemoteOperationHandlerResult> HandleAsync(
+            OperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(RemoteOperationHandlerResult.NotImplemented());
         }
     }
 

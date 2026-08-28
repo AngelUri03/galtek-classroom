@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos, no crea Devices remotamente y no mueve `StudentWorkspace` en filesystem. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -78,6 +78,91 @@ Devuelve autorizacion derivada por Agent Service, estado de storage y aulas acti
   ]
 }
 ```
+
+## Network Clients
+
+- `GET /api/network/clients`
+- `POST /api/classrooms/{classroomId}/devices/register`
+
+Estos endpoints estan protegidos por `MasterAccessGuard`.
+
+Conceptos obligatorios:
+
+```text
+Network Identity != Pairing != Device != Student
+```
+
+Reglas:
+
+- `paired-clients.json` sigue siendo la autoridad de pairing/trust.
+- SQLite no reemplaza trust; `device_network_bindings` solo vincula un Device persistente con una Network Identity paired.
+- El Master genera y controla `deviceId`.
+- `deviceId`, `displayName`, hostname, IP y MAC enviados o inferidos del Client son informativos y no son identidad de seguridad.
+- Capabilities reportadas por `ClientHello` son informacion operativa; no autorizan acciones.
+- `REVOKED` no es registrable ni administrable.
+
+Estados de registro expuestos:
+
+```text
+PAIRED + ONLINE + sin Device -> AVAILABLE_FOR_REGISTRATION
+PAIRED + binding vigente     -> REGISTERED
+REVOKED                      -> REVOKED
+```
+
+List clients:
+
+```json
+[
+  {
+    "networkIdentityId": "uuid",
+    "trustStatus": "PAIRED",
+    "connectionStatus": "ONLINE",
+    "registrationStatus": "AVAILABLE_FOR_REGISTRATION",
+    "registered": false,
+    "deviceId": null,
+    "classroomId": null,
+    "displayName": "PC01",
+    "agentVersion": "0.5.0",
+    "capabilities": ["HEARTBEAT_V1", "OPERATION_FRAMEWORK_V1"],
+    "lastSeenUtc": "2026-08-28T18:00:00Z",
+    "lastConnectedUtc": "2026-08-28T18:00:00Z"
+  }
+]
+```
+
+Register device:
+
+```json
+{
+  "networkIdentityId": "uuid",
+  "displayName": "PC01"
+}
+```
+
+Respuesta:
+
+```json
+{
+  "deviceId": "uuid-generated-by-master",
+  "classroomId": "uuid",
+  "networkIdentityId": "uuid",
+  "installationId": "uuid",
+  "displayName": "PC01",
+  "agentVersion": "0.5.0",
+  "capabilities": ["HEARTBEAT_V1", "OPERATION_FRAMEWORK_V1"],
+  "registeredAtUtc": "2026-08-28T18:00:00Z",
+  "lastConnectedUtc": "2026-08-28T18:00:00Z"
+}
+```
+
+Errores relevantes:
+
+- `403 MASTER_NOT_PAIRED`: el Client no esta paired con este Master.
+- `403 CLIENT_REVOKED`: el trust del Client fue revocado.
+- `404 CLASSROOM_NOT_FOUND`: el aula no existe.
+- `409 NETWORK_IDENTITY_ALREADY_REGISTERED`: la Network Identity ya tiene Device vigente.
+- `409 DEVICE_ALREADY_REGISTERED`: la Installation Identity ya pertenece a un Device activo o binding vigente.
+- `503 MASTER_DATABASE_UNAVAILABLE` u otro codigo de storage: SQLite no esta disponible.
 
 ## Classrooms
 
@@ -261,6 +346,8 @@ Devuelve en una respuesta:
 - `currentAssignments`
 - `applications`
 - `summary`
+
+Para Devices registrados via `device_network_bindings`, el snapshot superpone presencia viva desde el stream autenticado en memoria. El heartbeat no escribe SQLite cada 15 segundos.
 
 La respuesta permite construir directamente estados como:
 

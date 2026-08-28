@@ -12,10 +12,14 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.AddSingleton(MasterConnectionOptions.FromConfiguration(configuration));
+        services.AddSingleton(new RemoteOperationOptions());
+        services.AddSingleton<ClientCapabilityProvider>();
+        services.AddSingleton<AgentVersionProvider>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();
         services.AddSingleton<MasterConnectionStateTracker>();
+        services.AddSingleton<RemoteOperationDispatcher>();
         services.AddSingleton<MasterGrpcConnectionClient>();
 
         return services;

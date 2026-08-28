@@ -16,6 +16,8 @@ message ClientEnvelope {
   oneof payload {
     ClientHello client_hello = 10;
     Heartbeat heartbeat = 11;
+    OperationAccepted operation_accepted = 12;
+    OperationResult operation_result = 13;
   }
 }
 
@@ -25,6 +27,7 @@ message MasterEnvelope {
   oneof payload {
     ConnectionStatus connection_status = 10;
     HeartbeatAck heartbeat_ack = 11;
+    OperationRequest operation_request = 12;
   }
 }
 
@@ -37,6 +40,8 @@ message ClientHello {
   string display_name = 6;
   string hostname = 7;
   int64 sent_at_unix_ms = 8;
+  repeated NetworkCapability capabilities = 9;
+  string agent_version = 10;
 }
 
 message Heartbeat {
@@ -65,4 +70,83 @@ enum ConnectionState {
   CONNECTION_STATE_ONLINE = 2;
   CONNECTION_STATE_OFFLINE = 3;
   CONNECTION_STATE_REJECTED = 4;
+}
+
+message OperationRequest {
+  string operation_id = 1;
+  NetworkOperationType operation_type = 2;
+  string target_device_id = 3;
+  string protocol_version = 4;
+  int64 sent_at_unix_ms = 5;
+  int64 timeout_ms = 6;
+}
+
+message OperationAccepted {
+  string operation_id = 1;
+  NetworkOperationType operation_type = 2;
+  string target_device_id = 3;
+  string protocol_version = 4;
+  OperationAcceptanceStatus status = 5;
+  int64 accepted_at_unix_ms = 6;
+}
+
+message OperationResult {
+  string operation_id = 1;
+  NetworkOperationType operation_type = 2;
+  string target_device_id = 3;
+  string protocol_version = 4;
+  OperationExecutionStatus status = 5;
+  NetworkOperationErrorCode error_code = 6;
+  string message = 7;
+  int64 started_at_unix_ms = 8;
+  int64 completed_at_unix_ms = 9;
+}
+
+enum NetworkCapability {
+  NETWORK_CAPABILITY_UNSPECIFIED = 0;
+  NETWORK_CAPABILITY_HEARTBEAT_V1 = 1;
+  NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1 = 2;
+  NETWORK_CAPABILITY_SESSION_AGENT_AVAILABLE = 3;
+}
+
+enum NetworkOperationType {
+  NETWORK_OPERATION_TYPE_UNSPECIFIED = 0;
+  NETWORK_OPERATION_TYPE_LOCK_INPUT = 1;
+  NETWORK_OPERATION_TYPE_UNLOCK_INPUT = 2;
+  NETWORK_OPERATION_TYPE_SHUTDOWN = 3;
+  NETWORK_OPERATION_TYPE_RESTART = 4;
+  NETWORK_OPERATION_TYPE_OPEN_APPLICATION = 5;
+  NETWORK_OPERATION_TYPE_OPEN_URL = 6;
+  NETWORK_OPERATION_TYPE_START_PROJECTION = 7;
+  NETWORK_OPERATION_TYPE_STOP_PROJECTION = 8;
+  NETWORK_OPERATION_TYPE_DISTRIBUTE_FILE = 9;
+  NETWORK_OPERATION_TYPE_CREATE_FOLDER = 10;
+  NETWORK_OPERATION_TYPE_SET_WALLPAPER = 11;
+  NETWORK_OPERATION_TYPE_RESTORE_WALLPAPER = 12;
+  NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE = 13;
+  NETWORK_OPERATION_TYPE_LOGON_MANAGED_ACCOUNT = 14;
+  NETWORK_OPERATION_TYPE_LOGOFF_WINDOWS_SESSION = 15;
+  NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT = 16;
+}
+
+enum OperationAcceptanceStatus {
+  OPERATION_ACCEPTANCE_STATUS_UNSPECIFIED = 0;
+  OPERATION_ACCEPTANCE_STATUS_ACCEPTED = 1;
+  OPERATION_ACCEPTANCE_STATUS_REJECTED = 2;
+}
+
+enum OperationExecutionStatus {
+  OPERATION_EXECUTION_STATUS_UNSPECIFIED = 0;
+  OPERATION_EXECUTION_STATUS_SUCCESS = 1;
+  OPERATION_EXECUTION_STATUS_FAILED = 2;
+  OPERATION_EXECUTION_STATUS_TIMED_OUT = 3;
+}
+
+enum NetworkOperationErrorCode {
+  NETWORK_OPERATION_ERROR_CODE_UNSPECIFIED = 0;
+  NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED = 1;
+  NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE = 2;
+  NETWORK_OPERATION_ERROR_CODE_OPERATION_TIMEOUT = 3;
+  NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED = 4;
+  NETWORK_OPERATION_ERROR_CODE_PROTOCOL_VIOLATION = 5;
 }

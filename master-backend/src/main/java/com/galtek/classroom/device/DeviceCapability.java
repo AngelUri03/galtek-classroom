@@ -1,6 +1,9 @@
 package com.galtek.classroom.device;
 
 public enum DeviceCapability {
+    HEARTBEAT_V1,
+    OPERATION_FRAMEWORK_V1,
+    SESSION_AGENT_AVAILABLE,
     LOCAL_IPC,
     SESSION_AGENT,
     APPLICATION_LAUNCH,

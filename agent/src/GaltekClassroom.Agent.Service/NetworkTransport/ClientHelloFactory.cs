@@ -8,15 +8,21 @@ public sealed class ClientHelloFactory
 {
     private readonly INetworkIdentityKeyStore _keyStore;
     private readonly IHostNameProvider _hostNameProvider;
+    private readonly ClientCapabilityProvider _capabilityProvider;
+    private readonly AgentVersionProvider _agentVersionProvider;
     private readonly ISystemClock _clock;
 
     public ClientHelloFactory(
         INetworkIdentityKeyStore keyStore,
         IHostNameProvider hostNameProvider,
+        ClientCapabilityProvider capabilityProvider,
+        AgentVersionProvider agentVersionProvider,
         ISystemClock clock)
     {
         _keyStore = keyStore;
         _hostNameProvider = hostNameProvider;
+        _capabilityProvider = capabilityProvider;
+        _agentVersionProvider = agentVersionProvider;
         _clock = clock;
     }
 
@@ -52,13 +58,13 @@ public sealed class ClientHelloFactory
             ClientInstallationId = clientNetworkIdentity.InstallationId.ToString("D"),
             ClientPublicKeyFingerprint = clientNetworkIdentity.PublicKeyFingerprint,
             ClientPublicKeySubjectPublicKeyInfoBase64 = publicKey.SubjectPublicKeyInfoBase64 ?? string.Empty,
-            DeviceId = string.IsNullOrWhiteSpace(options.DeviceId)
-                ? clientNetworkIdentity.NetworkIdentityId.ToString("D")
-                : options.DeviceId,
+            DeviceId = string.Empty,
             DisplayName = string.IsNullOrWhiteSpace(options.DisplayName) ? hostName : options.DisplayName,
             Hostname = hostName,
-            SentAtUnixMs = _clock.UtcNow.ToUnixTimeMilliseconds()
+            SentAtUnixMs = _clock.UtcNow.ToUnixTimeMilliseconds(),
+            AgentVersion = _agentVersionProvider.GetAgentVersion()
         };
+        hello.Capabilities.AddRange(_capabilityProvider.CurrentCapabilities());
 
         return ClientHelloCreationResult.Success(hello);
     }

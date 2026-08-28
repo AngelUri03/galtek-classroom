@@ -22,6 +22,7 @@ public sealed class MasterGrpcConnectionClient
     private readonly INetworkIdentityKeyStore _keyStore;
     private readonly ISystemClock _clock;
     private readonly MasterConnectionStateTracker _stateTracker;
+    private readonly RemoteOperationDispatcher _operationDispatcher;
 
     public MasterGrpcConnectionClient(
         ILogger<MasterGrpcConnectionClient> logger,
@@ -31,7 +32,8 @@ public sealed class MasterGrpcConnectionClient
         ClientHelloFactory helloFactory,
         INetworkIdentityKeyStore keyStore,
         ISystemClock clock,
-        MasterConnectionStateTracker stateTracker)
+        MasterConnectionStateTracker stateTracker,
+        RemoteOperationDispatcher operationDispatcher)
     {
         _logger = logger;
         _options = options;
@@ -41,6 +43,7 @@ public sealed class MasterGrpcConnectionClient
         _keyStore = keyStore;
         _clock = clock;
         _stateTracker = stateTracker;
+        _operationDispatcher = operationDispatcher;
     }
 
     public async Task RunAsync(
@@ -154,13 +157,21 @@ public sealed class MasterGrpcConnectionClient
 
         var client = new NetworkConnection.NetworkConnectionClient(channel);
         using var call = client.Connect(cancellationToken: stoppingToken);
-        await call.RequestStream.WriteAsync(new ClientEnvelope
+        using var writeLock = new SemaphoreSlim(1, 1);
+        await WriteAsync(call.RequestStream, new ClientEnvelope
         {
             ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
             ClientHello = hello.Hello
-        });
+        }, writeLock, stoppingToken);
 
-        var readTask = ReadResponsesAsync(call.ResponseStream, masterNetworkIdentityId, stoppingToken);
+        var readTask = ReadResponsesAsync(
+            call.ResponseStream,
+            call.RequestStream,
+            writeLock,
+            masterNetworkIdentityId,
+            clientNetworkIdentity,
+            trustedMaster.Master!,
+            stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -171,26 +182,13 @@ public sealed class MasterGrpcConnectionClient
             }
 
             await Task.Delay(_options.HeartbeatInterval, stoppingToken);
-            var currentTrust = await _trustedMasterResolver.ResolveAsync(
+            await EnsureTrustedMasterStillCurrentAsync(
                 masterNetworkIdentityId,
                 clientNetworkIdentity,
+                trustedMaster.Master!,
                 stoppingToken);
-            if (!currentTrust.Trusted
-                || !string.Equals(
-                    currentTrust.Master!.MasterPublicKeyFingerprint,
-                    trustedMaster.Master!.MasterPublicKeyFingerprint,
-                    StringComparison.Ordinal)
-                || !string.Equals(
-                    currentTrust.Master.MasterPublicKeySubjectPublicKeyInfoBase64,
-                    trustedMaster.Master.MasterPublicKeySubjectPublicKeyInfoBase64,
-                    StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"{currentTrust.ErrorCode ?? MasterConnectionConstants.MutualTlsRequiredErrorCode}: "
-                    + currentTrust.ErrorMessage);
-            }
 
-            await call.RequestStream.WriteAsync(new ClientEnvelope
+            await WriteAsync(call.RequestStream, new ClientEnvelope
             {
                 ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
                 Heartbeat = new Heartbeat
@@ -198,18 +196,30 @@ public sealed class MasterGrpcConnectionClient
                     HeartbeatId = Guid.NewGuid().ToString("N"),
                     SentAtUnixMs = _clock.UtcNow.ToUnixTimeMilliseconds()
                 }
-            });
+            }, writeLock, stoppingToken);
         }
     }
 
     private async Task ReadResponsesAsync(
         IAsyncStreamReader<MasterEnvelope> responseStream,
+        IClientStreamWriter<ClientEnvelope> requestStream,
+        SemaphoreSlim writeLock,
         Guid masterNetworkIdentityId,
+        NetworkIdentityMetadata clientNetworkIdentity,
+        AuthorizedMasterTrustRecord trustedMaster,
         CancellationToken cancellationToken)
     {
         while (await responseStream.MoveNext(cancellationToken))
         {
             var response = responseStream.Current;
+            if (!string.Equals(
+                response.ProtocolVersion,
+                MasterConnectionConstants.ProtocolVersion,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Master returned an unsupported network protocol version.");
+            }
+
             switch (response.PayloadCase)
             {
                 case MasterEnvelope.PayloadOneofCase.ConnectionStatus:
@@ -218,8 +228,49 @@ public sealed class MasterGrpcConnectionClient
                 case MasterEnvelope.PayloadOneofCase.HeartbeatAck:
                     _stateTracker.SetOnline(masterNetworkIdentityId, _clock.UtcNow);
                     break;
+                case MasterEnvelope.PayloadOneofCase.OperationRequest:
+                    await HandleOperationRequestAsync(
+                        requestStream,
+                        writeLock,
+                        masterNetworkIdentityId,
+                        clientNetworkIdentity,
+                        trustedMaster,
+                        response.OperationRequest,
+                        cancellationToken);
+                    break;
             }
         }
+    }
+
+    private async Task HandleOperationRequestAsync(
+        IClientStreamWriter<ClientEnvelope> requestStream,
+        SemaphoreSlim writeLock,
+        Guid masterNetworkIdentityId,
+        NetworkIdentityMetadata clientNetworkIdentity,
+        AuthorizedMasterTrustRecord trustedMaster,
+        OperationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await EnsureTrustedMasterStillCurrentAsync(
+            masterNetworkIdentityId,
+            clientNetworkIdentity,
+            trustedMaster,
+            cancellationToken);
+
+        RemoteOperationDispatchResult dispatch =
+            await _operationDispatcher.DispatchAsync(request, cancellationToken).ConfigureAwait(false);
+
+        await WriteAsync(requestStream, new ClientEnvelope
+        {
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            OperationAccepted = dispatch.Accepted
+        }, writeLock, cancellationToken).ConfigureAwait(false);
+
+        await WriteAsync(requestStream, new ClientEnvelope
+        {
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            OperationResult = dispatch.Result
+        }, writeLock, cancellationToken).ConfigureAwait(false);
     }
 
     private void HandleConnectionStatus(Guid masterNetworkIdentityId, ConnectionStatus status)
@@ -291,5 +342,49 @@ public sealed class MasterGrpcConnectionClient
         };
 
         return handler;
+    }
+
+    private async Task EnsureTrustedMasterStillCurrentAsync(
+        Guid masterNetworkIdentityId,
+        NetworkIdentityMetadata clientNetworkIdentity,
+        AuthorizedMasterTrustRecord trustedMaster,
+        CancellationToken cancellationToken)
+    {
+        var currentTrust = await _trustedMasterResolver.ResolveAsync(
+            masterNetworkIdentityId,
+            clientNetworkIdentity,
+            cancellationToken);
+        if (!currentTrust.Trusted
+            || currentTrust.Master is null
+            || !string.Equals(
+                currentTrust.Master.MasterPublicKeyFingerprint,
+                trustedMaster.MasterPublicKeyFingerprint,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                currentTrust.Master.MasterPublicKeySubjectPublicKeyInfoBase64,
+                trustedMaster.MasterPublicKeySubjectPublicKeyInfoBase64,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{currentTrust.ErrorCode ?? MasterConnectionConstants.MutualTlsRequiredErrorCode}: "
+                + currentTrust.ErrorMessage);
+        }
+    }
+
+    private static async Task WriteAsync(
+        IClientStreamWriter<ClientEnvelope> requestStream,
+        ClientEnvelope envelope,
+        SemaphoreSlim writeLock,
+        CancellationToken cancellationToken)
+    {
+        await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await requestStream.WriteAsync(envelope).ConfigureAwait(false);
+        }
+        finally
+        {
+            writeLock.Release();
+        }
     }
 }

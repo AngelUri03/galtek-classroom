@@ -3,12 +3,14 @@ package com.galtek.classroom.network;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.galtek.classroom.device.DeviceCapability;
 import com.galtek.classroom.device.DeviceStatus;
 import com.galtek.classroom.network.v1.ClientEnvelope;
 import com.galtek.classroom.network.v1.ClientHello;
 import com.galtek.classroom.network.v1.ConnectionState;
 import com.galtek.classroom.network.v1.Heartbeat;
 import com.galtek.classroom.network.v1.MasterEnvelope;
+import com.galtek.classroom.network.v1.NetworkCapability;
 import io.grpc.Context;
 import io.grpc.stub.StreamObserver;
 import java.security.KeyPair;
@@ -61,6 +63,17 @@ class MasterNetworkTransportTest {
                 .get()
                 .extracting(ClientConnectionSnapshot::status)
                 .isEqualTo(DeviceStatus.ONLINE);
+        assertThat(fixture.registry.find(client.descriptor().clientNetworkIdentityId()))
+                .get()
+                .satisfies(snapshot -> {
+                    assertThat(snapshot.registered()).isFalse();
+                    assertThat(snapshot.deviceId()).isNull();
+                    assertThat(snapshot.capabilities())
+                            .containsExactlyInAnyOrder(
+                                    DeviceCapability.HEARTBEAT_V1,
+                                    DeviceCapability.OPERATION_FRAMEWORK_V1);
+                    assertThat(snapshot.agentVersion()).isEqualTo("0.5.0-test");
+                });
     }
 
     @Test
@@ -206,8 +219,41 @@ class MasterNetworkTransportTest {
         assertThat(fixture.registry.snapshots())
                 .extracting(ClientConnectionSnapshot::status)
                 .containsExactlyInAnyOrder(DeviceStatus.ONLINE, DeviceStatus.ONLINE);
-        assertThat(fixture.registry.findByDeviceId("PC01")).isPresent();
-        assertThat(fixture.registry.findByDeviceId("PC02")).isPresent();
+        assertThat(fixture.registry.findByDeviceId("PC01")).isEmpty();
+        assertThat(fixture.registry.findByDeviceId("PC02")).isEmpty();
+    }
+
+    @Test
+    void unknownCapabilityDoesNotGrantDeviceCapability() throws Exception {
+        Fixture fixture = createFixture("unknown-capability");
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+
+        requests.onNext(helloEnvelope(client, "PC01", List.of(NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1), 999));
+
+        assertThat(fixture.registry.find(client.descriptor().clientNetworkIdentityId()))
+                .get()
+                .satisfies(snapshot -> assertThat(snapshot.capabilities())
+                        .containsExactly(DeviceCapability.HEARTBEAT_V1));
+    }
+
+    @Test
+    void heartbeatDoesNotRecordPersistentConnectionWrites() throws Exception {
+        MutableClock clock = new MutableClock(FIXED_NOW);
+        CountingNetworkClientConnectionService connectionService = new CountingNetworkClientConnectionService();
+        Fixture fixture = createFixture("heartbeat-no-write", clock, new InMemoryMasterNetworkIdentityKeyStore(), connectionService);
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+
+        requests.onNext(helloEnvelope(client, "PC01"));
+        requests.onNext(heartbeatEnvelope("hb-1"));
+        requests.onNext(heartbeatEnvelope("hb-2"));
+
+        assertThat(connectionService.acceptedHelloCount).isEqualTo(1);
     }
 
     @Test
@@ -258,6 +304,14 @@ class MasterNetworkTransportTest {
             String name,
             MutableClock clock,
             InMemoryMasterNetworkIdentityKeyStore keyStore) {
+        return createFixture(name, clock, keyStore, new NoOpNetworkClientConnectionService());
+    }
+
+    private Fixture createFixture(
+            String name,
+            MutableClock clock,
+            InMemoryMasterNetworkIdentityKeyStore keyStore,
+            NetworkClientConnectionService connectionService) {
         java.nio.file.Path dataDir = tempDir.resolve(name);
         var identityResolver = new MasterNetworkIdentityResolver(
                 new MasterNetworkIdentityStore(dataDir),
@@ -269,6 +323,7 @@ class MasterNetworkTransportTest {
         var service = new MasterNetworkGrpcService(
                 new MasterNetworkConnectionAuthenticator(pairingService),
                 registry,
+                connectionService,
                 clock);
         return new Fixture(pairingService, trustStore, registry, service, clock);
     }
@@ -283,18 +338,34 @@ class MasterNetworkTransportTest {
     }
 
     private static ClientEnvelope helloEnvelope(TestClientIdentity client, String deviceId) {
+        return helloEnvelope(client, deviceId, List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1), null);
+    }
+
+    private static ClientEnvelope helloEnvelope(
+            TestClientIdentity client,
+            String deviceId,
+            List<NetworkCapability> capabilities,
+            Integer unknownCapabilityValue) {
+        ClientHello.Builder hello = ClientHello.newBuilder()
+                .setClientNetworkIdentityId(client.descriptor().clientNetworkIdentityId().toString())
+                .setClientInstallationId(client.descriptor().clientInstallationId().toString())
+                .setClientPublicKeyFingerprint(client.descriptor().publicKeyFingerprint())
+                .setClientPublicKeySubjectPublicKeyInfoBase64(client.descriptor().subjectPublicKeyInfoBase64())
+                .setDeviceId(deviceId)
+                .setDisplayName(deviceId)
+                .setHostname(deviceId)
+                .setAgentVersion("0.5.0-test")
+                .setSentAtUnixMs(FIXED_NOW.toEpochMilli());
+        hello.addAllCapabilities(capabilities);
+        if (unknownCapabilityValue != null) {
+            hello.addCapabilitiesValue(unknownCapabilityValue);
+        }
+
         return ClientEnvelope.newBuilder()
                 .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
-                .setClientHello(ClientHello.newBuilder()
-                        .setClientNetworkIdentityId(client.descriptor().clientNetworkIdentityId().toString())
-                        .setClientInstallationId(client.descriptor().clientInstallationId().toString())
-                        .setClientPublicKeyFingerprint(client.descriptor().publicKeyFingerprint())
-                        .setClientPublicKeySubjectPublicKeyInfoBase64(client.descriptor().subjectPublicKeyInfoBase64())
-                        .setDeviceId(deviceId)
-                        .setDisplayName(deviceId)
-                        .setHostname(deviceId)
-                        .setSentAtUnixMs(FIXED_NOW.toEpochMilli())
-                        .build())
+                .setClientHello(hello.build())
                 .build();
     }
 
@@ -388,6 +459,29 @@ class MasterNetworkTransportTest {
 
         Throwable error() {
             return error;
+        }
+    }
+
+    private static final class NoOpNetworkClientConnectionService implements NetworkClientConnectionService {
+
+        @Override
+        public RegisteredNetworkDevice recordAcceptedHello(
+                ClientNetworkIdentityDescriptor descriptor,
+                ClientHello hello) {
+            return null;
+        }
+    }
+
+    private static final class CountingNetworkClientConnectionService implements NetworkClientConnectionService {
+
+        private int acceptedHelloCount;
+
+        @Override
+        public RegisteredNetworkDevice recordAcceptedHello(
+                ClientNetworkIdentityDescriptor descriptor,
+                ClientHello hello) {
+            acceptedHelloCount++;
+            return null;
         }
     }
 

@@ -60,6 +60,20 @@ Campos principales:
 
 No usar IP, MAC ni hostname como identidad primaria o de seguridad. La identidad de red criptografica ya existe y el estado `ONLINE` solo debe derivarse de una conexion autenticada real, no de discovery.
 
+Desde Prompt 14:
+
+- `Network Identity != Pairing != Device != Student`.
+- Un Client `PAIRED` puede existir sin `Device` registrado en un aula.
+- `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`.
+- `PAIRED + Device asociado` se expone como `REGISTERED`.
+- `REVOKED` no es registrable ni administrable.
+- El Master genera y controla `deviceId`; no se acepta `deviceId` declarado por el Client como identidad.
+- El vinculo vigente entre Device y Network Identity se persiste en `device_network_bindings`.
+- `paired-clients.json` sigue siendo la autoridad de trust; SQLite no reemplaza pairing.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- Capabilities desconocidas se ignoran y no otorgan permisos.
+- El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
+
 Estados contemplados:
 
 ```text
@@ -506,6 +520,27 @@ RESTORE_STUDENT_WORKSPACE
 ```
 
 No crear `EXECUTE_COMMAND`, `RUN_COMMAND`, `RUN_POWERSHELL`, `RUN_CMD` ni `EXECUTE_PATH`.
+
+## Remote Operation Framework
+
+Desde Prompt 14 existe un framework Protobuf v1 para operaciones remotas futuras:
+
+```text
+OperationRequest
+OperationAccepted
+OperationResult
+```
+
+Campos base:
+
+- `operationId`.
+- `operationType`.
+- `targetDeviceId`.
+- `protocolVersion`.
+
+El contrato no incluye `command string`, `executablePath`, shell, PowerShell, `cmd`, argumentos arbitrarios ni payload JSON generico de comandos. El Agent deduplica por `operationId`, aplica timeout y devuelve resultados estructurados con `ErrorCode`. Mientras no exista un handler productivo para una operacion, el resultado debe ser `OPERATION_NOT_IMPLEMENTED` y no debe tocar Windows.
+
+Para aceptar una operacion real futura deben cumplirse todas las condiciones: mTLS valido, Master correcto, trust `PAIRED`, no `REVOKED`, Device registrado y `operationType` conocido. Las capabilities informan lo que el Agent soporta; no autorizan la ejecucion.
 
 ## Open URL
 

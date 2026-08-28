@@ -76,7 +76,14 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Cualquier extension del transporte debe exigir TLS/mTLS, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y fallo cerrado.
 - No agregar fallback plaintext, reflection/debug gRPC abierto en produccion ni aceptacion de certificados arbitrarios.
 - El Client debe iniciar conexiones persistentes hacia el Master; no depender de conexiones entrantes hacia cada PC Client.
-- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
+- Prompt 14 construyo registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
+- `Network Identity != Pairing != Device != Student`; no mezclar esos conceptos en APIs, persistencia ni UI futura.
+- El Master controla `deviceId`; no confiar en `deviceId` declarado por el Client.
+- `device_network_bindings` solo vincula Devices con Network Identities paired; no reemplaza `paired-clients.json` como autoridad de trust.
+- Un Client `REVOKED` no se registra ni administra aunque exista binding historico.
+- Capabilities reportadas por `ClientHello` son operativas y no autorizan por si mismas.
+- El heartbeat no debe escribir SQLite en cada ciclo; presencia viva debe mantenerse principalmente en memoria.
+- Cualquier handler futuro de `OperationRequest` debe ser tipado, idempotente por `operationId` cuando aplique y debe fallar cerrado con `OPERATION_NOT_IMPLEMENTED` mientras no este implementado.
 
 ## Dominio funcional y UX masiva
 

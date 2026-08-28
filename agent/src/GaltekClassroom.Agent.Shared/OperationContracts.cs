@@ -138,4 +138,5 @@ public static class ClassroomOperationErrorCodes
     public const string MasterNotLicensed = "MASTER_NOT_LICENSED";
     public const string MasterWindowsAccountNotAuthorized = "MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED";
     public const string MasterNotPaired = "MASTER_NOT_PAIRED";
+    public const string OperationNotImplemented = "OPERATION_NOT_IMPLEMENTED";
 }

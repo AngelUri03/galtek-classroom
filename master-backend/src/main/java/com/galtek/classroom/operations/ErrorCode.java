@@ -11,6 +11,9 @@ public enum ErrorCode {
 
     DEVICE_OFFLINE(ErrorCategory.DEVICE, true),
     DEVICE_NOT_FOUND(ErrorCategory.DEVICE, false),
+    DEVICE_NOT_REGISTERED(ErrorCategory.DEVICE, false),
+    DEVICE_ALREADY_REGISTERED(ErrorCategory.DEVICE, false),
+    NETWORK_IDENTITY_ALREADY_REGISTERED(ErrorCategory.DEVICE, false),
     AGENT_UNAVAILABLE(ErrorCategory.DEVICE, true),
     SESSION_NOT_AVAILABLE(ErrorCategory.DEVICE, true),
     DEVICE_BUSY(ErrorCategory.DEVICE, true),
@@ -70,10 +73,12 @@ public enum ErrorCode {
     MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED(ErrorCategory.AUTHORIZATION, false),
     MASTER_INSTALLATION_MISMATCH(ErrorCategory.AUTHORIZATION, false),
     MASTER_NOT_PAIRED(ErrorCategory.AUTHORIZATION, false),
+    CLIENT_REVOKED(ErrorCategory.AUTHORIZATION, false),
 
     OPERATION_CANCELLED(ErrorCategory.OPERATION, false),
     OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true),
     OPERATION_NOT_FOUND(ErrorCategory.OPERATION, false),
+    OPERATION_NOT_IMPLEMENTED(ErrorCategory.OPERATION, false),
 
     MASTER_DATABASE_UNAVAILABLE(ErrorCategory.PERSISTENCE, true),
     MASTER_DATABASE_CORRUPT(ErrorCategory.PERSISTENCE, false),

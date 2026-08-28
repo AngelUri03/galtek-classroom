@@ -26,6 +26,8 @@ import com.galtek.classroom.device.DeviceCapability;
 import com.galtek.classroom.device.DeviceManagementService;
 import com.galtek.classroom.device.DeviceRepository;
 import com.galtek.classroom.device.DeviceStatus;
+import com.galtek.classroom.network.DeviceNetworkBinding;
+import com.galtek.classroom.network.DeviceNetworkBindingRepository;
 import com.galtek.classroom.operations.BatchOperation;
 import com.galtek.classroom.operations.BatchOperationRepository;
 import com.galtek.classroom.operations.BatchOperationService;
@@ -96,6 +98,7 @@ class MasterSqlitePersistenceIntegrationTest {
                     .contains("classrooms", "students", "devices", "device_assignments",
                             "student_workspaces", "browser_profiles", "master_browser_profiles",
                             "application_definitions", "batch_operations", "batch_target_results",
+                            "device_network_bindings",
                             "flyway_schema_history")
                     .doesNotContain("master_windows_binding");
 
@@ -105,7 +108,21 @@ class MasterSqlitePersistenceIntegrationTest {
             assertThat(indexes)
                     .contains("uq_device_assignments_current_student",
                             "uq_device_assignments_current_device",
+                            "uq_device_network_bindings_current_device",
+                            "uq_device_network_bindings_current_network_identity",
                             "ix_batch_target_results_operation_status");
+
+            List<String> bindingColumns = jdbcTemplate.queryForList(
+                    "SELECT name FROM pragma_table_info('device_network_bindings')",
+                    String.class);
+            assertThat(bindingColumns)
+                    .contains("device_id", "installation_id", "network_identity_id",
+                            "public_key_fingerprint", "agent_version", "capabilities_json",
+                            "registered_at_utc", "last_connected_at_utc")
+                    .noneMatch(column -> column.equalsIgnoreCase("private_key"))
+                    .noneMatch(column -> column.equalsIgnoreCase("password"))
+                    .noneMatch(column -> column.equalsIgnoreCase("jwt"))
+                    .noneMatch(column -> column.equalsIgnoreCase("secret"));
         }
     }
 
@@ -147,15 +164,59 @@ class MasterSqlitePersistenceIntegrationTest {
     }
 
     @Test
+    void restartPreservesDeviceNetworkBinding() {
+        Path dataDir = tempDir.resolve("network-binding-reopen");
+        BindingFixture saved;
+        UUID networkIdentityId = UUID.randomUUID();
+        OffsetDateTime registeredAt = OffsetDateTime.parse("2026-08-27T17:00:00Z");
+
+        try (ConfigurableApplicationContext context = start(dataDir)) {
+            Fixture fixture = createFixture(context);
+            UUID installationId = UUID.fromString(context.getBean(DeviceRepository.class)
+                    .findById(fixture.deviceId)
+                    .orElseThrow()
+                    .installationId());
+            context.getBean(DeviceNetworkBindingRepository.class).create(new DeviceNetworkBinding(
+                    UUID.randomUUID().toString(),
+                    fixture.deviceId,
+                    installationId,
+                    networkIdentityId,
+                    "a".repeat(64),
+                    "0.5.0-test",
+                    EnumSet.of(DeviceCapability.HEARTBEAT_V1, DeviceCapability.OPERATION_FRAMEWORK_V1),
+                    registeredAt,
+                    registeredAt.plusSeconds(5),
+                    true,
+                    0), registeredAt);
+            saved = new BindingFixture(fixture.classroomId, fixture.deviceId, installationId);
+        }
+
+        try (ConfigurableApplicationContext reopened = start(dataDir)) {
+            assertThat(reopened.getBean(DeviceNetworkBindingRepository.class)
+                    .findCurrentByNetworkIdentityId(networkIdentityId))
+                    .get()
+                    .satisfies(binding -> {
+                        assertThat(binding.deviceId()).isEqualTo(saved.deviceId());
+                        assertThat(binding.classroomId()).isEqualTo(saved.classroomId());
+                        assertThat(binding.installationId()).isEqualTo(saved.installationId());
+                        assertThat(binding.capabilities())
+                                .containsExactlyInAnyOrder(
+                                        DeviceCapability.HEARTBEAT_V1,
+                                        DeviceCapability.OPERATION_FRAMEWORK_V1);
+                    });
+        }
+    }
+
+    @Test
     void migrationIsIdempotentAcrossRestarts() {
         Path dataDir = tempDir.resolve("idempotence");
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(1);
+            assertThat(flywaySuccessCount(context)).isEqualTo(2);
         }
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(1);
+            assertThat(flywaySuccessCount(context)).isEqualTo(2);
             assertThat(context.getBean(ClassroomRepository.class).findActive()).isEmpty();
         }
     }
@@ -587,5 +648,11 @@ class MasterSqlitePersistenceIntegrationTest {
             String deviceId,
             String applicationId,
             String masterProfileId) {
+    }
+
+    private record BindingFixture(
+            String classroomId,
+            String deviceId,
+            UUID installationId) {
     }
 }

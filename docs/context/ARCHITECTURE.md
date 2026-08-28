@@ -2,9 +2,11 @@
 
 ## Estado general
 
-Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias. El alcance de red queda limitado a `ClientHello`, estado de conexion y heartbeat. No hay mDNS, discovery real ni comandos remotos.
+Prompt 14 registra Clients paired como Devices persistentes del Master sin redisenar pairing ni mTLS. El Master conserva la autoridad sobre `deviceId`, persiste el vinculo vigente en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, acepta capabilities tipadas reportadas por `ClientHello` y superpone presencia viva en memoria sobre Devices registrados. El framework de operaciones remotas queda tipado en Protobuf y en el Agent, pero ninguna operacion funcional real se ejecuta todavia; toda operacion sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 
-Prompt 14 debe construir registro/capabilities y framework de operaciones sobre este transporte seguro existente, sin redisenar pairing/mTLS.
+Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
+
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult` sin comandos remotos reales. No hay mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -22,7 +24,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 13 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 14 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -64,6 +66,8 @@ IMPLEMENTADO:
   - `GET /api/operations/{id}`.
   - `GET /api/operations/{id}/retryable-targets`.
   - `GET /api/classrooms/{id}/snapshot`.
+  - `GET /api/network/clients`.
+  - `POST /api/classrooms/{classroomId}/devices/register`.
 - `RestControllerAdvice` uniforme para errores operacionales HTTP.
 - API documentada en `docs/api/master-api-v1.md`.
 - Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
@@ -97,6 +101,7 @@ IMPLEMENTADO:
 - Dependencias `spring-boot-starter-jdbc`, `flyway-core` y `sqlite-jdbc` en el backend Master.
 - Flyway programatico para migraciones SQLite desde `classpath:db/migration/sqlite`.
 - Migracion `V1__create_master_domain.sql` con tablas del dominio Master.
+- Migracion `V2__add_device_network_bindings.sql` con `device_network_bindings` e indices unicos parciales para un Network Identity vigente por Device y un Device vigente por Network Identity.
 - Configuracion local `galtek.classroom.master.storage.*`.
 - Resolucion de datos del Master a `<CommonApplicationData>\Galtek\Classroom\Master\` con override `GALTEK_CLASSROOM_MASTER_DATA_DIR`.
 - Base local `classroom.db` ignorada por Git, junto con archivos WAL/SHM.
@@ -104,7 +109,7 @@ IMPLEMENTADO:
 - Pool Hikari pequeno para SQLite local.
 - `MasterDatabaseInitializer` con `PRAGMA quick_check` antes/despues de migrar cuando corresponde.
 - Estado de almacenamiento `MasterStorageState` con `READY`, `UNAVAILABLE`, `CORRUPT` y `MIGRATION_FAILED`.
-- Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
+- Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceNetworkBinding`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
 - Servicios transaccionales de administracion de aula, alumnos, devices, assignments, workspaces, perfiles, catalogo y batch.
 - Repositorio administrativo JDBC con modelos de lectura para bootstrap, snapshot, conteos, operaciones y batches sin exponer entidades de persistencia a controllers.
 - Control de version optimista mediante columna `version` y error `CONCURRENT_MODIFICATION`.
@@ -126,19 +131,22 @@ IMPLEMENTADO:
 - Pruebas Java para Master Network Identity, challenge/response, expiracion, replay, persistencia, revocacion y multiples Clients.
 - Contrato Protobuf versionado `protocol/network/v1/galtek-classroom-network-v1.proto`.
 - Dependencias gRPC Java con generacion Protobuf desde el contrato compartido.
-- `MasterNetworkGrpcService` acepta un stream bidireccional `NetworkConnection.Connect` solo para `ClientHello` y `Heartbeat`.
+- `MasterNetworkGrpcService` acepta un stream bidireccional `NetworkConnection.Connect` para `ClientHello`, `Heartbeat` y respuestas tipadas de framework de operaciones.
 - `MasterNetworkConnectionAuthenticator` valida `ClientHello` contra Network Identity, trust `PAIRED`, no `REVOKED` y fingerprint del certificado mTLS.
 - `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
 - `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
-- `ClientConnectionRegistry` mantiene estado real por Client autenticado: `CONNECTING`, `ONLINE` y `OFFLINE`.
+- `ClientConnectionRegistry` mantiene presencia viva por Client autenticado y distingue Client paired sin Device de Device registrado (`CONNECTING`, `ONLINE`, `OFFLINE`).
+- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- Las capabilities son informacion operativa y no autorizacion.
+- `NetworkClientAdminService` lista Clients known/paired con estado seguro y registra Devices solo tras verificar trust `PAIRED`, no `REVOKED` y ausencia de doble registro.
+- `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin escribir SQLite en cada heartbeat.
 - `MasterNetworkHeartbeatMonitor` marca `OFFLINE` tras timeout de heartbeat configurado.
 - Certificado TLS del Master emitido en memoria desde su Network Identity, ligado al fingerprint ya persistido por pairing.
-- Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes y trust persistente tras reinicio.
+- Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes, capabilities, registro de Devices, no writes persistentes por heartbeat y trust/binding persistente tras reinicio.
 
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
-- Prompt 14: registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS.
 - Exponer pairing mediante flujos reales sobre el transporte seguro existente.
 - Visualizacion de equipos, miniaturas y estado.
 - UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
@@ -182,7 +190,10 @@ IMPLEMENTADO:
   - `device_assignments`.
   - `batch_operations`.
   - `batch_target_results`.
+- `V2__add_device_network_bindings.sql` crea:
+  - `device_network_bindings`.
 - `MasterWindowsBinding` no se persiste en SQLite por decision de seguridad; la autoridad final vive en Agent Service.
+- `device_network_bindings` guarda solo referencias publicas de Device, Installation Identity, Network Identity, fingerprint publico, version de Agent, capabilities, registro y ultimo conectado; no guarda private keys, certificados privados, passwords, JWT ni trust secreto.
 - IDs del dominio como `TEXT`, generados por la aplicacion; no usar `AUTOINCREMENT` para identidades funcionales.
 - Timestamps como `TEXT` UTC producido desde `Instant.toString()`.
 - Booleans como `INTEGER` `0/1` con `CHECK`.
@@ -256,9 +267,12 @@ IMPLEMENTADO:
 - `MasterGrpcConnectionClient` exige `https`, `MasterNetworkIdentityId` configurado y trust local `PAIRED` antes de abrir el canal.
 - El Client crea un certificado mTLS self-signed de corta vida desde su Network Identity local; la private key sigue en CNG/KSP y no se exporta a archivo.
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
-- `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint y public SPKI; no transporta secretos.
+- `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
+- `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
+- `ClientCapabilityProvider` anuncia solo `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; sin handlers productivos, toda operacion conocida o futura devuelve `OPERATION_NOT_IMPLEMENTED`.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.
@@ -291,9 +305,7 @@ PLANIFICADO:
 
 - Empaquetar la llave publica real de Galtek Hub como recurso/mecanismo productivo.
 - Revalidacion completa explicita invocable por IPC.
-- Transporte seguro gRPC/mTLS usando el trust establecido por pairing.
-- Heartbeat.
-- Recepcion de comandos estructurados.
+- Handlers productivos para operaciones remotas tipadas.
 - Operaciones privilegiadas.
 - Custodia futura de credenciales de cuentas Windows administradas de Client, protegidas con mecanismos seguros de Windows.
 - Integracion futura soportada por Windows para logon/switch, contemplando Credential Provider.
@@ -412,18 +424,23 @@ IMPLEMENTADO:
 - Certificados self-signed de corta vida ligados al trust existente por fingerprint de public key `SubjectPublicKeyInfo`.
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
-- `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto.
+- `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
+- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- Capabilities desconocidas se ignoran y no otorgan permisos.
+- `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
+- Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.
 - Heartbeat periodico del Client con `HeartbeatAck` del Master.
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
+- Framework Protobuf compatible para `OperationRequest`, `OperationAccepted` y `OperationResult`, con `operationId`, `operationType`, `targetDeviceId`, `protocolVersion`, timeout y `ErrorCode` tipado.
+- El Agent deduplica `OperationRequest` por `operationId`; una operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED` y no toca Windows.
 - Timeout de heartbeat default 45 segundos en el Master.
 - Reconexión del Client con backoff acotado.
 
 PLANIFICADO:
 
-- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS.
 - El descubrimiento usara mDNS/DNS-SD en una fase posterior.
 - Exponer pairing/discovery mediante flujos reales de red sin confundir discovery con trust, en una fase posterior.
-- Comandos administrativos remotos tipados sobre el framework de operaciones, en una fase posterior.
+- Handlers reales de comandos administrativos remotos tipados sobre el framework de operaciones, en una fase posterior.
 
 NO IMPLEMENTADO:
 

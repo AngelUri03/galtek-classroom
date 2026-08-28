@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public class MasterPairingService {
@@ -248,6 +249,40 @@ public class MasterPairingService {
         }
 
         return MasterClientAuthorization.success();
+    }
+
+    public List<KnownMasterClient> knownClients() {
+        MasterNetworkIdentityResolution identity = masterIdentityResolver.resolve();
+        if (!identity.ready()) {
+            return List.of();
+        }
+
+        MasterTrustStoreReadResult read = trustStore.read();
+        if (read.status() != MasterTrustStoreReadStatus.LOADED
+                || !matchesMaster(read.document(), identity.metadata())) {
+            return List.of();
+        }
+
+        return read.document().pairedClients().stream()
+                .map(client -> new KnownMasterClient(
+                        client.status(),
+                        client.clientNetworkIdentityId(),
+                        client.clientInstallationId(),
+                        client.clientPublicKeyFingerprint(),
+                        client.clientPublicKeySubjectPublicKeyInfoBase64(),
+                        client.pairedAtUtc(),
+                        client.revokedAtUtc()))
+                .toList();
+    }
+
+    public Optional<KnownMasterClient> knownClient(UUID clientNetworkIdentityId) {
+        if (clientNetworkIdentityId == null) {
+            return Optional.empty();
+        }
+
+        return knownClients().stream()
+                .filter(client -> client.clientNetworkIdentityId().equals(clientNetworkIdentityId))
+                .findFirst();
     }
 
     public boolean revokeClient(UUID clientNetworkIdentityId) {

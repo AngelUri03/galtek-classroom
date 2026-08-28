@@ -923,3 +923,57 @@
 ### Commit sugerido
 
 `feat(network): add secure grpc transport`
+
+## 2026-08-28 - Prompt 14 / cierre 14.1
+
+### Realizado
+
+- Recuperado el Prompt 14 interrumpido sin rehacer la implementacion ni avanzar prompts posteriores.
+- Extendidos contratos Protobuf v1 con capabilities tipadas y framework `OperationRequest`/`OperationAccepted`/`OperationResult`.
+- El Agent anuncia capabilities reales (`HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`) y ya no usa `deviceId` declarado por Client como identidad.
+- Agregado dispatcher de operaciones en el Agent con deduplicacion por `operationId`, timeout y resultado `OPERATION_NOT_IMPLEMENTED` para operaciones sin handler.
+- Serializadas las escrituras compartidas del stream Agent con lock para convivir con heartbeat y respuestas de operacion.
+- Agregada migracion SQLite `V2__add_device_network_bindings.sql` para vincular Devices generados por el Master con Network Identities paired.
+- Agregados repository/servicios DTOs y endpoints protegidos para listar Clients de red y registrar Devices.
+- `GET /api/network/clients` expone Clients paired/revoked, presencia viva, estado de registro, capabilities y metadata segura.
+- `POST /api/classrooms/{classroomId}/devices/register` crea Device persistente y binding vigente para un Client paired, rechazando `REVOKED`, no paired y doble registro.
+- `GET /api/classrooms/{id}/snapshot` superpone presencia viva en memoria para Devices registrados sin escribir SQLite en cada heartbeat.
+- Actualizada documentacion de contexto, arquitectura, modelo funcional, reglas, decisiones, estado actual, historial y API.
+
+### Decisiones tomadas
+
+- `Network Identity != Pairing != Device != Student`.
+- El Master genera y controla `deviceId`; el `deviceId` enviado por Client queda compatible pero no es autoridad.
+- `device_network_bindings` no reemplaza `paired-clients.json`; el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
+- Un Client `PAIRED + ONLINE + sin Device` queda `AVAILABLE_FOR_REGISTRATION`.
+- Un Client `PAIRED + binding vigente` queda `REGISTERED`.
+- Un Client `REVOKED` no es registrable ni administrable.
+- IP, MAC, hostname, display name y capabilities no autorizan administracion.
+- El heartbeat mantiene presencia principalmente en memoria y no genera writes SQLite periodicos cada 15 segundos.
+- El framework de operaciones no ejecuta acciones Windows reales; una operacion desconocida o sin handler responde `OPERATION_NOT_IMPLEMENTED`.
+- Un `operationId` duplicado no debe provocar doble ejecucion.
+
+### Cambios descartados
+
+- No se implementaron acciones reales `LOCK_INPUT`, `UNLOCK_INPUT`, `SHUTDOWN`, `RESTART`, `OPEN_APPLICATION`, `OPEN_URL`, login Windows, archivos, wallpaper, captura, proyeccion, mDNS, discovery ni UI.
+- No se agrego shell remota, PowerShell remoto, `cmd`, `executablePath` arbitrario ni payload generico de ejecucion.
+- No se modifico `V1__create_master_domain.sql`.
+- No se versionaron private keys, JWT reales, certificados privados, bases reales, trust stores reales ni artefactos generados.
+- No se hizo commit.
+
+### Pendiente
+
+- Handlers productivos de operaciones remotas tipadas en una fase posterior, sin shell ni comandos genericos.
+- Discovery/mDNS y flujos reales de discovery/pairing sobre red en una fase posterior.
+- UI futura para visualizar y registrar Clients sin convertirse en autoridad de identidad o trust.
+- Hardening productivo de ciclo de vida de certificados y almacenamiento de private key del Master.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 120 pruebas superadas (14 Session, 106 Service).
+- `mvn clean verify` en `master-backend`: correcto, 105 pruebas superadas.
+
+### Commit sugerido
+
+`feat(devices): register network clients and operation framework`

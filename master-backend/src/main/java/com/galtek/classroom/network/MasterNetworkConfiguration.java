@@ -63,8 +63,13 @@ public class MasterNetworkConfiguration {
     MasterNetworkGrpcService masterNetworkGrpcService(
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
+            NetworkClientConnectionService networkClientConnectionService,
             Clock clock) {
-        return new MasterNetworkGrpcService(authenticator, connectionRegistry, clock);
+        return new MasterNetworkGrpcService(
+                authenticator,
+                connectionRegistry,
+                networkClientConnectionService,
+                clock);
     }
 
     @Bean
