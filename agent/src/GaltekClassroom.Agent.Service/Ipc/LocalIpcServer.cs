@@ -49,7 +49,7 @@ public sealed class LocalIpcServer : BackgroundService
             try
             {
                 await pipe.WaitForConnectionAsync(stoppingToken);
-                _logger.LogInformation("IPC client connected.");
+                _logger.LogDebug("IPC client connected.");
                 await ProcessConnectionAsync(pipe, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

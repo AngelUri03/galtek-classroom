@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-28 - Prompt 14.2.
+2026-08-28 - Prompt 14.3.
 
 ## Estado del proyecto
 
@@ -11,6 +11,8 @@ Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity.
 Prompt 14 implementa registro real de Devices sobre Clients paired, capabilities tipadas y framework de operaciones no ejecutable. El Master genera `deviceId`, persiste el vinculo Device -> Network Identity en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, y mantiene presencia viva principalmente en memoria. El Agent anuncia capabilities reales (`HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`) y responde operaciones sin handler con `OPERATION_NOT_IMPLEMENTED`, sin ejecutar acciones Windows.
 
 Prompt 14.2 formaliza el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. El Master conserva workspaces canonicos y orquestacion; los Clients ejecutan aplicaciones localmente y conservan working copies. `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco. La preparacion del aula es progresiva por Device, `CLASS_TIME_TO_READY` queda como KPI principal y ninguna PC lenta debe bloquear a las demas.
+
+Prompt 14.3 formaliza performance budgets, resource profiles y load shedding sin implementar Prompt 14.4/14.5 ni operaciones Windows reales. Galtek Classroom queda disenado primero para Clients de 4 GB RAM, HDD y CPU de gama baja. El Client idle debe quedar casi sin CPU, sin captura, sin scanning continuo, sin WMI periodico, sin writes periodicos y sin logs sanos repetitivos. Se agregan modelos puros para `LEGACY`, `STANDARD`, `MASTER_BALANCED`, `ResourceWorkClass`, budgets, diagnostico on-demand y estado `DEGRADED` separado de `OFFLINE`.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
@@ -50,6 +52,14 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `ProjectionMode` distingue `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
 - `OperationPriority` define `CRITICAL > HIGH > NORMAL > LOW` y defaults conceptuales para operaciones existentes.
 - `ManagedWindowsAccountOperatingPolicy` deja `PRIMARY` y `SECONDARY` como Windows normal por default, sin modo restringido, bloqueo de input ni cambio forzado de sesion.
+- Modelos puros Java de Prompt 14.3 para `DevicePerformanceProfile`, `MasterPerformanceProfile`, `ResourceWorkClass`, `ClientPerformanceBudget`, `MasterPerformanceBudget`, `LoadSheddingPolicy`, `SheddableWork`, `ResourcePressureState` y `PerformanceDiagnosticPolicy`.
+- `DevicePerformanceProfile` formaliza `LEGACY` y `STANDARD`; perfil desconocido de Client se resuelve a `LEGACY`.
+- `MasterPerformanceProfile` formaliza `MASTER_BALANCED`.
+- `ClientPerformanceBudget` fija objetivos idle de 60 MB Service, 40 MB Session, 100 MB combinado y revision sobre 150 MB combinado, sin convertirlos en garantia contractual.
+- `ClientPerformanceBudget` no permite en idle captura, overlays, UI, process scanning, filesystem scanning, WMI query, inventario, prefetch, writes periodicos, logs de heartbeat sano ni diagnostico continuo.
+- `MasterPerformanceBudget` fija objetivo inicial de heap JVM 512 MB, Hikari pequeno y rechazo conceptual a infraestructura distribuida pesada o terminal server.
+- `LoadSheddingPolicy` modela sacrificio de prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes de control critico.
+- `ResourcePressureState.DEGRADED` queda separado de `OFFLINE`.
 - Modelos puros Java para cuentas Windows administradas: `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
 - `ManagedAccountSwitchPlanner` puro para decidir `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` o `BLOCKED` por device.
 - Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
@@ -97,6 +107,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler, sin ejecutar acciones Windows.
 - Heartbeat del Client cada 15 segundos por default; timeout Master default 45 segundos.
+- Heartbeat del Agent sin relectura periodica de `authorized-masters.json`; los `OperationRequest` revalidan trust antes de cualquier accion.
+- Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no `INFO`; autorizacion Master aceptada tambien queda en `DEBUG`; retries repetidos de gRPC bajan a `DEBUG` tras el primer warning.
 - Reconexión del Client con backoff `2s`, `5s`, `10s`, `30s`.
 - Servidor gRPC del Master configurable con `galtek.classroom.master.network.grpc.enabled`; por defecto no abre puerto.
 - Cliente gRPC del Agent configurable con `Galtek:Classroom:Agent:MasterConnection`.
@@ -116,14 +128,15 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - No existe tabla `master_windows_binding` en SQLite.
 - Session Agent background/autostart via Scheduled Task `GaltekClassroomSessionAgent`; sin cambios funcionales en Prompt 09.
 - Documentacion de API, contexto, arquitectura, modelo funcional, reglas, decisiones, estado e historial actualizada.
+- Contratos compartidos C# para perfiles de performance, clases de trabajo de recursos, estado `DEGRADED` y trabajo sacrificable futuro.
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 14.2.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 14.3.
 
 ## Pendiente inmediato
 
-- No queda pendiente inmediato dentro del alcance de Prompt 14.2.
+- No queda pendiente inmediato dentro del alcance de Prompt 14.3.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
@@ -132,6 +145,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
 - Implementar sync real, USB real y distribucion real en fases posteriores sin romper la regla `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Implementar preview/captura/proyeccion real en fases posteriores distinguiendo modos y costos.
+- Implementar scheduler/backpressure real, medicion con profiling real, deteccion conservadora de perfil y diagnostico on-demand en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -168,6 +182,15 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Los comandos futuros de cuentas administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir targets `NO_CHANGE`, `SUCCESS` y `FAILED`; el retry posterior solo aplica a fallidos retryable.
 - El hardware objetivo real queda documentado: Master i5 8a gen/8 GB/SSD y Clients mixtos legacy HDD + renovados SSD.
+- Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
+- Si performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa o el control critico de la maestra.
+- El Client idle debe ser casi cero: sin captura, scanning continuo, WMI periodico, writes periodicos ni logs sanos repetitivos.
+- `LEGACY` es default conservador cuando el perfil del Client es desconocido; `STANDARD` no habilita autorizacion ni concurrencia ilimitada.
+- `MASTER_BALANCED` mantiene el Master pequeno, local, con SQLite/WAL/Hikari pequeno y objetivo inicial de heap JVM <= 512 MB salvo profiling real.
+- Los perfiles de performance no son identidad, trust, pairing ni autorizacion.
+- `DEGRADED` representa presion de recursos y no equivale a `OFFLINE`.
+- Diagnostico de performance debe ser on-demand, sin telemetria continua ni envio por heartbeat.
+- Load shedding sacrifica prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes que control critico.
 - El Master no es terminal server; aplicaciones interactivas de alumnos corren localmente en Clients.
 - `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni restringen apps/input/sesion sin accion administrativa explicita futura.
 - El aula se prepara progresivamente y los primeros Devices `READY` pueden iniciar clase sin esperar al resto.
@@ -198,6 +221,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para automatizar sesiones Windows.
 - No convertir `PRIMARY` ni `SECONDARY` en kiosco dentro de Prompt 14.2.
 - No implementar login/logoff Windows real, Credential Provider, filesystem real, sync real, USB real, Chrome automation, captura, proyeccion, distribucion real, OPEN_APPLICATION real, OPEN_URL real, power-loss recovery tecnico, performance tuning, mDNS ni UI como parte de Prompt 14.2.
+- No implementar Prompt 14.4 ni Prompt 14.5 dentro de Prompt 14.3.
+- No implementar power-loss recovery tecnico, operaciones Windows reales, captura/proyeccion real, transferencia real, filesystem sync real, scheduler real, deteccion agresiva de hardware ni monitoreo continuo pesado dentro de Prompt 14.3.
+- No usar hardware profile como autorizacion.
+- No crear unit tests que fallen por memoria/CPU/Working Set exacto.
+- No reintroducir logs `INFO` por requests IPC exitosos, autorizacion aceptada, PING/heartbeat sano ni relecturas periodicas de trust store por heartbeat idle.
 - No borrar working copies locales para completar sync o move.
 - No modelar YouTube como screen share obligatorio.
 - No hacer commits automaticamente.
@@ -217,9 +245,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 121 pruebas superadas (14 Session, 107 Service).
-- `mvn clean verify` en `master-backend`: correcto, 117 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 122 pruebas superadas (14 Session, 108 Service).
+- `mvn clean verify` en `master-backend`: correcto, 126 pruebas superadas.
 
 ## Proximo paso recomendado
 
-Elegir explicitamente el siguiente alcance. Prompt 14.2 queda cerrado; Prompt 14.3 no fue implementado. Discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real y handlers reales de operaciones remotas siguen para fases posteriores.
+Elegir explicitamente el siguiente alcance. Prompt 14.3 queda cerrado. Discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real, scheduler/backpressure real, diagnostico on-demand productivo y handlers reales de operaciones remotas siguen para fases posteriores. No avanzar a Prompt 14.4 ni 14.5 sin solicitud explicita.

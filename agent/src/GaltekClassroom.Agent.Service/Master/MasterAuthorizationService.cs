@@ -37,7 +37,14 @@ public sealed class MasterAuthorizationService
             bindingResult,
             clientContext);
 
-        _logger.LogInformation("Master authorization evaluated: {Status}.", authorization.Status);
+        if (authorization.Authorized)
+        {
+            _logger.LogDebug("Master authorization evaluated: {Status}.", authorization.Status);
+        }
+        else
+        {
+            _logger.LogInformation("Master authorization evaluated: {Status}.", authorization.Status);
+        }
 
         return authorization;
     }

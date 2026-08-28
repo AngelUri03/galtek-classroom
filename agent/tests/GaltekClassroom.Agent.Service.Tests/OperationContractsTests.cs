@@ -93,6 +93,28 @@ public sealed class OperationContractsTests
     }
 
     [Fact]
+    public void PerformanceContracts_ExposeOperationalProfilesWithoutAuthorizationMeaning()
+    {
+        var clientProfiles = ConstantValues(typeof(ClassroomDevicePerformanceProfiles));
+        var masterProfiles = ConstantValues(typeof(ClassroomMasterPerformanceProfiles));
+        var workClasses = ConstantValues(typeof(ClassroomResourceWorkClasses));
+        var pressureStates = ConstantValues(typeof(ClassroomResourcePressureStates));
+        var sheddableWork = ConstantValues(typeof(ClassroomSheddableWork));
+
+        Assert.Contains(ClassroomDevicePerformanceProfiles.Legacy, clientProfiles);
+        Assert.Contains(ClassroomDevicePerformanceProfiles.Standard, clientProfiles);
+        Assert.Contains(ClassroomMasterPerformanceProfiles.MasterBalanced, masterProfiles);
+        Assert.Contains(ClassroomResourceWorkClasses.ControlCritical, workClasses);
+        Assert.Contains(ClassroomResourceWorkClasses.Visual, workClasses);
+        Assert.Contains(ClassroomResourceWorkClasses.Background, workClasses);
+        Assert.Contains(ClassroomResourcePressureStates.Degraded, pressureStates);
+        Assert.Contains(ClassroomSheddableWork.Thumbnails, sheddableWork);
+        Assert.Contains(ClassroomSheddableWork.NonUrgentTransfer, sheddableWork);
+        Assert.DoesNotContain("AUTHORIZED", clientProfiles);
+        Assert.DoesNotContain("MASTER", clientProfiles);
+    }
+
+    [Fact]
     public void ManagedWindowsAccountErrors_AreStructuredOperationCodes()
     {
         var errorCodes = ConstantValues(typeof(ClassroomOperationErrorCodes));

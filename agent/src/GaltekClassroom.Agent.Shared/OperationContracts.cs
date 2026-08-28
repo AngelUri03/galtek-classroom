@@ -129,6 +129,43 @@ public static class ClassroomOperationPriorities
     public const string Low = "LOW";
 }
 
+public static class ClassroomDevicePerformanceProfiles
+{
+    public const string Legacy = "LEGACY";
+    public const string Standard = "STANDARD";
+}
+
+public static class ClassroomMasterPerformanceProfiles
+{
+    public const string MasterBalanced = "MASTER_BALANCED";
+}
+
+public static class ClassroomResourceWorkClasses
+{
+    public const string ControlCritical = "CONTROL_CRITICAL";
+    public const string ClassPreparation = "CLASS_PREPARATION";
+    public const string Interactive = "INTERACTIVE";
+    public const string Transfer = "TRANSFER";
+    public const string Visual = "VISUAL";
+    public const string Background = "BACKGROUND";
+}
+
+public static class ClassroomResourcePressureStates
+{
+    public const string Normal = "NORMAL";
+    public const string Degraded = "DEGRADED";
+}
+
+public static class ClassroomSheddableWork
+{
+    public const string Prefetch = "PREFETCH";
+    public const string NonEssentialInventory = "NON_ESSENTIAL_INVENTORY";
+    public const string Thumbnails = "THUMBNAILS";
+    public const string PreviewQualityOrFps = "PREVIEW_QUALITY_OR_FPS";
+    public const string NonUrgentTransfer = "NON_URGENT_TRANSFER";
+    public const string BackgroundJob = "BACKGROUND_JOB";
+}
+
 public static class ClassroomConflictPolicies
 {
     public const string Skip = "SKIP";

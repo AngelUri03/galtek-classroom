@@ -54,6 +54,8 @@
 - Heartbeat default del Client: 15 segundos.
 - Timeout default del Master para marcar `OFFLINE`: 45 segundos.
 - La reconexion del Client usa backoff acotado `2s`, `5s`, `10s`, `30s`.
+- El heartbeat sano no debe generar logs `INFO`, writes persistentes, telemetria pesada ni relectura periodica de trust stores.
+- El Agent puede revalidar trust antes de `OperationRequest`, pero no debe releer `authorized-masters.json` en cada heartbeat idle.
 - El transporte gRPC/mTLS no incluye comandos administrativos en Prompt 13.
 - Usar mDNS/DNS-SD solo para descubrimiento.
 - Usar Windows Named Pipes para IPC local entre Service, Session Agent y Master Backend.
@@ -254,8 +256,19 @@
 - Mantener siempre una via estandar de acceso/recovery de Windows.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
 - Hardware objetivo real: Master i5 8a gen aprox., 8 GB RAM y SSD 500 GB; Clients mixtos con legacy lentos HDD y renovados SSD.
+- Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
+- Cuando performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa o el control critico de la maestra.
+- Cuando Galtek no realiza trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, sin scanning continuo, sin WMI periodico, sin writes periodicos y sin logs sanos repetitivos.
+- Budgets idle de Client: Agent Service <= aprox. 60 MB, Session Agent <= aprox. 40 MB, combinado <= aprox. 100 MB; superar aprox. 150 MB combinado requiere justificacion y revision.
+- Los budgets de CPU/memoria son objetivos de ingenieria, no garantias contractuales ni tests rigidos dependientes de hardware.
+- Perfiles de Client vigentes: `LEGACY` y `STANDARD`; perfil desconocido se trata como `LEGACY`.
+- Perfil de Master vigente: `MASTER_BALANCED`.
+- Los perfiles de performance no son identidad, seguridad, pairing, trust ni autorizacion.
+- No usar polling WMI para determinar perfil; cualquier inferencia futura de hardware debe ser conservadora y ejecutarse una sola vez o muy raramente.
 - El Master absorbe orquestacion, SQLite, canonical workspaces, metadata, manifests/checksums futuros, distribucion planificada, recovery coordination y classroom state.
 - El Master no debe convertirse en terminal server; Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas se ejecutan localmente en cada Client.
+- El Master Backend debe mantenerse deliberadamente pequeno; objetivo inicial de heap JVM <= 512 MB salvo profiling real que justifique mas.
+- Mantener SQLite, WAL, Hikari pequeno, estado efimero en memoria y queries batch-friendly; no introducir Redis, Kafka, Elasticsearch, RabbitMQ, DB server separado ni infraestructura distribuida pesada para operacion local normal.
 - `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco.
 - Galtek en `PRIMARY` agrega una capa de administracion de aula sobre Windows sin bloquear input al iniciar clase.
 - Galtek en `SECONDARY` puede permanecer en background sin bloquear aplicaciones, cambiar archivos del alumno, forzar programas, restringir Windows ni cambiar sesion automaticamente salvo accion administrativa explicita futura.
@@ -279,6 +292,12 @@
 - `ProjectionMode` distingue `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
 - `OPEN_URL` y `OPEN_WEB_CONTENT` deben preferir abrir URL localmente en Chrome del Client; YouTube no debe modelarse como captura 30 FPS a 26 PCs por default.
 - Preview futuro debe usar thumbnails pequenos, baja frecuencia, solo Devices visibles y concurrencia limitada; no iniciar captura al boot ni por `ClientHello`.
+- Visual plane boot/idle usa 0 capturas; nunca disenar 26 PCs x 30 FPS siempre.
 - Prioridad operacional comun: `CRITICAL > HIGH > NORMAL > LOW`.
 - `UNLOCK_INPUT`, `STOP_PROJECTION` y recovery de control son `CRITICAL`; transferencias grandes, thumbnails, inventario y prefetch no deben bloquearlas.
+- `ResourceWorkClass` clasifica consumo como `CONTROL_CRITICAL`, `CLASS_PREPARATION`, `INTERACTIVE`, `TRANSFER`, `VISUAL` o `BACKGROUND` y se relaciona con `OperationPriority` sin reemplazarlo.
+- `LEGACY` limita una operacion pesada simultanea por Client; `STANDARD` puede aceptar ligeramente mas, nunca ilimitado.
+- Load shedding sacrifica en orden conceptual `PREFETCH`, `NON_ESSENTIAL_INVENTORY`, `THUMBNAILS`, `PREVIEW_QUALITY_OR_FPS`, `NON_URGENT_TRANSFER`, `BACKGROUND_JOB`.
+- `DEGRADED` representa presion de recursos y no equivale a `OFFLINE`; un Client puede seguir controlable aunque suspenda previews.
+- Diagnostico de performance es on-demand, con snapshot ligero; no se recolecta constantemente, no se persiste telemetria y no se envia por heartbeat.
 - Fallas normales del dominio: Client offline, perdida de red, Master temporalmente no disponible, Client reiniciado, operacion sin ACK, corte electrico, HDD lento, almacenamiento lleno y archivo parcialmente transferido.

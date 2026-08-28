@@ -61,6 +61,7 @@ public sealed class MasterGrpcConnectionClient
         }
 
         var backoff = new MasterConnectionBackoff(_options.ReconnectDelays);
+        var failureStreak = 0;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -72,6 +73,7 @@ public sealed class MasterGrpcConnectionClient
                     clientNetworkIdentity,
                     stoppingToken);
                 backoff.Reset();
+                failureStreak = 0;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -79,9 +81,20 @@ public sealed class MasterGrpcConnectionClient
             }
             catch (Exception exception) when (exception is InvalidOperationException or RpcException or IOException)
             {
-                _logger.LogWarning(
-                    exception,
-                    "Secure Master gRPC connection failed. Retrying with backoff.");
+                if (failureStreak == 0)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Secure Master gRPC connection failed. Retrying with backoff.");
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        exception,
+                        "Secure Master gRPC connection is still failing. Retrying with backoff.");
+                }
+
+                failureStreak++;
                 _stateTracker.SetOffline(
                     masterNetworkIdentityId,
                     _clock.UtcNow,
@@ -182,12 +195,7 @@ public sealed class MasterGrpcConnectionClient
             }
 
             await Task.Delay(_options.HeartbeatInterval, stoppingToken);
-            await EnsureTrustedMasterStillCurrentAsync(
-                masterNetworkIdentityId,
-                clientNetworkIdentity,
-                trustedMaster.Master!,
-                stoppingToken);
-
+            // Heartbeat stays disk-idle; operation requests re-check trust before any action.
             await WriteAsync(call.RequestStream, new ClientEnvelope
             {
                 ProtocolVersion = MasterConnectionConstants.ProtocolVersion,

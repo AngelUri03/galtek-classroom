@@ -1028,3 +1028,60 @@
 ### Commit sugerido
 
 `docs(domain): align classroom operational architecture`
+
+## 2026-08-28 - Prompt 14.3
+
+### Realizado
+
+- Formalizados performance budgets y resource profiles como requisitos arquitectonicos medibles, sin implementar Prompt 14.4 ni 14.5.
+- Agregados modelos puros Java para `DevicePerformanceProfile`, `MasterPerformanceProfile`, `ResourceWorkClass`, `ClientPerformanceBudget`, `MasterPerformanceBudget`, `LoadSheddingPolicy`, `SheddableWork`, `ResourcePressureState` y `PerformanceDiagnosticPolicy`.
+- `LEGACY` queda como default conservador para Clients de perfil desconocido.
+- Modelado que `LEGACY` limita una operacion pesada simultanea por Client y que `STANDARD` puede aceptar ligeramente mas sin concurrencia ilimitada.
+- Documentados budgets idle: Agent Service <= aprox. 60 MB, Session Agent <= aprox. 40 MB, Client combinado <= aprox. 100 MB y revision sobre aprox. 150 MB combinado.
+- Modelado `MASTER_BALANCED` con objetivo inicial de heap JVM <= 512 MB, Hikari pequeno, SQLite local y sin infraestructura distribuida pesada.
+- Modelado load shedding con sacrificio de prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes de control critico.
+- Modelado `DEGRADED` como presion de recursos separada de `OFFLINE`.
+- Modelado diagnostico de performance on-demand, sin telemetria continua ni envio por heartbeat.
+- Ampliados contratos compartidos C# con nombres de perfiles de performance, clases de trabajo, estado `DEGRADED` y trabajo sacrificable.
+- Agregadas pruebas Java de politicas/modelos y prueba .NET de contratos compartidos.
+- Auditoria de timers/loops actual: Session Agent PING cada 15s trivial, heartbeat gRPC cada 15s, monitor de licencia cada 60s sin WMI, monitor Master de timeout cada aprox. 15s, Worker idle con delay infinito.
+- Corregido ruido claro de idle: conexion IPC, requests IPC exitosos y autorizacion Master aceptada pasan a `DEBUG`; retries repetidos de gRPC bajan a `DEBUG` tras el primer warning y heartbeat del Agent ya no relee `authorized-masters.json` en cada ciclo.
+- Actualizada documentacion de contexto, arquitectura, modelo funcional, reglas, estado, decisiones e historial.
+
+### Decisiones tomadas
+
+- Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
+- Cuando Galtek no realiza trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, scanning continuo, WMI periodico, writes periodicos ni logs sanos repetitivos.
+- Si performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa o el control critico.
+- Los perfiles `LEGACY`, `STANDARD` y `MASTER_BALANCED` son operacionales; no son identidad, seguridad, trust, pairing ni autorizacion.
+- No usar polling WMI para clasificar hardware; cualquier inferencia futura debe ser conservadora y muy rara.
+- `ResourceWorkClass` clasifica consumo/shedability y se relaciona con `OperationPriority` sin reemplazarlo.
+- Diagnostico de rendimiento solo bajo solicitud explicita.
+
+### Cambios descartados
+
+- No se implementaron operaciones Windows reales.
+- No se implemento power-loss recovery/boot storm de Prompt 14.4.
+- No se implemento Prompt 14.5.
+- No se implemento captura, proyeccion, transferencias, filesystem sync, scheduler real, deteccion agresiva de hardware ni monitoreo continuo pesado.
+- No se agregaron migraciones ni persistencia nueva.
+- No se hicieron tests dependientes de CPU, memoria o Working Set exacto.
+- No se hizo commit.
+
+### Pendiente
+
+- Scheduler/backpressure real con prioridades y load shedding en una fase posterior.
+- Diagnostico on-demand productivo con snapshot ligero.
+- Profiling real para fijar flags/limites de packaging productivo.
+- Deteccion conservadora de perfil solo si se necesita, sin polling WMI.
+- Prompt 14.4 queda pendiente para recovery de apagones/boot storm.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 122 pruebas superadas (14 Session, 108 Service).
+- `mvn clean verify` en `master-backend`: correcto, 126 pruebas superadas.
+
+### Commit sugerido
+
+`perf: define low resource performance budgets`

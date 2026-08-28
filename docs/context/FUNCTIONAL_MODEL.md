@@ -43,6 +43,105 @@ Clients:
 
 El Master absorbe orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion y estado del aula. Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas de alumnos corren localmente en cada Client.
 
+Regla permanente desde Prompt 14.3:
+
+```text
+Galtek Classroom se disena primero para 4 GB RAM + HDD + CPU de gama baja.
+```
+
+Si performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa del alumno o el control critico de la maestra.
+
+## Performance budgets
+
+Principio idle:
+
+```text
+GALTEK CLIENT SHOULD BE ALMOST IDLE
+```
+
+Cuando no hay trabajo solicitado, el Client no debe hacer captura, overlays, UI, process scanning, filesystem scanning, inventario periodico, WMI periodico, writes periodicos ni logs por heartbeat/PING sano. La conexion gRPC persistente y un heartbeat pequeno se conservan; no deben reemplazarse por polling HTTP.
+
+Los budgets son objetivos de ingenieria, no garantias contractuales ni tests de Working Set exacto:
+
+- Agent Service idle: preferiblemente <= aprox. 60 MB.
+- Session Agent idle: preferiblemente <= aprox. 40 MB.
+- Galtek Client combinado idle: objetivo <= aprox. 100 MB.
+- Si una implementacion futura supera aprox. 150 MB combinado idle, requiere justificacion y revision.
+
+CPU esperada en idle: cercana a 0%. No crear timers rapidos ni intervalos sub-segundo salvo durante una accion interactiva que realmente lo necesite. Toda tarea periodica debe justificar frecuencia.
+
+Disco en idle: no periodic disk writes, no logs por heartbeat sano, no archivos de telemetria continua, no reescrituras completas y no scans recursivos innecesarios. En HDD legacy se deben evitar flush constante y pequenas escrituras aleatorias frecuentes.
+
+## Performance profiles
+
+Perfiles operacionales de Client:
+
+```text
+DevicePerformanceProfile
+  LEGACY
+  STANDARD
+```
+
+`LEGACY` es el default conservador cuando el perfil del Client es desconocido. `STANDARD` permite un poco mas de concurrencia, pero nunca concurrencia ilimitada.
+
+Perfil operacional del Master:
+
+```text
+MasterPerformanceProfile
+  MASTER_BALANCED
+```
+
+Estos perfiles no son identidad, seguridad ni autorizacion. No se autoriza ninguna accion por hardware. Una inferencia futura de hardware debe ser conservadora, ejecutarse una sola vez o muy raramente, y nunca usar polling WMI.
+
+Clases de trabajo de recursos:
+
+```text
+ResourceWorkClass
+  CONTROL_CRITICAL
+  CLASS_PREPARATION
+  INTERACTIVE
+  TRANSFER
+  VISUAL
+  BACKGROUND
+```
+
+`ResourceWorkClass` clasifica consumo y shedability; `OperationPriority` conserva la precedencia de operaciones (`CRITICAL > HIGH > NORMAL > LOW`). Una clase de trabajo puede mapear a un piso de prioridad, pero no reemplaza la prioridad operacional.
+
+## Concurrencia y load shedding
+
+Reglas iniciales:
+
+- `LEGACY`: maximo 1 operacion pesada simultanea por Client.
+- `STANDARD`: puede aceptar ligeramente mayor concurrencia, nunca ilimitada.
+- `MASTER_BALANCED`: fanout limitado, colas, backpressure y prioridades.
+
+Una operacion `CRITICAL` nunca espera detras de thumbnails, transferencias grandes, inventario o prefetch.
+
+Orden conceptual de sacrificio bajo saturacion:
+
+```text
+PREFETCH
+NON_ESSENTIAL_INVENTORY
+THUMBNAILS
+PREVIEW_QUALITY_OR_FPS
+NON_URGENT_TRANSFER
+BACKGROUND_JOB
+```
+
+Nunca sacrificar primero heartbeat/control basico, `UNLOCK_INPUT`, `STOP_PROJECTION`, recovery, proteccion de workspace ni estado de sesion necesario para comenzar clase.
+
+Debe existir el concepto:
+
+```text
+ONLINE + DEGRADED
+```
+
+`DEGRADED` no equivale a `OFFLINE`: el Client puede seguir controlable aunque suspenda previews o baje calidad visual. No se debe implementar monitoreo continuo pesado para detectarlo.
+
+## Diagnostico de performance
+
+El diagnostico de rendimiento debe ser on-demand. Puede modelar snapshot ligero de process working set, CPU aproximado, threads y uptime, pero no debe recolectar constantemente, persistir telemetria ni enviarla en cada heartbeat.
+
 ## Flujo real de primaria
 
 La maestra:
@@ -756,6 +855,12 @@ Teacher Content
 
 Una PC fallida no cancela las demas. La arquitectura futura debe contemplar hash/checksum, skip si ya existe, resume, staging, verify, atomic commit y concurrencia limitada. El Master no debe enviar pesadamente el mismo contenido de forma ingenua si puede cachearse o reutilizarse.
 
+Politica de transferencia por performance:
+
+- `LEGACY`: una transferencia pesada por vez, chunks moderados y rate/concurrency limitada.
+- `STANDARD`: puede aceptar mayor throughput, siempre acotado.
+- `MASTER_BALANCED`: limita fanout global, evita saturar switch/disco y permite que HIGH/CRITICAL preempte o throttlee trabajo LOW.
+
 ## Projection modes
 
 `ProjectionMode` diferencia costos:
@@ -782,9 +887,13 @@ No tratar todo como captura de pantalla.
 
 Politica futura:
 
+- Boot/idle: 0 capturas.
 - Classroom overview: thumbnails pequenos, baja frecuencia, solo Devices visibles y concurrencia limitada.
+- `LEGACY`: thumbnail muy pequeno y frecuencia baja.
+- `STANDARD`: frecuencia ligeramente superior si hay capacidad real.
 - Selected Device: elevar calidad/frecuencia temporalmente.
 - No iniciar captura al boot ni por `ClientHello`.
+- Nunca mantener 26 PCs x 30 FPS siempre.
 
 No hay captura implementada en Prompt 14.2.
 

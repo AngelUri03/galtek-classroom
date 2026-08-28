@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 14.3 convierte performance y bajo consumo en requisitos arquitectonicos medibles. Agrega modelos puros Java para perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, clases de trabajo de recursos, budgets de memoria/concurrencia, diagnostico on-demand y load shedding. Tambien agrega constantes compartidas C# para esos nombres y corrige ruido claro de idle: requests IPC exitosos y conexion IPC pasan a `DEBUG`, los retries repetidos de gRPC bajan a `DEBUG` y el heartbeat del Agent ya no relee `authorized-masters.json` en cada ciclo.
+
 Prompt 14.2 fija el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. Agrega modelos/enums/planners puros para estrategias de asignacion, preparacion progresiva por Device, estados de workspace canonico/local, prioridad operacional, modos de proyeccion, politica normal de `PRIMARY`/`SECONDARY` y reglas de limpieza segura de working copies. No agrega migraciones ni persistencia nueva.
 
 Prompt 14 registra Clients paired como Devices persistentes del Master sin redisenar pairing ni mTLS. El Master conserva la autoridad sobre `deviceId`, persiste el vinculo vigente en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, acepta capabilities tipadas reportadas por `ClientHello` y superpone presencia viva en memoria sobre Devices registrados. El framework de operaciones remotas queda tipado en Protobuf y en el Agent, pero ninguna operacion funcional real se ejecuta todavia; toda operacion sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
@@ -53,6 +55,61 @@ Flujo real de primaria:
 El aula no tiene un unico boolean `READY`; la arquitectura debe poder expresar conteos por target como `18 READY`, `4 PREPARING`, `2 OFFLINE`, `1 RECOVERY_REQUIRED` y `1 FAILED`. Una PC fallida o lenta no cancela la preparacion de otras.
 
 `CLASS_TIME_TO_READY` queda como KPI principal de producto: minimizar el tiempo desde que la maestra llega/enciende equipos hasta que los alumnos pueden iniciar actividad. Performance, preview FPS y features deben subordinarse a ese objetivo cuando compitan por recursos.
+
+## Performance budgets y resource profiles
+
+VIGENTE DESDE PROMPT 14.3:
+
+- Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
+- Cuando Galtek no realiza trabajo solicitado, el Client debe quedar casi idle.
+- Orden de prioridad de recursos:
+  - Windows y aplicacion educativa del alumno.
+  - Control critico de Galtek.
+  - Preparacion de clase.
+  - Operaciones normales.
+  - Observabilidad/funciones visuales.
+  - Tareas background no esenciales.
+- Perfiles operacionales de Client:
+  - `LEGACY`: Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD y equipos extremadamente lentos.
+  - `STANDARD`: Core i5 6a generacion aprox., 8 GB RAM, SSD 256 GB.
+- El perfil desconocido de Client se trata como `LEGACY`.
+- El perfil del Master queda modelado como `MASTER_BALANCED`.
+- Los perfiles de rendimiento no son identidad, seguridad, autorizacion ni trust.
+- No se implementa deteccion agresiva de hardware. Si una fase futura infiere perfil, debe hacerlo una sola vez o muy raramente y nunca por polling WMI.
+
+Budgets de Client:
+
+- Agent Service idle: CPU practicamente 0%, sin actividad sostenida de disco, sin WMI periodico, sin enumeracion constante de procesos, sin captura y sin filesystem scanning continuo.
+- Session Agent idle: sin captura, overlays, UI, process scanning, filesystem scanning, WMI costoso, inventario periodico ni polling rapido.
+- Objetivo de memoria idle: Agent Service <= aprox. 60 MB, Session Agent <= aprox. 40 MB, combinado <= aprox. 100 MB.
+- Un Client combinado que supere aprox. 150 MB idle requiere justificacion y revision.
+- Estos numeros son budgets de ingenieria, no garantias contractuales ni unit tests de Working Set.
+
+Budgets del Master:
+
+- Hardware objetivo: i5 8a gen aprox., 8 GB RAM, SSD.
+- Backend Java deliberadamente pequeno, con objetivo inicial de heap <= 512 MB salvo profiling real que justifique mas.
+- SQLite local, WAL, Hikari pequeno y queries batch-friendly siguen siendo la direccion.
+- No introducir Redis, Kafka, Elasticsearch, RabbitMQ, DB server separado ni infraestructura distribuida pesada para el producto local.
+- No convertir el Master en terminal server: Word/Chrome/apps de alumnos se ejecutan localmente en Clients.
+
+Concurrencia y load shedding:
+
+- `ResourceWorkClass` clasifica trabajo como `CONTROL_CRITICAL`, `CLASS_PREPARATION`, `INTERACTIVE`, `TRANSFER`, `VISUAL` o `BACKGROUND` y se relaciona con `OperationPriority` sin reemplazarlo.
+- `LEGACY` limita una operacion pesada simultanea por Client. `STANDARD` puede aceptar ligeramente mas, pero nunca concurrencia ilimitada.
+- El Master debe usar fanout limitado, colas, backpressure y prioridades cuando existan schedulers reales.
+- Una operacion `CRITICAL` nunca espera detras de thumbnails, transferencias grandes, inventario o prefetch.
+- El orden conceptual de sacrificio es `PREFETCH`, `NON_ESSENTIAL_INVENTORY`, `THUMBNAILS`, `PREVIEW_QUALITY_OR_FPS`, `NON_URGENT_TRANSFER`, `BACKGROUND_JOB`.
+- `DEGRADED` existe como estado de presion de recursos y no equivale a `OFFLINE`; un Client puede seguir controlable aunque suspenda previews.
+- No se implementa monitoreo continuo pesado para detectar degradacion.
+
+Politicas futuras:
+
+- Visual plane en boot/idle: 0 capturas. Thumbnails futuros deben ser pequenos, de baja frecuencia, solo para Devices visibles y con concurrencia limitada; nunca 26 PCs x 30 FPS siempre.
+- Transferencias futuras en `LEGACY`: una transferencia pesada por vez, chunks moderados y rate/concurrency limitada; el Master limita fanout global y prioriza HIGH/CRITICAL.
+- Workspace futuro nunca debe escanear recursivamente todos los `StudentWorkspace` de todas las PCs; sync debe ser incremental, por cambios o por workflow/evento.
+- Logging de produccion: `INFO` solo eventos significativos; sin logs por heartbeat sano, PING sano ni conexion saludable repetitiva; errores repetidos deben rate-limitarse o coalescer conceptualmente.
+- Diagnostico de performance: on-demand, snapshot ligero, sin recoleccion constante, sin persistir telemetria y sin enviarla por heartbeat.
 
 ## Master
 
@@ -114,6 +171,7 @@ IMPLEMENTADO:
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
   - `windows`: cuentas administradas `PRIMARY`/`SECONDARY`, estado de sesion Windows y preflight batch para cambio de cuenta.
   - `network`: Network Identity del Master, Client descriptors, pairing challenge/response, trust store y revocacion.
+  - `performance`: perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, budgets, clases de trabajo, diagnostico on-demand, estado `DEGRADED` y load shedding conceptual.
 - Modelos puros Prompt 14.2:
   - `StudentAssignmentStrategy`: `LIST_ORDER`, `RANDOM`, `PREVIOUS`, `MANUAL`.
   - `StudentPreparationStage` y `StudentPreparationState` para `ASSIGNED -> PREPARING_WINDOWS_SESSION -> PREPARING_WORKSPACE -> PREPARING_BROWSER -> APPLYING_CLASS_CONTEXT -> READY`, con estados `PENDING`, `IN_PROGRESS`, `READY`, `PARTIAL_READY`, `RECOVERY_REQUIRED` y `FAILED`.
@@ -122,6 +180,13 @@ IMPLEMENTADO:
   - `ProjectionMode`: `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA`, `OPEN_WEB_CONTENT`.
   - `OperationPriority`: `CRITICAL`, `HIGH`, `NORMAL`, `LOW`.
   - `ManagedWindowsAccountOperatingPolicy` para documentar que `PRIMARY` y `SECONDARY` son Windows normal por default.
+- Modelos puros Prompt 14.3:
+  - `DevicePerformanceProfile`: `LEGACY`, `STANDARD`; desconocido -> `LEGACY`.
+  - `MasterPerformanceProfile`: `MASTER_BALANCED`.
+  - `ResourceWorkClass`: `CONTROL_CRITICAL`, `CLASS_PREPARATION`, `INTERACTIVE`, `TRANSFER`, `VISUAL`, `BACKGROUND`.
+  - `ClientPerformanceBudget`: concurrencia pesada por perfil, budgets idle y regla de no autorizacion por perfil.
+  - `MasterPerformanceBudget`: heap objetivo inicial 512 MB, Hikari pequeno y no terminal server/infraestructura distribuida pesada.
+  - `LoadSheddingPolicy`, `SheddableWork`, `ResourcePressureState.DEGRADED` y `PerformanceDiagnosticPolicy.onDemandOnly()`.
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
@@ -136,6 +201,7 @@ IMPLEMENTADO:
 - `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, no como ruta arbitraria.
 - Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
 - Pruebas Java de Prompt 14.2 para estrategias de assignment, readiness parcial, limpieza segura de workspace, prioridades, proyeccion, removable storage, distribucion y politica normal de `PRIMARY`/`SECONDARY`.
+- Pruebas Java de Prompt 14.3 para default `LEGACY`, concurrencia por perfil, precedencia `CRITICAL`, idle policy, load shedding, diagnostico on-demand y no autorizacion por perfil.
 - Persistencia SQLite local del dominio Master con Spring JDBC.
 - Dependencias `spring-boot-starter-jdbc`, `flyway-core` y `sqlite-jdbc` en el backend Master.
 - Flyway programatico para migraciones SQLite desde `classpath:db/migration/sqlite`.
@@ -311,6 +377,8 @@ IMPLEMENTADO:
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
 - `ClientCapabilityProvider` anuncia solo `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
+- El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
+- Los retries repetidos de conexion gRPC se registran en `DEBUG` tras el primer warning para evitar spam de retry.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; sin handlers productivos, toda operacion conocida o futura devuelve `OPERATION_NOT_IMPLEMENTED`.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
@@ -339,6 +407,7 @@ IMPLEMENTADO:
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
 - `GET_MASTER_AUTHORIZATION` deriva el SID real del cliente Named Pipe y no acepta SID en el payload.
+- Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no en `INFO`, para evitar logs periodicos durante idle.
 - ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
 
 PLANIFICADO:
@@ -441,6 +510,7 @@ IMPLEMENTADO:
 - Constantes de operaciones, errores, nombre de pipe y limite de mensaje.
 - Contratos futuros minimos para operaciones tipadas, estados batch, estados por target, preflight, destinos logicos, conflict policies y errores operacionales.
 - Constantes futuras para cuentas administradas `PRIMARY`/`SECONDARY`, estados de sesion Windows y acciones `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING`, `BLOCKED`.
+- Constantes futuras para perfiles de performance, clases de trabajo de recursos, estado `DEGRADED` y trabajo sacrificable.
 
 PLANIFICADO:
 
@@ -470,6 +540,7 @@ IMPLEMENTADO:
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.
 - Heartbeat periodico del Client con `HeartbeatAck` del Master.
+- Heartbeat pequeno, sin polling HTTP, sin telemetria pesada, sin logs sanos y sin writes persistentes por ciclo.
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
 - Framework Protobuf compatible para `OperationRequest`, `OperationAccepted` y `OperationResult`, con `operationId`, `operationType`, `targetDeviceId`, `protocolVersion`, timeout y `ErrorCode` tipado.
 - El Agent deduplica `OperationRequest` por `operationId`; una operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED` y no toca Windows.

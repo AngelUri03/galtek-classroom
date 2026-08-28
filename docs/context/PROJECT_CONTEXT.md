@@ -12,6 +12,8 @@ El Master previsto de primaria es una PC de profesora con Intel Core i5 de 8a ge
 
 Los Clients previstos son mixtos: aprox. 16 equipos legacy con Celeron/Core Duo/Pentium o similar, 4 GB RAM y HDD de 256 GB, mas aprox. 10 equipos renovados con Core i5 6a generacion, 8 GB RAM y SSD de 256 GB. El diseno funcional debe operar sobre el peor Client sin hacer que los equipos rapidos esperen a los lentos.
 
+Regla permanente: Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja. Cuando performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa del alumno o el control critico de la maestra.
+
 ## Problema que resuelve
 
 Permite operar laboratorios con muchas computadoras desde una consola central, reduciendo pasos manuales para supervision, bloqueo, proyeccion, apertura controlada de aplicaciones, contenido escolar, asignacion de alumnos a equipos, recuperacion de trabajos y mantenimiento basico.
@@ -50,6 +52,9 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Movimiento de alumno entre computadoras.
 - Intercambio transaccional de alumnos entre computadoras.
 - Recuperacion futura de trabajos de alumnos.
+- Perfiles operacionales de rendimiento `LEGACY` y `STANDARD` para Clients, con `LEGACY` como default conservador cuando el perfil es desconocido.
+- Perfil operativo `MASTER_BALANCED` para mantener el Master pequeno, local y batch-friendly.
+- Politicas futuras de load shedding con estado `DEGRADED` separado de `OFFLINE`.
 - Operaciones masivas con `PARTIAL_SUCCESS` y retry solo de fallidos.
 - Apagado y reinicio remoto.
 - Inicio automatico con Windows.
@@ -114,3 +119,6 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - El Master conserva el workspace canonico; el Client conserva una working copy local durante el uso y solo puede limpiarse despues de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Si falta confirmacion de sync, no asumir exito ni perdida: conservar working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
 - Operaciones pesadas como distribucion, thumbnails o inventario nunca deben impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
+- Cuando Galtek no esta realizando trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, sin scanning continuo, sin WMI periodico, sin writes periodicos y sin logs por heartbeat/PING sano.
+- Los budgets de memoria son objetivos de ingenieria, no garantias contractuales: Agent Service preferiblemente <= 60 MB idle, Session Agent <= 40 MB idle, Client combinado <= 100 MB idle; superar aprox. 150 MB combinado en idle requiere justificacion y revision.
+- Ningun perfil de hardware o performance concede autorizacion, trust, pairing ni permisos.

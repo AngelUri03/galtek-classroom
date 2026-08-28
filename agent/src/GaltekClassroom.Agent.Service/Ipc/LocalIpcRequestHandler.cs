@@ -99,7 +99,7 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
 
         if (response.Success)
         {
-            _logger.LogInformation("IPC request {Operation} completed.", request.Operation);
+            _logger.LogDebug("IPC request {Operation} completed.", request.Operation);
         }
 
         return response;

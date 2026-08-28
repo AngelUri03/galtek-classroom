@@ -84,6 +84,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Capabilities reportadas por `ClientHello` son operativas y no autorizan por si mismas.
 - El heartbeat no debe escribir SQLite en cada ciclo; presencia viva debe mantenerse principalmente en memoria.
 - Cualquier handler futuro de `OperationRequest` debe ser tipado, idempotente por `operationId` cuando aplique y debe fallar cerrado con `OPERATION_NOT_IMPLEMENTED` mientras no este implementado.
+- Los perfiles `LEGACY`, `STANDARD` y `MASTER_BALANCED` son operacionales y nunca conceden autorizacion, trust, pairing ni permisos.
 - `PRIMARY` y `SECONDARY` son Windows normal por default; no implementar modo kiosco, restricciones de aplicaciones, cambio automatico de sesion ni bloqueo de input al iniciar clase salvo alcance explicito futuro.
 - El Master no debe enviar rutas ejecutables, rutas de workspace, rutas USB ni rutas absolutas arbitrarias; usar `applicationId` y destinos logicos.
 - No copiar perfiles Chrome crudos (`Login Data`, `Cookies`, `Local State`, tokens o secretos protegidos).
@@ -113,6 +114,30 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Errores tecnicos deben mapearse a errores operacionales antes de llegar a UI.
 - Las futuras UI deben priorizar acciones masivas, recuperacion y minima intervencion manual.
 - El cambio futuro de cuenta Windows administrada debe ser batch-first: una sola accion sobre aula/grupo/devices, con `NO_CHANGE`, exitos, fallidos y retry solo de fallidos.
+
+## Rendimiento y recursos
+
+- Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
+- Cuando Galtek no realiza trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, sin overlays, sin UI, sin process scanning, sin filesystem scanning, sin WMI periodico, sin writes periodicos y sin logs por heartbeat/PING sano.
+- Prioridad de recursos: Windows y aplicacion educativa del alumno, control critico de Galtek, preparacion de clase, operaciones normales, visual/observabilidad y tareas background no esenciales.
+- `CLASS_TIME_TO_READY` sigue siendo el KPI principal; ninguna funcion visual o background debe competir contra comenzar clase.
+- `LEGACY` es el default conservador para Clients de perfil desconocido.
+- No implementar deteccion agresiva de hardware; si se modela inferencia futura debe ejecutarse una sola vez o muy raramente.
+- Nunca usar polling WMI para determinar perfil ni para heartbeat, presencia, `ClientHello` repetitivo, Session Agent, UI o previews.
+- Los budgets idle son objetivos de ingenieria: Agent Service <= aprox. 60 MB, Session Agent <= aprox. 40 MB y Client combinado <= aprox. 100 MB; superar aprox. 150 MB combinado requiere justificacion y revision.
+- No crear unit tests que fallen por CPU, memoria o Working Set exacto dependiente de la maquina.
+- No crear timers rapidos ni intervalos sub-segundo salvo durante una accion interactiva que lo necesite; toda tarea periodica debe justificar frecuencia.
+- El heartbeat debe ser pequeno, persistente sobre gRPC/mTLS y sin writes persistentes ni logs sanos; no sustituirlo por polling HTTP.
+- En HDD legacy evitar scans recursivos, reescrituras completas, temporales enormes, flush constante y pequenas escrituras aleatorias frecuentes.
+- El Session Agent idle no debe capturar pantalla, pintar overlays, abrir UI, escanear procesos/filesystem ni consultar Windows de forma periodica costosa.
+- Produccion debe usar `INFO` solo para eventos significativos; errores repetitivos deben rate-limitarse o coalescer conceptualmente.
+- Diagnostico de performance solo on-demand: snapshot ligero, sin recoleccion constante, sin persistir telemetria y sin enviarla por heartbeat.
+- `DEGRADED` es estado de presion de recursos y no equivale a `OFFLINE`.
+- Load shedding debe sacrificar prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes de control critico.
+- Nunca sacrificar primero heartbeat/control basico, `UNLOCK_INPUT`, `STOP_PROJECTION`, recovery, proteccion de workspace o estado de sesion necesario para empezar clase.
+- El Master debe mantenerse local y pequeno: SQLite, WAL, pool Hikari pequeno, queries batch-friendly y heap JVM objetivo inicial <= 512 MB salvo profiling real que justifique mas.
+- No introducir Redis, Kafka, Elasticsearch, RabbitMQ, DB server separado ni infraestructura distribuida pesada para la operacion local normal.
+- No convertir el Master en terminal server ni ejecutar Word/Chrome/apps de alumnos remotamente.
 
 ## Persistencia Master SQLite
 
