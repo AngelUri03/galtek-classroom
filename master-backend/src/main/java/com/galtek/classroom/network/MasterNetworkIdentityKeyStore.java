@@ -9,4 +9,6 @@ public interface MasterNetworkIdentityKeyStore {
     MasterNetworkKeyLookupResult lookup(String keyId);
 
     MasterNetworkSignatureResult sign(String keyId, byte[] data);
+
+    MasterNetworkTlsIdentityResult tlsIdentity(String keyId);
 }

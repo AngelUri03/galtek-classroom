@@ -71,8 +71,12 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
-- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista transporte seguro.
-- Todavia no existe gRPC real, mTLS real, mDNS ni comandos remotos; Prompt 13 debe usar el trust ya establecido para transporte seguro.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
+- El transporte gRPC/mTLS de Prompt 13 solo permite conexion, identificacion y heartbeat; no autoriza por si mismo comandos remotos.
+- Cualquier extension del transporte debe exigir TLS/mTLS, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y fallo cerrado.
+- No agregar fallback plaintext, reflection/debug gRPC abierto en produccion ni aceptacion de certificados arbitrarios.
+- El Client debe iniciar conexiones persistentes hacia el Master; no depender de conexiones entrantes hacia cada PC Client.
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
 
 ## Dominio funcional y UX masiva
 

@@ -858,3 +858,68 @@
 ### Commit sugerido
 
 `feat(network): add secure master client pairing`
+
+## 2026-08-27 - Prompt 13
+
+### Realizado
+
+- Implementado protocolo Protobuf versionado `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- Agregado servicio gRPC `NetworkConnection.Connect` para conexion persistente, `ClientHello`, estado y heartbeat.
+- Implementado transporte Master con TLS/mTLS obligatorio, trust manager por `paired-clients.json` y rechazo fail-closed.
+- Implementado cliente Agent saliente con pinning del certificado Master contra `authorized-masters.json`.
+- Emitidos certificados self-signed de corta vida desde Network Identity, sin CA global y sin exportar private keys.
+- Agregado registro Master de conexiones autenticadas con `CONNECTING`, `ONLINE`, `OFFLINE` y timeout de heartbeat.
+- Agregada reconexion Client con backoff acotado.
+- Agregadas pruebas .NET y Java para trust, mTLS, heartbeat, timeout, reconnect, revocacion y multiples Clients.
+- Actualizada documentacion de arquitectura, contexto, reglas, estado y decisiones.
+
+### Archivos principales modificados
+
+- `protocol/network/v1/`
+- `agent/src/GaltekClassroom.Agent.Service/NetworkTransport/`
+- `agent/src/GaltekClassroom.Agent.Service/Network/NetworkIdentityKeyStore.cs`
+- `agent/src/GaltekClassroom.Agent.Service/Program.cs`
+- `agent/tests/GaltekClassroom.Agent.Service.Tests/MasterNetworkTransportTests.cs`
+- `master-backend/src/main/java/com/galtek/classroom/network/`
+- `master-backend/src/test/java/com/galtek/classroom/network/MasterNetworkTransportTest.java`
+- `master-backend/pom.xml`
+- `docs/context/PROJECT_CONTEXT.md`
+- `docs/context/ARCHITECTURE.md`
+- `docs/context/FUNCTIONAL_MODEL.md`
+- `docs/context/DEVELOPMENT_RULES.md`
+- `docs/agent/CURRENT_STATE.md`
+- `docs/agent/DECISIONS.md`
+- `docs/agent/HISTORY.md`
+
+### Decisiones tomadas
+
+- El Client inicia la conexion persistente hacia el Master.
+- TLS/mTLS es obligatorio; no hay fallback plaintext.
+- La autenticacion usa certificados ligados al trust por fingerprint SPKI de Network Identity.
+- No se crea CA global que confie automaticamente en instalaciones arbitrarias.
+- `PAIRED` es obligatorio y `REVOKED` bloquea conexion administrativa.
+- IP, MAC, hostname, discovery y licencia MASTER no autorizan.
+- Prompt 13 no incluye comandos remotos ni endpoints reales de discovery/pairing.
+
+### Cambios descartados
+
+- No se implementaron mDNS, discovery real, UI, comandos remotos, shell remota, bloqueo, captura, proyeccion, filesystem, wallpaper ni login/switch Windows real.
+- No se copiaron private keys a nuevos archivos ni se versionaron secretos.
+- No se hizo commit.
+
+### Pendiente
+
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS.
+- mDNS/discovery real y flujos reales de pairing/discovery quedan para fases posteriores, sin convertir discovery en trust.
+- Comandos administrativos tipados se construiran sobre el framework de operaciones en una fase posterior, sin shell remota ni comandos genericos.
+- Hardening productivo de ciclo de vida de certificados y almacenamiento de private key del Master.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 118 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 97 pruebas superadas.
+
+### Commit sugerido
+
+`feat(network): add secure grpc transport`

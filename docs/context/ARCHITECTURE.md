@@ -2,7 +2,11 @@
 
 ## Estado general
 
-Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion. No hay gRPC real, mTLS real, mDNS, certificados emitidos por Master, discovery real ni comandos remotos.
+Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias. El alcance de red queda limitado a `ClientHello`, estado de conexion y heartbeat. No hay mDNS, discovery real ni comandos remotos.
+
+Prompt 14 debe construir registro/capabilities y framework de operaciones sobre este transporte seguro existente, sin redisenar pairing/mTLS.
+
+Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
 Prompt 9.6 formaliza el dominio futuro de cuentas Windows administradas en Clients. Cada Client podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar PCs en la cuenta objetivo, clasificando `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` y bloqueos. Solo se agregan modelos/enums/planners puros y contratos compartidos; no hay passwords, Credential Provider, login/logoff real, IPC write, gRPC, mTLS ni UI.
 
@@ -18,7 +22,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 12 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, gRPC real, mTLS real, mDNS, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota siguen planificadas. Prompt 13 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
 
 ## Master
 
@@ -120,12 +124,22 @@ IMPLEMENTADO:
 - `paired-clients.json` persiste trust del lado Master, incluyendo estado `PAIRING_PENDING`, `PAIRED` o `REVOKED`.
 - `MasterClientAuthorization` falla cerrado con `MASTER_NOT_PAIRED` cuando el Client no esta emparejado o fue revocado.
 - Pruebas Java para Master Network Identity, challenge/response, expiracion, replay, persistencia, revocacion y multiples Clients.
+- Contrato Protobuf versionado `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- Dependencias gRPC Java con generacion Protobuf desde el contrato compartido.
+- `MasterNetworkGrpcService` acepta un stream bidireccional `NetworkConnection.Connect` solo para `ClientHello` y `Heartbeat`.
+- `MasterNetworkConnectionAuthenticator` valida `ClientHello` contra Network Identity, trust `PAIRED`, no `REVOKED` y fingerprint del certificado mTLS.
+- `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
+- `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
+- `ClientConnectionRegistry` mantiene estado real por Client autenticado: `CONNECTING`, `ONLINE` y `OFFLINE`.
+- `MasterNetworkHeartbeatMonitor` marca `OFFLINE` tras timeout de heartbeat configurado.
+- Certificado TLS del Master emitido en memoria desde su Network Identity, ligado al fingerprint ya persistido por pairing.
+- Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes y trust persistente tras reinicio.
 
 PLANIFICADO:
 
 - React + Tauri para UI de escritorio, sin Vite.
-- gRPC/Protobuf para comunicacion con Agents.
-- Exponer el pairing mediante el transporte seguro futuro.
+- Prompt 14: registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS.
+- Exponer pairing mediante flujos reales sobre el transporte seguro existente.
 - Visualizacion de equipos, miniaturas y estado.
 - UI batch-first para grupos, alumnos y equipos con partial success y retry de fallidos.
 - Consulta y cambio masivo de sesion Windows administrada por `accountId` logico.
@@ -136,9 +150,7 @@ NO IMPLEMENTADO:
 
 - UI.
 - Autenticacion.
-- gRPC funcional.
 - Descubrimiento.
-- mTLS real.
 - mDNS real.
 - Comandos remotos hacia Clients.
 - Commercial License en Java.
@@ -239,6 +251,14 @@ IMPLEMENTADO:
 - `authorized-masters.json` conserva estados `PAIRING_PENDING`, `PAIRED` y `REVOKED`, y challenges consumidos para bloquear replay.
 - Revocar un Master cambia su trust a `REVOKED` sin borrar Installation Identity ni Network Identity.
 - Un Master `REVOKED` o no emparejado no puede administrar el Client; la autorizacion falla cerrado con `MASTER_NOT_PAIRED`.
+- Dependencias gRPC .NET con generacion Protobuf desde `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- `MasterConnectionHostedService` inicia la conexion saliente hacia el Master solo cuando `Galtek:Classroom:Agent:MasterConnection:Enabled=true`.
+- `MasterGrpcConnectionClient` exige `https`, `MasterNetworkIdentityId` configurado y trust local `PAIRED` antes de abrir el canal.
+- El Client crea un certificado mTLS self-signed de corta vida desde su Network Identity local; la private key sigue en CNG/KSP y no se exporta a archivo.
+- La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
+- `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint y public SPKI; no transporta secretos.
+- Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
+- `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.
@@ -375,7 +395,7 @@ PLANIFICADO:
 - Contratos de red cuando se definan los `.proto`.
 - Contratos concretos Service <-> Session para ejecucion controlada, cuando exista autorizacion local e IPC write disenado.
 
-## Comunicacion futura de red
+## Comunicacion de red
 
 IMPLEMENTADO:
 
@@ -386,21 +406,27 @@ IMPLEMENTADO:
 - Expiracion de challenge de 5 minutos.
 - Soporte conceptual para multiples Clients por Master y multiples Masters por Client.
 - Revocacion bilateral conceptual: un registro `REVOKED` bloquea administracion y no se reutiliza silenciosamente.
+- Protocolo gRPC/Protobuf v1 en `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- Servicio `NetworkConnection.Connect` con stream persistente iniciado por el Client.
+- TLS/mTLS obligatorio; no hay fallback plaintext.
+- Certificados self-signed de corta vida ligados al trust existente por fingerprint de public key `SubjectPublicKeyInfo`.
+- El Master valida certificados de Client contra `paired-clients.json`.
+- El Client valida el certificado del Master contra `authorized-masters.json`.
+- `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto.
+- Heartbeat periodico del Client con `HeartbeatAck` del Master.
+- Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
+- Timeout de heartbeat default 45 segundos en el Master.
+- Reconexión del Client con backoff acotado.
 
 PLANIFICADO:
 
-- Los Clientes iniciaran conexiones persistentes autenticadas hacia el Master.
-- El protocolo sera gRPC con Protobuf.
-- La confianza de red usara mTLS y certificados de dispositivo.
-- El descubrimiento usara mDNS/DNS-SD.
-- Prompt 13 debe construir el transporte seguro sobre el trust ya establecido, sin redefinir pairing como discovery.
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS.
+- El descubrimiento usara mDNS/DNS-SD en una fase posterior.
+- Exponer pairing/discovery mediante flujos reales de red sin confundir discovery con trust, en una fase posterior.
+- Comandos administrativos remotos tipados sobre el framework de operaciones, en una fase posterior.
 
 NO IMPLEMENTADO:
 
-- Protocolos `.proto` definitivos.
-- Servidores o clientes gRPC.
-- mTLS.
-- Certificados.
 - Descubrimiento real.
 - APIs reales de discovery/pairing sobre red.
 - Comandos remotos.
@@ -544,21 +570,19 @@ IMPLEMENTADO:
 - `master-network-identity.protector` guarda el material local que protege la private key del Master.
 - El Master no usa `classroom.db` para private keys ni trust.
 - Network Identity no equivale a trust: una identidad valida solo permite firmar/verificar challenge y response.
+- El transporte gRPC/mTLS emite certificados self-signed de corta vida desde las claves de Network Identity y valida el peer por fingerprint SPKI persistido en trust.
+- No existe CA global que confie automaticamente en cualquier instalacion.
 
 PLANIFICADO:
 
-- Certificado.
-- mTLS.
 - Rotacion manual/operacional de claves.
+- Hardening productivo adicional para la private key del Master y ciclo de vida de certificados.
 
 NO IMPLEMENTADO:
 
-- Certificados.
-- gRPC real.
-- mTLS real.
 - mDNS/discovery real.
 - Comandos remotos.
-- Autorizacion Master-Agent sobre transporte real.
+- Autorizacion de comandos Master-Agent sobre transporte real.
 - Confianza automatica entre equipos.
 - Rotacion automatica de claves.
 
@@ -587,8 +611,7 @@ IMPLEMENTADO:
 NO IMPLEMENTADO:
 
 - Endpoints HTTP/gRPC reales de pairing.
-- mTLS real.
-- Certificados emitidos por Master.
+- CA global o certificados que otorguen confianza automatica.
 - mDNS/discovery real.
 - Comandos remotos.
 
@@ -665,7 +688,7 @@ VIGENTE DESDE AHORA:
 - Rebinding de Master siempre requiere intencion explicita.
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
-- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista el transporte seguro futuro.
-- Todavia no existe gRPC real, mTLS real, mDNS, certificados ni comandos remotos.
-- Prompt 13 debe implementar transporte seguro usando el trust ya establecido.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando se implementen comandos administrativos futuros sobre el transporte seguro.
+- Existe transporte gRPC/mTLS minimo para conexion, identificacion y heartbeat; todavia no existe mDNS, discovery real ni comandos remotos.
+- El transporte seguro usa el trust ya establecido por pairing y no redisena pairing como discovery.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

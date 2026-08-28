@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace GaltekClassroom.Agent.Service.Network;
 
@@ -162,6 +163,51 @@ public sealed record NetworkIdentitySignatureResult(
     }
 }
 
+public enum NetworkIdentityCertificateStatus
+{
+    Created,
+    Missing,
+    Invalid
+}
+
+public sealed record NetworkIdentityCertificateResult(
+    NetworkIdentityCertificateStatus Status,
+    string? PublicKeyFingerprint,
+    X509Certificate2? Certificate,
+    string? ErrorMessage)
+{
+    public bool Created => Status == NetworkIdentityCertificateStatus.Created;
+
+    public static NetworkIdentityCertificateResult Success(
+        string publicKeyFingerprint,
+        X509Certificate2 certificate)
+    {
+        return new NetworkIdentityCertificateResult(
+            NetworkIdentityCertificateStatus.Created,
+            publicKeyFingerprint,
+            certificate,
+            null);
+    }
+
+    public static NetworkIdentityCertificateResult Missing(string keyName)
+    {
+        return new NetworkIdentityCertificateResult(
+            NetworkIdentityCertificateStatus.Missing,
+            null,
+            null,
+            $"CNG key is missing: {keyName}");
+    }
+
+    public static NetworkIdentityCertificateResult Invalid(string errorMessage)
+    {
+        return new NetworkIdentityCertificateResult(
+            NetworkIdentityCertificateStatus.Invalid,
+            null,
+            null,
+            errorMessage);
+    }
+}
+
 public enum NetworkIdentityKeyDeleteStatus
 {
     Deleted,
@@ -202,6 +248,12 @@ public interface INetworkIdentityKeyStore
     NetworkIdentityPublicKeyResult GetPublicKey(string keyName);
 
     NetworkIdentitySignatureResult Sign(string keyName, byte[] data);
+
+    NetworkIdentityCertificateResult CreateSelfSignedCertificate(
+        string keyName,
+        string subjectName,
+        DateTimeOffset notBefore,
+        DateTimeOffset notAfter);
 
     NetworkIdentityKeyDeleteResult Delete(string keyName);
 }
@@ -372,6 +424,73 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         }
     }
 
+    public NetworkIdentityCertificateResult CreateSelfSignedCertificate(
+        string keyName,
+        string subjectName,
+        DateTimeOffset notBefore,
+        DateTimeOffset notAfter)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectName);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return NetworkIdentityCertificateResult.Invalid("Windows CNG/KSP is required for Network Identity.");
+        }
+
+        if (!Exists(keyName))
+        {
+            return NetworkIdentityCertificateResult.Missing(keyName);
+        }
+
+        if (notAfter <= notBefore)
+        {
+            return NetworkIdentityCertificateResult.Invalid("Network Identity certificate validity window is invalid.");
+        }
+
+        try
+        {
+            using var key = CngKey.Open(keyName, Provider, OpenOptions);
+            using var rsa = new RSACng(key);
+            var request = new CertificateRequest(
+                new X500DistinguishedName($"CN={SanitizeSubjectName(subjectName)}"),
+                rsa,
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(
+                certificateAuthority: false,
+                hasPathLengthConstraint: false,
+                pathLengthConstraint: 0,
+                critical: true));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature,
+                critical: true));
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection
+                {
+                    new Oid("1.3.6.1.5.5.7.3.1"),
+                    new Oid("1.3.6.1.5.5.7.3.2")
+                },
+                critical: false));
+
+            var certificate = request.CreateSelfSigned(notBefore, notAfter);
+            var publicKey = ExportPublicKey(key);
+
+            return NetworkIdentityCertificateResult.Success(publicKey.Fingerprint, certificate);
+        }
+        catch (CryptographicException exception)
+        {
+            return NetworkIdentityCertificateResult.Invalid(
+                $"Network Identity certificate could not be created: {exception.Message}");
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            return NetworkIdentityCertificateResult.Invalid(
+                $"Network Identity certificate could not be created: {exception.Message}");
+        }
+    }
+
     public NetworkIdentityKeyDeleteResult Delete(string keyName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
@@ -452,6 +571,20 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         return ExportPublicKey(key).Fingerprint;
     }
 
+    private static string SanitizeSubjectName(string subjectName)
+    {
+        var sanitized = new char[subjectName.Length];
+        for (var index = 0; index < subjectName.Length; index++)
+        {
+            var value = subjectName[index];
+            sanitized[index] = char.IsLetterOrDigit(value) || value is ' ' or '-' or '_' or '.'
+                ? value
+                : '_';
+        }
+
+        return new string(sanitized).Trim();
+    }
+
     private sealed record NetworkIdentityPublicKey(
         string Fingerprint,
         string SubjectPublicKeyInfoBase64);
@@ -496,6 +629,19 @@ public sealed class UnsupportedNetworkIdentityKeyStore : INetworkIdentityKeyStor
         ArgumentNullException.ThrowIfNull(data);
 
         return NetworkIdentitySignatureResult.Invalid(
+            "Windows CNG/KSP is required for Network Identity.");
+    }
+
+    public NetworkIdentityCertificateResult CreateSelfSignedCertificate(
+        string keyName,
+        string subjectName,
+        DateTimeOffset notBefore,
+        DateTimeOffset notAfter)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectName);
+
+        return NetworkIdentityCertificateResult.Invalid(
             "Windows CNG/KSP is required for Network Identity.");
     }
 

@@ -3,10 +3,12 @@ package com.galtek.classroom.network;
 import com.galtek.classroom.persistence.sqlite.MasterDatabasePath;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@EnableConfigurationProperties(MasterNetworkGrpcProperties.class)
 @ConditionalOnProperty(
         prefix = "galtek.classroom.master.storage",
         name = "enabled",
@@ -44,5 +46,49 @@ public class MasterNetworkConfiguration {
             MasterTrustStore trustStore,
             Clock clock) {
         return new MasterPairingService(identityResolver, keyStore, trustStore, clock);
+    }
+
+    @Bean
+    ClientConnectionRegistry clientConnectionRegistry(Clock clock) {
+        return new ClientConnectionRegistry(clock);
+    }
+
+    @Bean
+    MasterNetworkConnectionAuthenticator masterNetworkConnectionAuthenticator(
+            MasterPairingService pairingService) {
+        return new MasterNetworkConnectionAuthenticator(pairingService);
+    }
+
+    @Bean
+    MasterNetworkGrpcService masterNetworkGrpcService(
+            MasterNetworkConnectionAuthenticator authenticator,
+            ClientConnectionRegistry connectionRegistry,
+            Clock clock) {
+        return new MasterNetworkGrpcService(authenticator, connectionRegistry, clock);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "galtek.classroom.master.network.grpc",
+            name = "enabled",
+            havingValue = "true")
+    MasterNetworkGrpcServer masterNetworkGrpcServer(
+            MasterNetworkGrpcProperties properties,
+            MasterNetworkIdentityResolver identityResolver,
+            MasterNetworkIdentityKeyStore keyStore,
+            MasterTrustStore trustStore,
+            MasterNetworkGrpcService grpcService) {
+        return new MasterNetworkGrpcServer(properties, identityResolver, keyStore, trustStore, grpcService);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "galtek.classroom.master.network.grpc",
+            name = "enabled",
+            havingValue = "true")
+    MasterNetworkHeartbeatMonitor masterNetworkHeartbeatMonitor(
+            ClientConnectionRegistry connectionRegistry,
+            MasterNetworkGrpcProperties properties) {
+        return new MasterNetworkHeartbeatMonitor(connectionRegistry, properties);
     }
 }

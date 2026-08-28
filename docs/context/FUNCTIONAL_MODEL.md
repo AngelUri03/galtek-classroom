@@ -58,7 +58,7 @@ Campos principales:
 - `capabilities`: capacidades declaradas.
 - `assignedStudentId`: alumno asignado actualmente, si aplica.
 
-No usar IP, MAC ni hostname como identidad primaria o de seguridad. La identidad de red criptografica llegara en una fase posterior.
+No usar IP, MAC ni hostname como identidad primaria o de seguridad. La identidad de red criptografica ya existe y el estado `ONLINE` solo debe derivarse de una conexion autenticada real, no de discovery.
 
 Estados contemplados:
 

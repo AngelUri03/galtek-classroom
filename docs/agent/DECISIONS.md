@@ -40,8 +40,21 @@
 - El Master Backend no implementa Installation Identity; la consulta al Service mediante IPC local.
 - El Master Backend no implementa Commercial License; la consulta al Service mediante IPC local.
 - Usar React + Tauri para la UI futura del Master, sin Vite.
-- Usar gRPC/Protobuf para comunicacion futura Master-Agent.
-- Usar mTLS y certificados de dispositivo para confianza futura de red.
+- Usar gRPC/Protobuf para comunicacion Master-Agent.
+- El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- La primera comunicacion real se limita a conexion, identificacion, estado y heartbeat.
+- El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
+- Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
+- Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
+- No crear una CA global que confie automaticamente en cualquier instalacion.
+- El Master valida el certificado del Client contra `paired-clients.json`.
+- El Client valida el certificado del Master contra `authorized-masters.json`.
+- Una conexion de red valida exige Network Identity esperada, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y mTLS valido.
+- IP, MAC, hostname, discovery y licencia MASTER no autorizan conexiones administrativas.
+- Heartbeat default del Client: 15 segundos.
+- Timeout default del Master para marcar `OFFLINE`: 45 segundos.
+- La reconexion del Client usa backoff acotado `2s`, `5s`, `10s`, `30s`.
+- El transporte gRPC/mTLS no incluye comandos administrativos en Prompt 13.
 - Usar mDNS/DNS-SD solo para descubrimiento.
 - Usar Windows Named Pipes para IPC local entre Service, Session Agent y Master Backend.
 - El Agent Service es el unico servidor de Local IPC API v1.
@@ -92,8 +105,9 @@
 - `REVOKED` bloquea administracion del Client y no se reutiliza silenciosamente.
 - IP, MAC y hostname no autorizan administracion.
 - Licencia MASTER valida no crea pairing con Clients.
-- Certificados, CA, mTLS real, gRPC real, mDNS real y comandos remotos siguen pendientes.
-- Prompt 13 debe implementar transporte seguro usando el trust ya establecido.
+- mDNS real, discovery real, endpoints reales de pairing/discovery sobre red y comandos remotos siguen pendientes.
+- El transporte seguro de Prompt 13 usa el trust ya establecido y no redisena pairing.
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre este transporte, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
 - La validacion completa de Commercial License obtiene el fingerprint de hardware actual al arrancar y al activar/renovar; el monitor de 60 segundos solo revisa expiracion temporal.
@@ -228,4 +242,4 @@
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar/cerrar/cambiar sesion Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
-- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando exista transporte seguro.
+- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.

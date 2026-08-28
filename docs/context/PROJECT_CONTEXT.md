@@ -55,8 +55,8 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion futura Master-Agent: gRPC y Protobuf.
-- Seguridad futura de red: mTLS y certificados de dispositivo.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion y heartbeat.
+- Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
 - Descubrimiento futuro: mDNS/DNS-SD.
@@ -73,14 +73,16 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Discovery y pairing son fases distintas: discovery solo encuentra equipos; pairing establece confianza por intencion explicita.
 - La licencia comercial no reemplaza pairing, certificados ni autorizacion de red.
 - Una licencia MASTER valida no crea pairing con ningun Client.
-- Las Network Identities criptograficas de Master y Client no generan confianza automatica entre equipos; solo prueban posesion de llaves durante pairing y preparan certificados/mTLS futuros.
+- Las Network Identities criptograficas de Master y Client no generan confianza automatica entre equipos; prueban posesion de llaves durante pairing y sirven como base de los certificados mTLS ligados al trust.
 - Network Identity no equivale a trust: el trust aparece solo despues de pairing y se persiste en ambos lados.
 - El challenge/response de pairing demuestra posesion de las private keys del Master y del Client sin exponerlas.
 - El pairing se revoca sin borrar Installation Identity ni Network Identity.
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
-- Todavia no existe gRPC real, mTLS real, mDNS ni comandos remotos.
-- Prompt 13 sera transporte seguro usando el trust ya establecido.
+- El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
+- Existe transporte gRPC/mTLS minimo para `ClientHello`, estado de conexion y heartbeat; todavia no existe mDNS real ni comandos remotos.
+- Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - El producto no debe convertirse en un canal de ejecucion remota arbitraria.
 - `Device != Student`; los nombres visibles no son identidad.
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.

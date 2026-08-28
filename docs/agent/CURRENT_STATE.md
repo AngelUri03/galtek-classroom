@@ -2,17 +2,19 @@
 
 ## Ultima actualizacion
 
-2026-08-27 - Prompt 12 / cierre 12.1.
+2026-08-27 - Prompt 13.
 
 ## Estado del proyecto
 
 Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity. El Client conserva su Network Identity en `GaltekClassroom.Agent.Service`; el Master Backend agrega una Network Identity propia, private key cifrada fuera de SQLite/JSON plano y trust store local. El pairing requiere intencion explicita, usa challenge/response firmado, expira challenges, bloquea replay, persiste trust en ambos lados y permite revocacion.
 
+Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12 ni agrega comandos administrativos.
+
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real, mDNS, certificados, discovery real, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
+El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario ni comandos remotos.
 
 ## Implementado
 
@@ -64,6 +66,21 @@ El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real,
 - Revocacion sin borrar Installation Identity ni Network Identity.
 - `REVOKED` y no emparejado fallan cerrado con `MASTER_NOT_PAIRED`.
 - Soporte conceptual para multiples Clients por Master y multiples Masters por Client.
+- Protobuf versionado en `protocol/network/v1/galtek-classroom-network-v1.proto`.
+- gRPC Java/.NET generado desde el contrato compartido.
+- Servicio Master `NetworkConnection.Connect` para `ClientHello`, `ConnectionStatus`, `Heartbeat` y `HeartbeatAck`.
+- Conexion persistente saliente iniciada por el Client; no depende de puertos entrantes en cada PC Client.
+- TLS/mTLS obligatorio, sin fallback plaintext.
+- Certificados self-signed de corta vida emitidos desde Network Identity y validados por fingerprint `SubjectPublicKeyInfo` ya persistido en trust.
+- Sin CA global que confie automaticamente en cualquier instalacion.
+- El Master valida certificados de Client contra `paired-clients.json`, exige `PAIRED` y bloquea `REVOKED`.
+- El Client valida el certificado del Master contra `authorized-masters.json`, exige `PAIRED` y bloquea `REVOKED`.
+- `ClientHello` transporta ids/fingerprints/public SPKI necesarios, nunca secretos.
+- `ClientConnectionRegistry` mantiene estado real de Devices conectados como `CONNECTING`, `ONLINE` u `OFFLINE`.
+- Heartbeat del Client cada 15 segundos por default; timeout Master default 45 segundos.
+- Reconexión del Client con backoff `2s`, `5s`, `10s`, `30s`.
+- Servidor gRPC del Master configurable con `galtek.classroom.master.network.grpc.enabled`; por defecto no abre puerto.
+- Cliente gRPC del Agent configurable con `Galtek:Classroom:Agent:MasterConnection`.
 - `master-binding.json` separado de `installation.json`, `license.dat` y `classroom.db`.
 - Binding schema v1 con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
 - Unico binding por instalacion: cero o un SID autorizado.
@@ -81,18 +98,19 @@ El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real,
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 12.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 13.
 
 ## Pendiente inmediato
 
-- Prompt 13 debe implementar transporte seguro usando el trust ya establecido, sin redisenar pairing ni convertir discovery en autorizacion.
+- Prompt 14 debe construir registro/capabilities y framework de operaciones sobre el transporte seguro existente, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
 - Disenar posteriormente almacenamiento seguro de credenciales administradas en el Agent Service del Client.
 - Disenar posteriormente login/logoff/switch con integracion soportada por Windows, contemplando Credential Provider.
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
-- Implementar gRPC real, mTLS real, mDNS/discovery real, certificados y comandos remotos en fases posteriores.
+- Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
+- Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
 ## Cambios aceptados
@@ -133,7 +151,7 @@ El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real,
 - No implementar UI, gRPC, pairing, comandos remotos ni filesystem real en Prompt 10.
 - No implementar passwords reales, DPAPI, Credential Provider, login/logoff Windows real, cambio real de usuario ni almacenamiento de credenciales en Prompt 9.6.
 - No implementar pairing, certificados emitidos por Master, CA, mTLS real, gRPC, discovery, comandos remotos, rotacion automatica de claves ni UI en Prompt 11.
-- No redisenar ni reimplementar pairing en Prompt 13; usar el trust ya persistido.
+- No redisenar ni reimplementar pairing despues de Prompt 13; usar el trust ya persistido.
 - No guardar private key de Network Identity en JSON, logs, SQLite ni archivos planos.
 - No usar Commercial License, IP, MAC ni hostname como Network Identity, trust ni autorizacion.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para automatizar sesiones Windows.
@@ -145,6 +163,8 @@ El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real,
 - No existe todavia una llave publica real de Galtek Hub empaquetada; si falta llave publica, la licencia queda en `LICENSE_KEY_NOT_CONFIGURED` y Master no autoriza.
 - `license.dat` no se cifra localmente en esta fase.
 - `classroom.db` no tiene cifrado at-rest, backup/restore automatico ni politica de retencion/borrado seguro de PII.
+- `master-network-identity.key` y `master-network-identity.protector` son almacenamiento separado y cifrado minimo para desarrollo/local; no son hardening productivo final.
+- Los certificados TLS actuales son self-signed de corta vida emitidos en memoria desde Network Identity; falta ciclo de vida productivo de certificados y rotacion operacional.
 - La validacion productiva con Service Control Manager, Task Scheduler y CLI elevada depende de ejecutar en un entorno con permisos administrativos.
 - La creacion real de la llave CNG de Network Identity requiere el contexto del Service como `LocalSystem` o una consola elevada; una prueba manual desde shell no elevado devuelve acceso denegado.
 - No se creo una segunda cuenta Windows para prueba manual de SID distinto; ese caso queda cubierto por tests automatizados.
@@ -152,11 +172,11 @@ El producto todavia no tiene UI, comunicacion de red real, gRPC real, mTLS real,
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 110 pruebas superadas.
-- `mvn clean verify` en `master-backend`: correcto, 86 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 118 pruebas superadas.
+- `mvn clean verify` en `master-backend`: correcto, 97 pruebas superadas.
 - Parser PowerShell de `installer/windows/uninstall-agent-service.ps1`: correcto.
 - `--network-identity-status` con `GALTEK_CLASSROOM_DATA_DIR` temporal vacio: correcto, devuelve `NOT_CONFIGURED` y no crea directorio ni llave.
 
 ## Proximo paso recomendado
 
-Prompt 13: transporte seguro usando el trust ya establecido por pairing. No avanzar a UI, comandos remotos ni login/switch Windows real hasta definir ese transporte.
+Prompt 14 recomendado: construir registro/capabilities y framework de operaciones sobre el transporte gRPC/mTLS existente, sin redisenar pairing/mTLS, sin avanzar discovery/mDNS y sin comandos remotos genericos.

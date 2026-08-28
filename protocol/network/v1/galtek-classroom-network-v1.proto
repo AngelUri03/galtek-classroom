@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package galtek.classroom.network.v1;
+
+option csharp_namespace = "GaltekClassroom.Protocol.Network.V1";
+option java_multiple_files = true;
+option java_package = "com.galtek.classroom.network.v1";
+
+service NetworkConnection {
+  rpc Connect(stream ClientEnvelope) returns (stream MasterEnvelope);
+}
+
+message ClientEnvelope {
+  string protocol_version = 1;
+
+  oneof payload {
+    ClientHello client_hello = 10;
+    Heartbeat heartbeat = 11;
+  }
+}
+
+message MasterEnvelope {
+  string protocol_version = 1;
+
+  oneof payload {
+    ConnectionStatus connection_status = 10;
+    HeartbeatAck heartbeat_ack = 11;
+  }
+}
+
+message ClientHello {
+  string client_network_identity_id = 1;
+  string client_installation_id = 2;
+  string client_public_key_fingerprint = 3;
+  string client_public_key_subject_public_key_info_base64 = 4;
+  string device_id = 5;
+  string display_name = 6;
+  string hostname = 7;
+  int64 sent_at_unix_ms = 8;
+}
+
+message Heartbeat {
+  string heartbeat_id = 1;
+  int64 sent_at_unix_ms = 2;
+}
+
+message HeartbeatAck {
+  string heartbeat_id = 1;
+  string client_network_identity_id = 2;
+  int64 received_at_unix_ms = 3;
+  ConnectionState status = 4;
+}
+
+message ConnectionStatus {
+  string client_network_identity_id = 1;
+  ConnectionState status = 2;
+  string reason_code = 3;
+  string message = 4;
+  int64 server_time_unix_ms = 5;
+}
+
+enum ConnectionState {
+  CONNECTION_STATE_UNSPECIFIED = 0;
+  CONNECTION_STATE_CONNECTING = 1;
+  CONNECTION_STATE_ONLINE = 2;
+  CONNECTION_STATE_OFFLINE = 3;
+  CONNECTION_STATE_REJECTED = 4;
+}

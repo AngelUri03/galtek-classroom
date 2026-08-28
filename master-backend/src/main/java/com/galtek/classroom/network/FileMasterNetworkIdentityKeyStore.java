@@ -10,13 +10,17 @@ import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.time.Clock;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import org.bouncycastle.asn1.x509.KeyPurposeId;
 
 public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityKeyStore {
 
@@ -129,6 +133,31 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
         }
     }
 
+    @Override
+    public MasterNetworkTlsIdentityResult tlsIdentity(String keyId) {
+        if (!Files.exists(privateKeyFile) || !Files.exists(protectorFile)) {
+            return MasterNetworkTlsIdentityResult.missing();
+        }
+
+        try {
+            LoadedMasterNetworkKey loaded = loadPrivateKey(keyId);
+            var certificate = NetworkIdentityCertificateFactory.createSelfSigned(
+                    loaded.publicKey(),
+                    loaded.privateKey(),
+                    "Galtek Classroom Master " + loaded.publicKeyFingerprint(),
+                    Clock.systemUTC(),
+                    secureRandom,
+                    KeyPurposeId.id_kp_serverAuth);
+            return MasterNetworkTlsIdentityResult.ready(
+                    loaded.publicKeyFingerprint(),
+                    certificate,
+                    loaded.privateKey());
+        } catch (IOException | GeneralSecurityException | IllegalArgumentException exception) {
+            return MasterNetworkTlsIdentityResult.invalid(
+                    "Master Network Identity TLS material could not be read: " + exception.getMessage());
+        }
+    }
+
     private LoadedMasterNetworkKey loadPrivateKey(String expectedKeyId)
             throws IOException, GeneralSecurityException {
         byte[] protector = Files.readAllBytes(protectorFile);
@@ -155,13 +184,17 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
             }
 
             byte[] privateKeyBytes = decryptPrivateKey(keyId, protector, iv, ciphertext);
-            PrivateKey privateKey = KeyFactory.getInstance("RSA")
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory
                     .generatePrivate(new PKCS8EncodedKeySpec(privateKeyBytes));
+            PublicKey decodedPublicKey = keyFactory
+                    .generatePublic(new X509EncodedKeySpec(publicKey));
             String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
 
             return new LoadedMasterNetworkKey(
                     NetworkIdentityCrypto.fingerprint(publicKey),
                     publicKeyBase64,
+                    decodedPublicKey,
                     privateKey);
         }
     }
@@ -221,6 +254,7 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
     private record LoadedMasterNetworkKey(
             String publicKeyFingerprint,
             String subjectPublicKeyInfoBase64,
+            PublicKey publicKey,
             PrivateKey privateKey) {
     }
 }

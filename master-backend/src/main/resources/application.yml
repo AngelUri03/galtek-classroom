@@ -14,6 +14,12 @@ galtek:
         busy-timeout-ms: 5000
         maximum-pool-size: 4
         quick-check-on-startup: true
+      network:
+        grpc:
+          enabled: false
+          port: 9443
+          heartbeat-timeout: 45s
+          max-inbound-message-size: 65536
 
 debug: false
 

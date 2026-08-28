@@ -4,6 +4,7 @@ using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Network;
+using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Shared;
 
@@ -22,6 +23,7 @@ builder.Services.AddCommercialLicenseServices();
 builder.Services.AddMasterAuthorizationServices();
 builder.Services.AddNetworkIdentityServices();
 builder.Services.AddClientPairingServices();
+builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
 builder.Services.AddLocalIpcServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
@@ -134,6 +136,7 @@ builder.Services.AddWindowsService(options =>
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
 builder.Services.AddHostedService<LocalIpcServer>();
+builder.Services.AddHostedService<MasterConnectionHostedService>();
 
 var host = builder.Build();
 await host.RunAsync();

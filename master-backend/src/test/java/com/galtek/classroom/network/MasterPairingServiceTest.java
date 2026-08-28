@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.bouncycastle.asn1.x509.KeyPurposeId;
 
 class MasterPairingServiceTest {
 
@@ -301,6 +302,26 @@ class MasterPairingServiceTest {
             }
 
             return MasterNetworkSignatureResult.signed(MasterPairingServiceTest.sign(keyPair.getPrivate(), data));
+        }
+
+        @Override
+        public MasterNetworkTlsIdentityResult tlsIdentity(String keyId) {
+            KeyPair keyPair = keys.get(keyId);
+            if (keyPair == null) {
+                return MasterNetworkTlsIdentityResult.missing();
+            }
+
+            byte[] publicKey = keyPair.getPublic().getEncoded();
+            return MasterNetworkTlsIdentityResult.ready(
+                    NetworkIdentityCrypto.fingerprint(publicKey),
+                    NetworkIdentityCertificateFactory.createSelfSigned(
+                            keyPair.getPublic(),
+                            keyPair.getPrivate(),
+                            "test-master",
+                            Clock.fixed(FIXED_NOW, ZoneId.of("UTC")),
+                            new SecureRandom(),
+                            KeyPurposeId.id_kp_serverAuth),
+                    keyPair.getPrivate());
         }
     }
 

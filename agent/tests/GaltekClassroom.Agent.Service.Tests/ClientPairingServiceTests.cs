@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.Pairing;
@@ -424,6 +425,39 @@ public sealed class ClientPairingServiceTests : IDisposable
             var signature = key.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
             return NetworkIdentitySignatureResult.Success(Convert.ToBase64String(signature));
+        }
+
+        public NetworkIdentityCertificateResult CreateSelfSignedCertificate(
+            string keyName,
+            string subjectName,
+            DateTimeOffset notBefore,
+            DateTimeOffset notAfter)
+        {
+            if (!_keys.TryGetValue(keyName, out var key))
+            {
+                return NetworkIdentityCertificateResult.Missing(keyName);
+            }
+
+            var request = new CertificateRequest(
+                $"CN={subjectName}",
+                key,
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1);
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature,
+                critical: true));
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection
+                {
+                    new Oid("1.3.6.1.5.5.7.3.1"),
+                    new Oid("1.3.6.1.5.5.7.3.2")
+                },
+                critical: false));
+
+            return NetworkIdentityCertificateResult.Success(
+                Fingerprint(key),
+                request.CreateSelfSigned(notBefore, notAfter));
         }
 
         public NetworkIdentityKeyDeleteResult Delete(string keyName)

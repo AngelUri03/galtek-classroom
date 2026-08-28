@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using GaltekClassroom.Agent.Service.Identity;
@@ -331,6 +332,17 @@ public sealed class NetworkIdentityTests : IDisposable
                 ? NetworkIdentitySignatureResult.Success(
                     Convert.ToBase64String(SHA256.HashData(data)))
                 : NetworkIdentitySignatureResult.Missing(keyName);
+        }
+
+        public NetworkIdentityCertificateResult CreateSelfSignedCertificate(
+            string keyName,
+            string subjectName,
+            DateTimeOffset notBefore,
+            DateTimeOffset notAfter)
+        {
+            return _publicFingerprints.ContainsKey(keyName)
+                ? NetworkIdentityCertificateResult.Invalid("Fake key store does not create certificates.")
+                : NetworkIdentityCertificateResult.Missing(keyName);
         }
 
         public NetworkIdentityKeyDeleteResult Delete(string keyName)
