@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-30 - Prompt 14.5B.
+2026-08-30 - Prompt 14.5C.
 
 ## Estado del proyecto
 
@@ -19,6 +19,8 @@ Prompt 14.4 implementa resiliencia ante power loss, startup rapido y boot storm 
 Prompt 14.5A optimiza de forma concreta el runtime idle del Agent Service sin cambiar arquitectura ni seguridad. El Service conserva heartbeat de 15 segundos, trust fail-closed, startup phases y revalidacion de trust para `OperationRequest`; reduce allocations sanas de IPC/estado, cachea datos estaticos de proceso y acota el cache de deduplicacion de operaciones con limpieza lazy/event-driven, sin agregar timers ni polling nuevo.
 
 Prompt 14.5B optimiza de forma concreta el runtime idle del Session Agent sin cambiar su arquitectura ni agregar funciones interactivas. El supervisor elimina el `PING` redundante antes de `GET_DEVICE_STATUS` al recuperar conexion, conserva polling sano por `PING` cada 15 segundos, usa resultados IPC no excepcionales para el flujo normal offline/retry y evita crear opciones JSON de consola durante startup background.
+
+Prompt 14.5C optimiza de forma concreta el runtime idle del Master Backend sin cambiar arquitectura, seguridad ni comportamiento funcional. El Master conserva SQLite/WAL/`synchronous=NORMAL`, Hikari pequeno, Flyway, `quick_check`, timeout heartbeat de 45 segundos, TLS/mTLS, trust fail-closed y `MasterAccessGuard`. Se reducen timers, threads, queries y allocations sanas en gRPC, presence snapshots, `ClientHello` registrado e IPC local.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
@@ -78,6 +80,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
+- El transporte IPC local del Master usa virtual threads por intercambio en vez de un cached pool de threads de plataforma.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
 - Agent Service como autoridad local de Installation Identity, Commercial License y Master Windows Binding.
 - Agent Service como autoridad local de Network Identity criptografica del Client.
@@ -114,6 +117,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `ClientHello` transporta ids/fingerprints/public SPKI necesarios, version de Agent y capabilities tipadas, nunca secretos.
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
+- `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
 - Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler, sin ejecutar acciones Windows.
 - `RemoteOperationDispatcher` rechaza ejecucion de handlers si Commercial License no esta activa, preservando el bloqueo comercial tras diferir la validacion completa.
@@ -127,6 +131,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no `INFO`; autorizacion Master aceptada tambien queda en `DEBUG`; retries repetidos de gRPC bajan a `DEBUG` tras el primer warning.
 - Reconexión del Client con backoff `2s`, `5s`, `10s`, `30s`.
 - Servidor gRPC del Master configurable con `galtek.classroom.master.network.grpc.enabled`; por defecto no abre puerto.
+- Beans runtime de gRPC del Master se crean solo cuando `galtek.classroom.master.network.grpc.enabled=true`.
+- `MasterNetworkHeartbeatMonitor` queda activo solo con gRPC habilitado y no crea scheduler hasta que existe una conexion activa; pausa el scheduler cuando todos los Clients estan offline.
+- Heartbeat gRPC del Master conserva revalidacion de trust para detectar revocacion en streams abiertos, pero evita reparsear/rehashear la public key del Client tras un `ClientHello` ya aceptado.
+- `PersistentNetworkClientConnectionService` registra `ClientHello` de Devices ya registrados con un solo lookup inicial y sin reread posterior del mismo binding.
 - Cliente gRPC del Agent configurable con `Galtek:Classroom:Agent:MasterConnection`.
 - `master-binding.json` separado de `installation.json`, `license.dat` y `classroom.db`.
 - Binding schema v1 con `installationId`, `windowsSid`, `accountDisplayName` y `boundAtUtc`.
@@ -155,11 +163,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 14.5B.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 14.5C.
 
 ## Pendiente inmediato
 
-- No queda pendiente inmediato dentro del alcance de Prompt 14.5B.
+- No queda pendiente inmediato dentro del alcance de Prompt 14.5C.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
@@ -172,7 +180,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar reconciliacion real de operaciones remotas inciertas y workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
-- Prompt 14.5A y 14.5B quedan cerrados; Prompt 14.5C/D siguen pendientes y no fueron implementados.
+- Prompt 14.5A, 14.5B y 14.5C quedan cerrados; Prompt 14.5D sigue pendiente y no fue implementado.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
 ## Cambios aceptados
@@ -279,10 +287,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
-- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Session.Tests\GaltekClassroom.Agent.Session.Tests.csproj` en `agent`: correcto, 15 pruebas superadas.
-- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- No se ejecuto Maven, suite Java ni suite Service en Prompt 14.5B.
+- `mvn '-Dtest=MasterNetworkHeartbeatMonitorTest,MasterNetworkTransportTest,MasterPairingServiceTest,NetworkClientControllerTest,MasterAdminControllerTest,WindowsNamedPipeLocalAgentClientTest' test` en `master-backend`: correcto, 44 pruebas superadas.
+- `mvn test` en `master-backend`: correcto, 136 pruebas superadas.
+- No se ejecuto .NET en Prompt 14.5C.
 
 ## Proximo paso recomendado
 
-Elegir explicitamente el siguiente alcance. Prompt 14.5A y 14.5B quedan cerrados. Prompt 14.5C/D, discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real, scheduler/backpressure real, diagnostico on-demand productivo, reconciliacion real de operaciones inciertas y handlers reales de operaciones remotas siguen para fases posteriores.
+Elegir explicitamente el siguiente alcance. Prompt 14.5A, 14.5B y 14.5C quedan cerrados. Prompt 14.5D, discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real, scheduler/backpressure real, diagnostico on-demand productivo, reconciliacion real de operaciones inciertas y handlers reales de operaciones remotas siguen para fases posteriores.

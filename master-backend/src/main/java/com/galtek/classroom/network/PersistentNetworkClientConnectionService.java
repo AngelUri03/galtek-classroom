@@ -37,19 +37,37 @@ public class PersistentNetworkClientConnectionService implements NetworkClientCo
                 .map(binding -> {
                     Set<DeviceCapability> capabilities = ClientCapabilityMapper.fromHello(hello);
                     OffsetDateTime connectedAtUtc = nowUtc();
+                    String agentVersion = emptyToNull(hello.getAgentVersion());
                     bindingRepository.recordConnection(
                             descriptor.clientNetworkIdentityId(),
-                            hello.getAgentVersion(),
+                            agentVersion,
                             capabilities,
                             connectedAtUtc,
                             connectedAtUtc);
-                    return bindingRepository.findCurrentByNetworkIdentityId(descriptor.clientNetworkIdentityId())
-                            .orElse(binding);
+                    return new RegisteredNetworkDevice(
+                            binding.bindingId(),
+                            binding.deviceId(),
+                            binding.classroomId(),
+                            binding.installationId(),
+                            binding.networkIdentityId(),
+                            binding.publicKeyFingerprint(),
+                            binding.displayName(),
+                            binding.hostname(),
+                            agentVersion,
+                            capabilities,
+                            binding.registeredAtUtc(),
+                            connectedAtUtc,
+                            binding.active(),
+                            binding.version() + 1);
                 })
                 .orElse(null);
     }
 
     private OffsetDateTime nowUtc() {
         return OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

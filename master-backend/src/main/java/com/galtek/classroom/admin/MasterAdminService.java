@@ -498,9 +498,12 @@ public class MasterAdminService {
         List<AssignmentResponse> currentAssignments = repository.findAssignmentsByClassroom(classroomId, true);
         List<ApplicationResponse> applications = repository.findClassroomApplications(classroomId);
 
-        int assignedDeviceCount = (int) devices.stream()
-                .filter(device -> device.assignedStudentId() != null)
-                .count();
+        int assignedDeviceCount = 0;
+        for (DeviceResponse device : devices) {
+            if (device.assignedStudentId() != null) {
+                assignedDeviceCount++;
+            }
+        }
         SnapshotSummary summary = new SnapshotSummary(
                 groups.size(),
                 students.size(),
@@ -764,48 +767,48 @@ public class MasterAdminService {
     }
 
     private List<DeviceResponse> applyLivePresence(List<DeviceResponse> devices) {
-        List<String> deviceIds = devices.stream()
-                .map(DeviceResponse::deviceId)
-                .toList();
-        Map<String, RegisteredNetworkDevice> bindings = deviceNetworkBindingRepository.findCurrentByDeviceIds(deviceIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        RegisteredNetworkDevice::deviceId,
-                        Function.identity(),
-                        (left, right) -> left));
-        Map<String, ClientConnectionSnapshot> liveByDevice = connectionRegistry.snapshots().stream()
-                .filter(snapshot -> snapshot.deviceId() != null)
-                .collect(Collectors.toMap(
-                        ClientConnectionSnapshot::deviceId,
-                        Function.identity(),
-                        (left, right) -> left));
+        if (devices.isEmpty()) {
+            return devices;
+        }
 
-        return devices.stream()
-                .map(device -> {
-                    RegisteredNetworkDevice binding = bindings.get(device.deviceId());
-                    if (binding == null) {
-                        return device;
-                    }
+        List<String> deviceIds = new ArrayList<>(devices.size());
+        for (DeviceResponse device : devices) {
+            deviceIds.add(device.deviceId());
+        }
 
-                    ClientConnectionSnapshot snapshot = liveByDevice.get(device.deviceId());
-                    Set<String> capabilities = snapshot != null && !snapshot.capabilities().isEmpty()
-                            ? capabilityNames(snapshot.capabilities())
-                            : capabilityNames(binding.capabilities());
-                    return new DeviceResponse(
-                            device.deviceId(),
-                            device.classroomId(),
-                            device.installationId(),
-                            device.displayName(),
-                            device.hostname(),
-                            snapshot == null ? "OFFLINE" : snapshot.status().name(),
-                            snapshot == null ? fallbackLastSeen(device, binding) : lastSeen(snapshot),
-                            capabilities,
-                            device.assignedStudentId(),
-                            device.assignedStudentDisplayName(),
-                            device.active(),
-                            device.version());
-                })
-                .toList();
+        Map<String, RegisteredNetworkDevice> bindings = new HashMap<>();
+        for (RegisteredNetworkDevice binding : deviceNetworkBindingRepository.findCurrentByDeviceIds(deviceIds)) {
+            bindings.putIfAbsent(binding.deviceId(), binding);
+        }
+        Map<String, ClientConnectionSnapshot> liveByDevice = connectionRegistry.snapshotsByDeviceId();
+
+        List<DeviceResponse> responses = new ArrayList<>(devices.size());
+        for (DeviceResponse device : devices) {
+            RegisteredNetworkDevice binding = bindings.get(device.deviceId());
+            if (binding == null) {
+                responses.add(device);
+                continue;
+            }
+
+            ClientConnectionSnapshot snapshot = liveByDevice.get(device.deviceId());
+            Set<String> capabilities = snapshot != null && !snapshot.capabilities().isEmpty()
+                    ? capabilityNames(snapshot.capabilities())
+                    : capabilityNames(binding.capabilities());
+            responses.add(new DeviceResponse(
+                    device.deviceId(),
+                    device.classroomId(),
+                    device.installationId(),
+                    device.displayName(),
+                    device.hostname(),
+                    snapshot == null ? "OFFLINE" : snapshot.status().name(),
+                    snapshot == null ? fallbackLastSeen(device, binding) : lastSeen(snapshot),
+                    capabilities,
+                    device.assignedStudentId(),
+                    device.assignedStudentDisplayName(),
+                    device.active(),
+                    device.version()));
+        }
+        return responses;
     }
 
     private boolean batchRecoverableStorageError(MasterStorageException exception) {
@@ -817,9 +820,11 @@ public class MasterAdminService {
         if (capabilities == null || capabilities.isEmpty()) {
             return Set.of();
         }
-        return capabilities.stream()
-                .map(Enum::name)
-                .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> names = new TreeSet<>();
+        for (com.galtek.classroom.device.DeviceCapability capability : capabilities) {
+            names.add(capability.name());
+        }
+        return names;
     }
 
     private OffsetDateTime fallbackLastSeen(DeviceResponse device, RegisteredNetworkDevice binding) {

@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,7 +27,8 @@ public class WindowsNamedPipeTransport implements LocalIpcTransport {
     private final String pipePath;
 
     public WindowsNamedPipeTransport() {
-        this(LocalIpcProtocol.PIPE_PATH, Executors.newCachedThreadPool(new DaemonThreadFactory()));
+        this(LocalIpcProtocol.PIPE_PATH, Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("galtek-local-agent-ipc-", 0).factory()));
     }
 
     WindowsNamedPipeTransport(String pipePath, ExecutorService executorService) {
@@ -108,13 +108,4 @@ public class WindowsNamedPipeTransport implements LocalIpcTransport {
         }
     }
 
-    private static final class DaemonThreadFactory implements ThreadFactory {
-
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "galtek-local-agent-ipc");
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
 }

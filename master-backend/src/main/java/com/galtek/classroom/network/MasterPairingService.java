@@ -206,6 +206,28 @@ public class MasterPairingService {
                     "Client public key fingerprint does not match its public key.");
         }
 
+        return storedClientAuthorization(client);
+    }
+
+    MasterClientAuthorization isAuthenticatedClientAuthorized(ClientNetworkIdentityDescriptor client) {
+        if (!hasDescriptorIdentity(client)) {
+            return MasterClientAuthorization.blocked(
+                    PairingStatus.UNPAIRED,
+                    ErrorCode.MASTER_NOT_PAIRED,
+                    "Client Network Identity descriptor is incomplete.");
+        }
+
+        return storedClientAuthorization(client);
+    }
+
+    private MasterClientAuthorization storedClientAuthorization(ClientNetworkIdentityDescriptor client) {
+        if (client == null) {
+            return MasterClientAuthorization.blocked(
+                    PairingStatus.UNPAIRED,
+                    ErrorCode.MASTER_NOT_PAIRED,
+                    "Client Network Identity descriptor is required.");
+        }
+
         MasterNetworkIdentityResolution identity = masterIdentityResolver.resolve();
         if (!identity.ready()) {
             return MasterClientAuthorization.blocked(
@@ -499,12 +521,7 @@ public class MasterPairingService {
     }
 
     private boolean isValidClientDescriptor(ClientNetworkIdentityDescriptor client) {
-        if (client == null
-                || client.clientNetworkIdentityId() == null
-                || client.clientInstallationId() == null
-                || !NetworkIdentityCrypto.isValidSha256Hex(client.publicKeyFingerprint())
-                || client.subjectPublicKeyInfoBase64() == null
-                || client.subjectPublicKeyInfoBase64().isBlank()) {
+        if (!hasDescriptorIdentity(client)) {
             return false;
         }
 
@@ -515,6 +532,15 @@ public class MasterPairingService {
         } catch (Exception exception) {
             return false;
         }
+    }
+
+    private boolean hasDescriptorIdentity(ClientNetworkIdentityDescriptor client) {
+        return client != null
+                && client.clientNetworkIdentityId() != null
+                && client.clientInstallationId() != null
+                && NetworkIdentityCrypto.isValidSha256Hex(client.publicKeyFingerprint())
+                && client.subjectPublicKeyInfoBase64() != null
+                && !client.subjectPublicKeyInfoBase64().isBlank();
     }
 
     private boolean matchesMaster(

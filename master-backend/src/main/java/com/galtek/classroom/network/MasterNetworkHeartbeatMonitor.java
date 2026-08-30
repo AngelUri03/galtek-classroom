@@ -20,8 +20,17 @@ public class MasterNetworkHeartbeatMonitor implements SmartLifecycle {
     }
 
     @Override
-    public void start() {
+    public synchronized void start() {
         if (running) {
+            return;
+        }
+
+        running = true;
+        ensureScanning();
+    }
+
+    public synchronized void ensureScanning() {
+        if (!running || isScanning() || !connectionRegistry.hasActiveConnections()) {
             return;
         }
 
@@ -29,23 +38,42 @@ public class MasterNetworkHeartbeatMonitor implements SmartLifecycle {
         executor = Executors.newSingleThreadScheduledExecutor(task ->
                 Thread.ofVirtual().name("galtek-master-network-heartbeat-monitor").unstarted(task));
         executor.scheduleWithFixedDelay(
-                () -> connectionRegistry.expireTimedOut(properties.getHeartbeatTimeout()),
+                this::expireAndPauseIfIdle,
                 periodSeconds,
                 periodSeconds,
                 TimeUnit.SECONDS);
-        running = true;
     }
 
     @Override
-    public void stop() {
-        if (executor != null) {
-            executor.shutdownNow();
-        }
+    public synchronized void stop() {
+        shutdownExecutor();
         running = false;
     }
 
     @Override
     public boolean isRunning() {
         return running;
+    }
+
+    private void expireAndPauseIfIdle() {
+        connectionRegistry.expireTimedOut(properties.getHeartbeatTimeout());
+        if (!connectionRegistry.hasActiveConnections()) {
+            synchronized (this) {
+                if (!connectionRegistry.hasActiveConnections()) {
+                    shutdownExecutor();
+                }
+            }
+        }
+    }
+
+    private boolean isScanning() {
+        return executor != null && !executor.isShutdown();
+    }
+
+    private void shutdownExecutor() {
+        if (executor != null) {
+            executor.shutdownNow();
+            executor = null;
+        }
     }
 }

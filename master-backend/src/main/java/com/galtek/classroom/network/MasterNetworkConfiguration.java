@@ -54,22 +54,43 @@ public class MasterNetworkConfiguration {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            prefix = "galtek.classroom.master.network.grpc",
+            name = "enabled",
+            havingValue = "true")
     MasterNetworkConnectionAuthenticator masterNetworkConnectionAuthenticator(
             MasterPairingService pairingService) {
         return new MasterNetworkConnectionAuthenticator(pairingService);
     }
 
     @Bean
+    @ConditionalOnProperty(
+            prefix = "galtek.classroom.master.network.grpc",
+            name = "enabled",
+            havingValue = "true")
+    MasterNetworkHeartbeatMonitor masterNetworkHeartbeatMonitor(
+            ClientConnectionRegistry connectionRegistry,
+            MasterNetworkGrpcProperties properties) {
+        return new MasterNetworkHeartbeatMonitor(connectionRegistry, properties);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "galtek.classroom.master.network.grpc",
+            name = "enabled",
+            havingValue = "true")
     MasterNetworkGrpcService masterNetworkGrpcService(
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
-            Clock clock) {
+            Clock clock,
+            MasterNetworkHeartbeatMonitor heartbeatMonitor) {
         return new MasterNetworkGrpcService(
                 authenticator,
                 connectionRegistry,
                 networkClientConnectionService,
-                clock);
+                clock,
+                heartbeatMonitor::ensureScanning);
     }
 
     @Bean
@@ -84,16 +105,5 @@ public class MasterNetworkConfiguration {
             MasterTrustStore trustStore,
             MasterNetworkGrpcService grpcService) {
         return new MasterNetworkGrpcServer(properties, identityResolver, keyStore, trustStore, grpcService);
-    }
-
-    @Bean
-    @ConditionalOnProperty(
-            prefix = "galtek.classroom.master.network.grpc",
-            name = "enabled",
-            havingValue = "true")
-    MasterNetworkHeartbeatMonitor masterNetworkHeartbeatMonitor(
-            ClientConnectionRegistry connectionRegistry,
-            MasterNetworkGrpcProperties properties) {
-        return new MasterNetworkHeartbeatMonitor(connectionRegistry, properties);
     }
 }

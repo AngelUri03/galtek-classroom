@@ -21,13 +21,12 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -72,16 +71,12 @@ public class NetworkClientAdminService {
     public List<NetworkClientResponse> clients() {
         requireAuthorizedAndStorage();
 
-        Map<UUID, RegisteredNetworkDevice> bindingsByIdentity = bindingRepository.findAllCurrent().stream()
-                .collect(Collectors.toMap(
-                        RegisteredNetworkDevice::networkIdentityId,
-                        Function.identity(),
-                        (left, right) -> left));
-        Map<UUID, ClientConnectionSnapshot> snapshotsByIdentity = connectionRegistry.snapshots().stream()
-                .collect(Collectors.toMap(
-                        ClientConnectionSnapshot::clientNetworkIdentityId,
-                        Function.identity(),
-                        (left, right) -> left));
+        Map<UUID, RegisteredNetworkDevice> bindingsByIdentity = new HashMap<>();
+        for (RegisteredNetworkDevice binding : bindingRepository.findAllCurrent()) {
+            bindingsByIdentity.putIfAbsent(binding.networkIdentityId(), binding);
+        }
+        Map<UUID, ClientConnectionSnapshot> snapshotsByIdentity =
+                connectionRegistry.snapshotsByClientNetworkIdentityId();
 
         return pairingService.knownClients().stream()
                 .filter(client -> client.status() == PairingStatus.PAIRED
@@ -314,9 +309,11 @@ public class NetworkClientAdminService {
         if (capabilities == null || capabilities.isEmpty()) {
             return Set.of();
         }
-        return capabilities.stream()
-                .map(Enum::name)
-                .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> names = new TreeSet<>();
+        for (DeviceCapability capability : capabilities) {
+            names.add(capability.name());
+        }
+        return names;
     }
 
     private OffsetDateTime nowUtc() {

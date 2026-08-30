@@ -3,11 +3,12 @@ package com.galtek.classroom.network;
 import com.galtek.classroom.device.DeviceStatus;
 import com.galtek.classroom.device.DeviceCapability;
 import com.galtek.classroom.network.v1.ClientHello;
-import com.galtek.classroom.network.v1.Heartbeat;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -62,8 +63,7 @@ public class ClientConnectionRegistry {
 
     public ClientConnectionSnapshot markOnline(
             UUID clientNetworkIdentityId,
-            String connectionId,
-            Heartbeat heartbeat) {
+            String connectionId) {
         return connections.compute(clientNetworkIdentityId, (id, current) -> {
             Instant now = clock.instant();
             if (current == null) {
@@ -103,16 +103,13 @@ public class ClientConnectionRegistry {
         });
     }
 
-    public ClientConnectionSnapshot markOnline(UUID clientNetworkIdentityId, String connectionId) {
-        return markOnline(
-                clientNetworkIdentityId,
-                connectionId,
-                Heartbeat.newBuilder().setHeartbeatId("").build());
-    }
-
     public void markOffline(UUID clientNetworkIdentityId, String connectionId, String reasonCode) {
+        Instant disconnectedAtUtc = clock.instant();
         connections.computeIfPresent(clientNetworkIdentityId, (id, current) -> {
             if (connectionId != null && !connectionId.equals(current.connectionId())) {
+                return current;
+            }
+            if (current.status() == DeviceStatus.OFFLINE) {
                 return current;
             }
 
@@ -129,19 +126,20 @@ public class ClientConnectionRegistry {
                     current.capabilities(),
                     current.connectedAtUtc(),
                     current.lastHeartbeatUtc(),
-                    clock.instant(),
+                    disconnectedAtUtc,
                     current.connectionId(),
                     reasonCode);
         });
     }
 
     public int expireTimedOut(Duration heartbeatTimeout) {
-        Instant cutoff = clock.instant().minus(heartbeatTimeout);
+        Instant now = clock.instant();
+        Instant cutoff = now.minus(heartbeatTimeout);
         int expired = 0;
         for (var entry : connections.entrySet()) {
             UUID id = entry.getKey();
             ClientConnectionSnapshot current = entry.getValue();
-            if (current == null || current.status() == DeviceStatus.OFFLINE) {
+            if (current.status() == DeviceStatus.OFFLINE) {
                 continue;
             }
             Instant lastSignal = current.lastHeartbeatUtc() == null
@@ -161,9 +159,9 @@ public class ClientConnectionRegistry {
                         current.capabilities(),
                         current.connectedAtUtc(),
                         current.lastHeartbeatUtc(),
-                        clock.instant(),
+                        now,
                         current.connectionId(),
-                "HEARTBEAT_TIMEOUT");
+                        "HEARTBEAT_TIMEOUT");
                 if (connections.replace(id, current, offline)) {
                     expired++;
                 }
@@ -177,9 +175,12 @@ public class ClientConnectionRegistry {
     }
 
     public Optional<ClientConnectionSnapshot> findByDeviceId(String deviceId) {
-        return connections.values().stream()
-                .filter(snapshot -> snapshot.deviceId() != null && snapshot.deviceId().equals(deviceId))
-                .findFirst();
+        for (ClientConnectionSnapshot snapshot : connections.values()) {
+            if (snapshot.deviceId() != null && snapshot.deviceId().equals(deviceId)) {
+                return Optional.of(snapshot);
+            }
+        }
+        return Optional.empty();
     }
 
     public void attachRegistration(RegisteredNetworkDevice registeredDevice) {
@@ -206,7 +207,40 @@ public class ClientConnectionRegistry {
     }
 
     public List<ClientConnectionSnapshot> snapshots() {
+        if (connections.isEmpty()) {
+            return List.of();
+        }
         return List.copyOf(connections.values());
+    }
+
+    public Map<UUID, ClientConnectionSnapshot> snapshotsByClientNetworkIdentityId() {
+        if (connections.isEmpty()) {
+            return Map.of();
+        }
+        return Map.copyOf(connections);
+    }
+
+    public Map<String, ClientConnectionSnapshot> snapshotsByDeviceId() {
+        if (connections.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, ClientConnectionSnapshot> snapshots = new HashMap<>();
+        for (ClientConnectionSnapshot snapshot : connections.values()) {
+            if (snapshot.deviceId() != null) {
+                snapshots.putIfAbsent(snapshot.deviceId(), snapshot);
+            }
+        }
+        return snapshots.isEmpty() ? Map.of() : Map.copyOf(snapshots);
+    }
+
+    public boolean hasActiveConnections() {
+        for (ClientConnectionSnapshot snapshot : connections.values()) {
+            if (snapshot.status() != DeviceStatus.OFFLINE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String displayNameFromHello(ClientHello hello, UUID fallback) {

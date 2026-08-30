@@ -1197,3 +1197,36 @@
 ### Commit sugerido
 
 `perf(session): optimize idle supervisor`
+
+## 2026-08-30 - Prompt 14.5C
+
+### Realizado
+
+- Optimizado el runtime idle del Master Backend sin cambiar arquitectura, seguridad, SQLite, Hikari, Flyway, `quick_check`, timeout heartbeat de 45 segundos, TLS/mTLS ni `MasterAccessGuard`.
+- `MasterNetworkHeartbeatMonitor` ya no crea scheduler al arrancar si no hay conexiones activas; el scheduler se activa con el primer Client activo y se pausa cuando todos quedan offline.
+- Los beans runtime de gRPC del Master (`MasterNetworkConnectionAuthenticator`, `MasterNetworkGrpcService`, `MasterNetworkHeartbeatMonitor`, `MasterNetworkGrpcServer`) se crean solo cuando `galtek.classroom.master.network.grpc.enabled=true`.
+- `ClientConnectionRegistry` evita el `Heartbeat` sintetico en `ClientHello`, usa una sola marca de tiempo por pasada de timeout, evita recrear snapshots offline ya offline y expone mapas snapshot por identidad/device sin entregar estructuras mutables internas.
+- Heartbeat gRPC conserva revalidacion de trust para detectar revocacion durante streams abiertos, pero evita reparsear/rehashear la public key del Client tras un `ClientHello` ya aceptado.
+- `PersistentNetworkClientConnectionService` elimina el reread del binding despues de registrar `ClientHello` de un Device ya registrado.
+- Snapshot de aula y listado de Clients usan mapas directos de presencia viva y loops simples en lugar de listas/streams intermedios en el overlay.
+- `WindowsNamedPipeTransport` reemplaza el cached pool de threads de plataforma por virtual threads por intercambio IPC.
+- Agregada prueba dirigida para asegurar que el monitor no agenda scheduler sin conexiones activas.
+
+### Cambios descartados
+
+- No se implemento Prompt 14.5D.
+- No se modifico Agent Service, Session Agent, Protobuf, TLS/mTLS, pairing/trust ni autorizacion.
+- No se aumento `maximum-pool-size`, heap JVM ni se agregaron flags GC, profiling framework, dependencias, telemetria continua o Netty tuning especulativo.
+- No se eliminaron WAL, `synchronous=NORMAL`, `busy_timeout`, Flyway ni `quick_check`.
+- No se implementaron UI, filesystem, mDNS/discovery, transferencia, captura/proyeccion, scheduler/backpressure general ni comandos remotos.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn '-Dtest=MasterNetworkHeartbeatMonitorTest,MasterNetworkTransportTest,MasterPairingServiceTest,NetworkClientControllerTest,MasterAdminControllerTest,WindowsNamedPipeLocalAgentClientTest' test` en `master-backend`: correcto, 44 pruebas superadas.
+- `mvn test` en `master-backend`: correcto, 136 pruebas superadas.
+- No se ejecuto .NET.
+
+### Commit sugerido
+
+`perf(master): optimize backend idle runtime`

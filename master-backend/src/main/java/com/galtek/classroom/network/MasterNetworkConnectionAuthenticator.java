@@ -47,7 +47,7 @@ public class MasterNetworkConnectionAuthenticator {
                     "mTLS client certificate does not match Client Network Identity.");
         }
 
-        MasterClientAuthorization authorization = pairingService.isClientAuthorized(descriptor);
+        MasterClientAuthorization authorization = pairingService.isAuthenticatedClientAuthorized(descriptor);
         if (!authorization.authorized()) {
             return MasterNetworkConnectionAuthorization.rejected(
                     authorization.status(),
@@ -88,7 +88,7 @@ public class MasterNetworkConnectionAuthenticator {
                     "mTLS client certificate does not match Client Network Identity.");
         }
 
-        MasterClientAuthorization authorization = pairingService.isClientAuthorized(descriptor);
+        MasterClientAuthorization authorization = pairingService.isAuthenticatedClientAuthorized(descriptor);
         if (!authorization.authorized()) {
             return MasterNetworkConnectionAuthorization.rejected(
                     authorization.status(),

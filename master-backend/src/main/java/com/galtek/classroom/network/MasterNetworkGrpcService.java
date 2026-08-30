@@ -18,16 +18,29 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
     private final ClientConnectionRegistry connectionRegistry;
     private final NetworkClientConnectionService networkClientConnectionService;
     private final Clock clock;
+    private final Runnable heartbeatMonitorActivation;
 
     public MasterNetworkGrpcService(
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
             Clock clock) {
+        this(authenticator, connectionRegistry, networkClientConnectionService, clock, () -> {
+        });
+    }
+
+    public MasterNetworkGrpcService(
+            MasterNetworkConnectionAuthenticator authenticator,
+            ClientConnectionRegistry connectionRegistry,
+            NetworkClientConnectionService networkClientConnectionService,
+            Clock clock,
+            Runnable heartbeatMonitorActivation) {
         this.authenticator = authenticator;
         this.connectionRegistry = connectionRegistry;
         this.networkClientConnectionService = networkClientConnectionService;
         this.clock = clock;
+        this.heartbeatMonitorActivation = heartbeatMonitorActivation == null ? () -> {
+        } : heartbeatMonitorActivation;
     }
 
     @Override
@@ -114,6 +127,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         "",
                         "");
                 connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
+                heartbeatMonitorActivation.run();
                 accepted = true;
                 sendStatus(
                         clientNetworkIdentityId.toString(),
@@ -143,7 +157,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                     return;
                 }
 
-                connectionRegistry.markOnline(clientNetworkIdentityId, connectionId, heartbeat);
+                connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
                 responseObserver.onNext(MasterEnvelope.newBuilder()
                         .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
                         .setHeartbeatAck(HeartbeatAck.newBuilder()
