@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -84,6 +85,10 @@ public sealed record LocalIpcPingPayload
 
 public sealed record LocalDeviceStatus
 {
+    private static readonly IReadOnlyDictionary<string, object?> EmptyFeatures =
+        new ReadOnlyDictionary<string, object?>(
+            new Dictionary<string, object?>(capacity: 0, StringComparer.Ordinal));
+
     [JsonPropertyName("product")]
     [JsonPropertyOrder(0)]
     public string Product { get; init; } = ProductInfo.ProductCode;
@@ -126,7 +131,7 @@ public sealed record LocalDeviceStatus
 
     [JsonPropertyName("features")]
     [JsonPropertyOrder(10)]
-    public IReadOnlyDictionary<string, object?> Features { get; init; } = new Dictionary<string, object?>();
+    public IReadOnlyDictionary<string, object?> Features { get; init; } = EmptyFeatures;
 
     [JsonPropertyName("startupPhase")]
     [JsonPropertyOrder(11)]
@@ -162,7 +167,7 @@ public sealed record LocalDeviceStatus
             OrganizationId = licenseState.OrganizationId,
             ExpiresAtUtc = licenseState.ExpiresAtUtc,
             LastValidatedAtUtc = licenseState.LastValidatedAtUtc,
-            Roles = licenseState.Roles.ToArray(),
+            Roles = licenseState.Roles,
             Features = CopyFeatures(licenseState.Features),
             StartupPhase = startupPhase,
             PreviousShutdownWasUnclean = previousShutdownWasUnclean,
@@ -170,8 +175,13 @@ public sealed record LocalDeviceStatus
         };
     }
 
-    private static Dictionary<string, object?> CopyFeatures(CommercialLicenseFeatures features)
+    private static IReadOnlyDictionary<string, object?> CopyFeatures(CommercialLicenseFeatures features)
     {
+        if (features.Values.Count == 0)
+        {
+            return EmptyFeatures;
+        }
+
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
 
         foreach (var item in features.Values)

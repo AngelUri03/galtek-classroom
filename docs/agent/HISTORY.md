@@ -1138,3 +1138,34 @@
 ### Commit sugerido
 
 `perf: add power loss recovery and fast startup`
+
+## 2026-08-30 - Prompt 14.5A
+
+### Realizado
+
+- Optimizado el runtime idle del Agent Service sin cambiar arquitectura, seguridad, heartbeat de 15 segundos, startup phases, mTLS, trust ni licencia.
+- `RemoteOperationDispatcher` mantiene deduplicacion por `operationId`, pero ahora acota IDs completados por retencion/maximo y limpia de forma lazy durante dispatch, sin timers ni polling nuevo.
+- Reducidas allocations sanas de Local IPC: `PING` reutiliza payload inmutable, `GET_DEVICE_STATUS` evita copias vacias de roles/features y `LocalIpcFraming.WriteJsonAsync` deja de construir un frame duplicado completo en memoria.
+- Cacheados datos estaticos de proceso usados en rutas repetidas: hostname del sistema y version del Agent.
+- Ajustado `MasterConnectionStateTracker` para actualizar estado/ACK con una sola seccion critica por cambio.
+- Agregadas pruebas dirigidas para dedupe lazy/acotado y conservadas pruebas de IPC/transporte.
+
+### Cambios descartados
+
+- No se agregaron timers, polling nuevo, telemetria continua, GC tuning, dependencias ni frameworks de benchmark.
+- No se cambio frecuencia de heartbeat, backoff/jitter, startup type del Service ni validaciones de seguridad.
+- No se cacheo trust de forma insegura; `OperationRequest` sigue revalidando trust antes de ejecutar.
+- No se implementaron Prompt 14.5B/C/D, operaciones Windows reales, UI, filesystem, captura, proyeccion, USB, mDNS ni discovery.
+- No se ejecuto Maven ni suite Java.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter "FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 16 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter "FullyQualifiedName~LocalIpc"` en `agent`: correcto, 22 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj` en `agent`: correcto, 122 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`perf(agent): optimize service idle runtime`

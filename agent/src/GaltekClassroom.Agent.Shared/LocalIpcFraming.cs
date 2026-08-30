@@ -39,9 +39,16 @@ public static class LocalIpcFraming
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(json);
 
-        var frame = FrameJson(json);
-        await stream.WriteAsync(frame, cancellationToken);
+        var payload = Encoding.UTF8.GetBytes(json);
+        ValidatePayloadLength(payload.Length);
+
+        var lengthBuffer = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32BigEndian(lengthBuffer, payload.Length);
+
+        await stream.WriteAsync(lengthBuffer, cancellationToken);
+        await stream.WriteAsync(payload, cancellationToken);
         await stream.FlushAsync(cancellationToken);
     }
 

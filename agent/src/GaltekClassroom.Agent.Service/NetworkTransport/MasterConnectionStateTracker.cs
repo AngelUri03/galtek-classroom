@@ -63,13 +63,17 @@ public sealed class MasterConnectionStateTracker
     public void SetOnline(Guid masterNetworkIdentityId, DateTimeOffset nowUtc)
     {
         var utc = nowUtc.ToUniversalTime();
-        Set(new MasterConnectionSnapshot(
-            MasterConnectionState.Online,
-            masterNetworkIdentityId,
-            Snapshot.ConnectedAtUtc ?? utc,
-            utc,
-            null,
-            null));
+        lock (_sync)
+        {
+            _snapshot = new MasterConnectionSnapshot(
+                MasterConnectionState.Online,
+                masterNetworkIdentityId,
+                _snapshot.ConnectedAtUtc ?? utc,
+                utc,
+                null,
+                null);
+        }
+
         _runtimeState?.MarkNetworkReady();
     }
 
@@ -79,13 +83,16 @@ public sealed class MasterConnectionStateTracker
         string? reasonCode,
         string? message)
     {
-        Set(new MasterConnectionSnapshot(
-            MasterConnectionState.Offline,
-            masterNetworkIdentityId,
-            null,
-            Snapshot.LastHeartbeatAckUtc,
-            reasonCode,
-            message));
+        lock (_sync)
+        {
+            _snapshot = new MasterConnectionSnapshot(
+                MasterConnectionState.Offline,
+                masterNetworkIdentityId,
+                null,
+                _snapshot.LastHeartbeatAckUtc,
+                reasonCode,
+                message);
+        }
     }
 
     private void Set(MasterConnectionSnapshot snapshot)

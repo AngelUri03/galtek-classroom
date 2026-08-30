@@ -10,6 +10,7 @@ namespace GaltekClassroom.Agent.Service.Ipc;
 public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = LocalIpcJson.CreateOptions();
+    private static readonly LocalIpcPingPayload PingPayload = new();
 
     private readonly AgentRuntimeState _runtimeState;
     private readonly CommercialLicenseManager _licenseManager;
@@ -88,7 +89,7 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
 
         var response = request.Operation switch
         {
-            LocalIpcOperations.Ping => LocalIpcResponse.Ok(requestId, new LocalIpcPingPayload()),
+            LocalIpcOperations.Ping => LocalIpcResponse.Ok(requestId, PingPayload),
             LocalIpcOperations.GetDeviceStatus => LocalIpcResponse.Ok(requestId, GetDeviceStatus()),
             LocalIpcOperations.GetMachineCode => LocalIpcResponse.Ok(requestId, GetMachineCode()),
             LocalIpcOperations.GetMasterAuthorization => LocalIpcResponse.Ok(

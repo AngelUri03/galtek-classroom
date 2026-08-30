@@ -12,6 +12,7 @@ public sealed class RemoteOperationDispatcher
     private readonly ISystemClock _clock;
     private readonly ILicenseStateProvider? _licenseStateProvider;
     private readonly ConcurrentDictionary<string, OperationState> _operations = new(StringComparer.Ordinal);
+    private int _dispatchCount;
 
     public RemoteOperationDispatcher(
         IEnumerable<IRemoteOperationHandler> handlers,
@@ -53,7 +54,10 @@ public sealed class RemoteOperationDispatcher
         else
         {
             result = await existing.Result.Value.ConfigureAwait(false);
+            existing.MarkCompleted(result.CompletedAtUnixMs);
         }
+
+        MaybeCleanupCompletedOperations();
 
         return new RemoteOperationDispatchResult(
             Accepted(request),
@@ -194,9 +198,109 @@ public sealed class RemoteOperationDispatcher
             && string.Equals(left.ProtocolVersion, right.ProtocolVersion, StringComparison.Ordinal);
     }
 
-    private sealed record OperationState(
-        OperationRequest Request,
-        Lazy<Task<OperationResult>> Result);
+    private void MaybeCleanupCompletedOperations()
+    {
+        var scanInterval = _options.DedupeCleanupScanInterval <= 0
+            ? 64
+            : _options.DedupeCleanupScanInterval;
+        if (Interlocked.Increment(ref _dispatchCount) % scanInterval != 0)
+        {
+            return;
+        }
+
+        CleanupCompletedOperations(_clock.UtcNow);
+    }
+
+    private void CleanupCompletedOperations(DateTimeOffset nowUtc)
+    {
+        var retention = _options.DedupeRetention;
+        var cutoffUtc = retention <= TimeSpan.Zero
+            ? nowUtc.ToUniversalTime()
+            : nowUtc.ToUniversalTime().Subtract(retention);
+
+        foreach (var operation in _operations)
+        {
+            var completedAtUtc = operation.Value.CompletedAtUtc;
+            if (completedAtUtc is not null && completedAtUtc.Value <= cutoffUtc)
+            {
+                TryRemove(operation.Key, operation.Value);
+            }
+        }
+
+        var maxTracked = _options.MaxTrackedOperationIds;
+        if (maxTracked <= 0 || _operations.Count <= maxTracked)
+        {
+            return;
+        }
+
+        var completedOperations = new List<KeyValuePair<string, OperationState>>();
+        foreach (var operation in _operations)
+        {
+            if (operation.Value.CompletedAtUtc is not null)
+            {
+                completedOperations.Add(operation);
+            }
+        }
+
+        completedOperations.Sort(static (left, right) =>
+            Nullable.Compare(left.Value.CompletedAtUtc, right.Value.CompletedAtUtc));
+
+        var overflow = _operations.Count - maxTracked;
+        foreach (var operation in completedOperations)
+        {
+            if (overflow <= 0)
+            {
+                break;
+            }
+
+            if (TryRemove(operation.Key, operation.Value))
+            {
+                overflow--;
+            }
+        }
+    }
+
+    private bool TryRemove(string operationId, OperationState state)
+    {
+        return ((ICollection<KeyValuePair<string, OperationState>>)_operations).Remove(
+            new KeyValuePair<string, OperationState>(operationId, state));
+    }
+
+    private sealed class OperationState
+    {
+        private long _completedAtUnixMs;
+
+        public OperationState(
+            OperationRequest request,
+            Lazy<Task<OperationResult>> result)
+        {
+            Request = request;
+            Result = result;
+        }
+
+        public OperationRequest Request { get; }
+
+        public Lazy<Task<OperationResult>> Result { get; }
+
+        public DateTimeOffset? CompletedAtUtc
+        {
+            get
+            {
+                var completedAtUnixMs = Interlocked.Read(ref _completedAtUnixMs);
+                return completedAtUnixMs == 0
+                    ? null
+                    : DateTimeOffset.FromUnixTimeMilliseconds(completedAtUnixMs);
+            }
+        }
+
+        public void MarkCompleted(long completedAtUnixMs)
+        {
+            if (completedAtUnixMs > 0)
+            {
+                Interlocked.CompareExchange(ref _completedAtUnixMs, completedAtUnixMs, 0);
+            }
+        }
+    }
 }
 
 public sealed record RemoteOperationDispatchResult(

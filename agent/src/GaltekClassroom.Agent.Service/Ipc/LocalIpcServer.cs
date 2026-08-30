@@ -32,10 +32,11 @@ public sealed class LocalIpcServer : BackgroundService
             "Local IPC server starting on pipe {PipeName}.",
             _options.PipeName);
 
-        var acceptLoops = Enumerable
-            .Range(0, _options.MaxConcurrentConnections)
-            .Select(_ => AcceptLoopAsync(stoppingToken))
-            .ToArray();
+        var acceptLoops = new Task[_options.MaxConcurrentConnections];
+        for (var index = 0; index < acceptLoops.Length; index++)
+        {
+            acceptLoops[index] = AcceptLoopAsync(stoppingToken);
+        }
 
         await Task.WhenAll(acceptLoops);
     }

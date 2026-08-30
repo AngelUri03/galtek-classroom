@@ -7,8 +7,10 @@ public interface IHostNameProvider
 
 public sealed class SystemHostNameProvider : IHostNameProvider
 {
+    private readonly string _hostName = Environment.MachineName;
+
     public string GetHostName()
     {
-        return Environment.MachineName;
+        return _hostName;
     }
 }

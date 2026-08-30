@@ -207,6 +207,68 @@ public sealed class MasterNetworkTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task OperationDispatcher_CleansCompletedDedupeEntriesLazilyAfterRetention()
+    {
+        var clock = new MutableClock(FixedNow);
+        var handler = new CountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions
+            {
+                DedupeRetention = TimeSpan.FromSeconds(1),
+                DedupeCleanupScanInterval = 1
+            },
+            clock);
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(
+            CreateOperationRequest("operation-expiring"),
+            CancellationToken.None);
+
+        clock.UtcNow = FixedNow.AddSeconds(2);
+        _ = await dispatcher.DispatchAsync(
+            CreateOperationRequest("operation-cleanup-trigger"),
+            CancellationToken.None);
+
+        RemoteOperationDispatchResult afterRetention = await dispatcher.DispatchAsync(
+            CreateOperationRequest("operation-expiring"),
+            CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.False(afterRetention.Duplicate);
+        Assert.Equal(3, handler.Calls);
+    }
+
+    [Fact]
+    public async Task OperationDispatcher_TrimsCompletedDedupeEntriesWhenBoundIsExceeded()
+    {
+        var clock = new MutableClock(FixedNow);
+        var handler = new CountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions
+            {
+                DedupeRetention = TimeSpan.FromMinutes(30),
+                MaxTrackedOperationIds = 2,
+                DedupeCleanupScanInterval = 1
+            },
+            clock);
+
+        _ = await dispatcher.DispatchAsync(CreateOperationRequest("operation-1"), CancellationToken.None);
+        clock.UtcNow = FixedNow.AddMilliseconds(1);
+        _ = await dispatcher.DispatchAsync(CreateOperationRequest("operation-2"), CancellationToken.None);
+        clock.UtcNow = FixedNow.AddMilliseconds(2);
+        _ = await dispatcher.DispatchAsync(CreateOperationRequest("operation-3"), CancellationToken.None);
+        clock.UtcNow = FixedNow.AddMilliseconds(3);
+
+        RemoteOperationDispatchResult evicted = await dispatcher.DispatchAsync(
+            CreateOperationRequest("operation-1"),
+            CancellationToken.None);
+
+        Assert.False(evicted.Duplicate);
+        Assert.Equal(4, handler.Calls);
+    }
+
+    [Fact]
     public async Task OperationDispatcher_WhenCommercialLicenseIsNotActive_RejectsBeforeHandler()
     {
         var handler = new CountingOperationHandler();
@@ -306,6 +368,18 @@ public sealed class MasterNetworkTransportTests : IDisposable
             TimeSpan.Zero,
             TimeSpan.FromSeconds(2)));
         Assert.True(plannedInitialDelays.Distinct().Count() > 1);
+    }
+
+    private static OperationRequest CreateOperationRequest(string operationId)
+    {
+        return new OperationRequest
+        {
+            OperationId = operationId,
+            OperationType = NetworkOperationType.LockInput,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds()
+        };
     }
 
     public void Dispose()
@@ -422,7 +496,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
             UtcNow = utcNow;
         }
 
-        public DateTimeOffset UtcNow { get; }
+        public DateTimeOffset UtcNow { get; set; }
     }
 
     private sealed class FixedHostNameProvider : IHostNameProvider
