@@ -139,6 +139,22 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No introducir Redis, Kafka, Elasticsearch, RabbitMQ, DB server separado ni infraestructura distribuida pesada para la operacion local normal.
 - No convertir el Master en terminal server ni ejecutar Word/Chrome/apps de alumnos remotamente.
 
+## Resiliencia, apagones y startup
+
+- Tratar power loss, reboot abrupto, kill del proceso y boot storm de aula como condiciones normales.
+- Priorizar startup rapido del plano de control sobre licencia comercial completa, WMI costoso, inventario, thumbnails, captura, proyeccion, transferencias grandes, filesystem sync o diagnostico pesado.
+- Local IPC y estado seguro de dispositivo deben estar disponibles tan pronto exista identidad minima valida; no bloquearlos por trabajo diferible.
+- El Master no debe esperar a que todos los Clients esten online para quedar operativo; proceso vivo + storage listo basta para control-plane ready.
+- Nunca borrar ni recrear automaticamente `classroom.db`, `classroom.db-wal` o `classroom.db-shm` por detectar shutdown no limpio.
+- No borrar, truncar ni adoptar silenciosamente archivos criticos corruptos: Installation Identity, Network Identity, binding, trust stores, licencias y llaves deben fallar cerrado o reportar recovery.
+- Escribir archivos criticos con temp file en el mismo directorio, flush/fsync y move/replace atomico cuando aplique.
+- Clasificar persistencia futura como `EPHEMERAL`, `NORMAL` o `CRITICAL_DURABLE`; heartbeat, presencia, preview state y telemetria no deben salir de memoria.
+- Los markers de ejecucion se escriben al inicio y se eliminan en shutdown limpio; no deben convertirse en heartbeat persistente ni producir writes periodicos.
+- Boot, Session Agent startup, `ClientHello`, pairing, registration, reconnect, heartbeat y `DEVICE_ONLINE` no deben iniciar captura, proyeccion, thumbnails, filesystem sync, inventario pesado ni scans recursivos.
+- Una operacion remota sin ACK, sin `OperationResult` confirmado o interrumpida por energia/red no cuenta como `SUCCESS`; debe quedar `RECOVERY_REQUIRED`, `PENDING_SYNC` o reconciliacion equivalente.
+- La reconexion masiva de Clients debe usar backoff y jitter acotado para evitar thundering herd, manteniendo conexiones salientes desde Clients.
+- Recovery y control critico tienen prioridad sobre funciones visuales o background.
+
 ## Persistencia Master SQLite
 
 - Usar Spring JDBC y repositories explicitos; no introducir JPA/Hibernate mientras el diseno siga siendo SQLite local y explicito.

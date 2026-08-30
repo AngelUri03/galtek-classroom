@@ -1,4 +1,5 @@
 using System.Text;
+using GaltekClassroom.Agent.Service.Persistence;
 using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Licensing;
@@ -113,16 +114,8 @@ public sealed class CommercialLicenseStore
 
         try
         {
-            await File.WriteAllTextAsync(tempPath, token.Trim(), Utf8WithoutBom, cancellationToken);
-
-            if (File.Exists(_filePath))
-            {
-                File.Replace(tempPath, _filePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
-            }
-            else
-            {
-                File.Move(tempPath, _filePath);
-            }
+            await DurableFileWriter.WriteTextAsync(tempPath, token.Trim(), Utf8WithoutBom, cancellationToken);
+            DurableFileWriter.ReplaceOrMove(tempPath, _filePath);
         }
         finally
         {

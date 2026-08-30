@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. No implementa filesystem real, browser automation, UI, login/logoff Windows, USB, captura, proyeccion ni comandos remotos funcionales.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura, proyeccion ni comandos remotos funcionales.
 
 ## Principio de producto
 
@@ -33,13 +33,13 @@ El objetivo principal es minimizar el tiempo desde que la maestra llega/enciende
 Master de profesora:
 
 - Intel Core i5 8a generacion aprox.
-- 8 GB RAM.
-- SSD 500 GB.
+- 16 GB DDR4.
+- SSD 256 GB.
 
 Clients:
 
-- Legacy aprox. 16: Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD 256 GB, muy lentos.
-- Renovados aprox. 10: Core i5 6a generacion, 8 GB RAM, SSD 256 GB.
+- Legacy aprox. 16: hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD, CPUs Core 2 Duo / Celeron / AMD antiguos, muy lentos.
+- Renovados aprox. 10: Core i5 6a generacion, 8 GB DDR4, SSD 256 GB.
 
 El Master absorbe orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion y estado del aula. Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas de alumnos corren localmente en cada Client.
 
@@ -71,6 +71,33 @@ Los budgets son objetivos de ingenieria, no garantias contractuales ni tests de 
 CPU esperada en idle: cercana a 0%. No crear timers rapidos ni intervalos sub-segundo salvo durante una accion interactiva que realmente lo necesite. Toda tarea periodica debe justificar frecuencia.
 
 Disco en idle: no periodic disk writes, no logs por heartbeat sano, no archivos de telemetria continua, no reescrituras completas y no scans recursivos innecesarios. En HDD legacy se deben evitar flush constante y pequenas escrituras aleatorias frecuentes.
+
+## Recovery por apagones y startup
+
+Regla permanente desde Prompt 14.4:
+
+```text
+POWER LOSS IS NORMAL
+```
+
+Un corte de energia, reinicio abrupto, kill del proceso, desconexion de red o arranque simultaneo de muchas PCs debe tratarse como condicion normal de aula. Recovery debe favorecer datos preservados, control rapido y estados explicitos de incertidumbre.
+
+Principios funcionales:
+
+- Fast startup antes que trabajo visual/pesado: Local IPC, identidad, trust, heartbeat/reconexion y acciones criticas futuras deben estar disponibles antes de captura, thumbnails, proyeccion, inventario, transferencias grandes o sync pesado.
+- El Master queda control-plane ready cuando el proceso esta vivo y el almacenamiento local esta listo; no espera a que todos los Clients esten online.
+- Cada Client se recupera de forma independiente. Un Client lento, apagado o en recovery no bloquea a otros.
+- Boot, Session Agent startup, `ClientHello`, pairing, registration, reconnect, heartbeat y `DEVICE_ONLINE` no disparan captura automatica, proyeccion, thumbnails, filesystem sync ni inventario pesado.
+- Una operacion remota sin ACK o sin resultado confirmado no es `SUCCESS`; se reporta como estado recuperable y requiere reconciliacion posterior.
+- Si energia/red caen antes de confirmar sync o commit canonico, se conserva la working copy local y se muestra `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- Un marker de ejecucion solo detecta apagado no limpio; no debe reemplazar recovery propio de SQLite ni borrar WAL/SHM.
+- En boot storm, reconexion saliente con backoff y jitter evita que todos los Clients golpeen al Master al mismo tiempo.
+
+Clasificacion futura de durabilidad:
+
+- `EPHEMERAL`: heartbeat, presencia `ONLINE`/`OFFLINE`, preview state y telemetria; vive en memoria.
+- `NORMAL`: metadata reconstruible o recuperable.
+- `CRITICAL_DURABLE`: cambios que no deben reconocerse como confirmados antes de durabilidad suficiente.
 
 ## Performance profiles
 
@@ -1187,7 +1214,7 @@ Condiciones normales desde ahora:
 
 Los workflows futuros deben ser idempotentes cuando aplique, reconciliar estado, no asumir `SUCCESS` sin confirmacion, conservar origen antes de commit, permitir partial success y permitir retry solo donde corresponde.
 
-Prompt 14.2 no implementa recovery tecnico de apagones; eso queda para Prompt 14.4.
+Prompt 14.4 agrega base tecnica de recovery/startup y modelos de semantica incierta. Los workflows reales de filesystem, sync, transferencias y reconciliacion productiva siguen pendientes para fases posteriores.
 
 ## Operaciones destructivas
 

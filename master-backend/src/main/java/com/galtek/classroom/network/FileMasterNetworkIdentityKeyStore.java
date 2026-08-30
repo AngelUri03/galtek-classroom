@@ -2,10 +2,13 @@ package com.galtek.classroom.network;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
@@ -75,7 +78,7 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
             Path protectorTemp = temporaryPath(protectorFile);
             Path keyTemp = temporaryPath(privateKeyFile);
             try {
-                Files.write(protectorTemp, protector);
+                writeBytesDurably(protectorTemp, protector);
                 LocalFileSecurity.restrictOwnerOnly(protectorTemp);
                 writePrivateKeyFile(keyTemp, keyId, publicKey, iv, ciphertext);
                 LocalFileSecurity.restrictOwnerOnly(keyTemp);
@@ -84,6 +87,7 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
                 Files.move(keyTemp, privateKeyFile, StandardCopyOption.ATOMIC_MOVE);
                 LocalFileSecurity.restrictOwnerOnly(protectorFile);
                 LocalFileSecurity.restrictOwnerOnly(privateKeyFile);
+                forceDirectory(dataDirectory);
             } finally {
                 Files.deleteIfExists(protectorTemp);
                 Files.deleteIfExists(keyTemp);
@@ -227,7 +231,8 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
             byte[] publicKey,
             byte[] iv,
             byte[] ciphertext) throws IOException {
-        try (var output = new DataOutputStream(Files.newOutputStream(path))) {
+        try (var fileOutput = new FileOutputStream(path.toFile());
+             var output = new DataOutputStream(fileOutput)) {
             output.writeUTF(MAGIC);
             output.writeInt(VERSION);
             output.writeUTF(keyId);
@@ -238,6 +243,23 @@ public class FileMasterNetworkIdentityKeyStore implements MasterNetworkIdentityK
             output.writeInt(ciphertext.length);
             output.write(ciphertext);
             output.flush();
+            fileOutput.getFD().sync();
+        }
+    }
+
+    private void writeBytesDurably(Path path, byte[] content) throws IOException {
+        try (var output = new FileOutputStream(path.toFile())) {
+            output.write(content);
+            output.flush();
+            output.getFD().sync();
+        }
+    }
+
+    private void forceDirectory(Path directory) {
+        try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+            channel.force(true);
+        } catch (IOException ignored) {
+            // Some filesystems do not allow opening directories; temp files were already fsynced before the moves.
         }
     }
 

@@ -1,6 +1,5 @@
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Agent.Service.Identity;
-using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.Runtime;
 
@@ -9,28 +8,45 @@ namespace GaltekClassroom.Agent.Service;
 public sealed class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
+    private readonly ServiceRunMarker _runMarker;
     private readonly InstallationIdentityResolver _installationIdentityResolver;
     private readonly NetworkIdentityResolver _networkIdentityResolver;
-    private readonly CommercialLicenseManager _licenseManager;
     private readonly AgentRuntimeState _runtimeState;
 
     public Worker(
         ILogger<Worker> logger,
+        ServiceRunMarker runMarker,
         InstallationIdentityResolver installationIdentityResolver,
         NetworkIdentityResolver networkIdentityResolver,
-        CommercialLicenseManager licenseManager,
         AgentRuntimeState runtimeState)
     {
         _logger = logger;
+        _runMarker = runMarker;
         _installationIdentityResolver = installationIdentityResolver;
         _networkIdentityResolver = networkIdentityResolver;
-        _licenseManager = licenseManager;
         _runtimeState = runtimeState;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("{ServiceName} starting.", ProductInfo.ServiceDisplayName);
+
+        var marker = await _runMarker.MarkStartedAsync(cancellationToken);
+        _runtimeState.ObservePreviousShutdown(marker.PreviousShutdownWasUnclean);
+
+        if (marker.PreviousShutdownWasUnclean)
+        {
+            _logger.LogWarning(
+                "Previous Agent Service shutdown was not clean. Recovery checks will run before network operation.");
+        }
+
+        if (!marker.MarkerWritten)
+        {
+            _logger.LogWarning(
+                "Agent Service running marker could not be written at {FilePath}: {ErrorMessage}",
+                marker.FilePath,
+                marker.ErrorMessage);
+        }
 
         var resolution = await _installationIdentityResolver.ResolveAsync(cancellationToken);
 
@@ -51,49 +67,6 @@ public sealed class Worker : BackgroundService
 
         _runtimeState.SetInstallationIdentity(resolution.Identity);
 
-        var networkIdentityResolution = await _networkIdentityResolver.ResolveAsync(
-            resolution.Identity,
-            cancellationToken);
-
-        if (networkIdentityResolution.Status != NetworkIdentityStatus.Ready)
-        {
-            _logger.LogError(
-                "Network identity is not usable at {FilePath}. Status: {Status}. Reason: {ErrorMessage}",
-                networkIdentityResolution.FilePath,
-                networkIdentityResolution.ErrorCode ?? networkIdentityResolution.Status.ToCode(),
-                networkIdentityResolution.ErrorMessage);
-
-            throw new InvalidOperationException(
-                $"Network identity is not usable at {networkIdentityResolution.FilePath}: "
-                + $"{networkIdentityResolution.ErrorCode ?? networkIdentityResolution.Status.ToCode()}: "
-                + networkIdentityResolution.ErrorMessage);
-        }
-
-        _logger.LogInformation(
-            "Network identity ready. NetworkIdentityId: {NetworkIdentityId}. PublicKeyFingerprint: {PublicKeyFingerprint}",
-            networkIdentityResolution.Metadata!.NetworkIdentityId,
-            networkIdentityResolution.Metadata.PublicKeyFingerprint);
-
-        _runtimeState.SetNetworkIdentity(networkIdentityResolution.Metadata);
-
-        var licenseState = await _licenseManager.ResolveAsync(resolution.Identity, cancellationToken);
-
-        if (licenseState.Active)
-        {
-            _logger.LogInformation(
-                "Commercial license active. LicenseId: {LicenseId}. ExpiresAtUtc: {ExpiresAtUtc}. Roles: {Roles}.",
-                licenseState.LicenseId,
-                licenseState.ExpiresAtUtc,
-                string.Join(",", licenseState.Roles));
-        }
-        else
-        {
-            _logger.LogWarning(
-                "Commercial license is not active. Status: {LicenseStatus}. Reason: {BlockingReason}",
-                licenseState.Status.ToCode(),
-                licenseState.BlockingReason);
-        }
-
         await base.StartAsync(cancellationToken);
     }
 
@@ -103,6 +76,7 @@ public sealed class Worker : BackgroundService
 
         try
         {
+            await ResolveNetworkIdentityAsync(stoppingToken);
             await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -111,9 +85,56 @@ public sealed class Worker : BackgroundService
         }
     }
 
+    private async Task ResolveNetworkIdentityAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var networkIdentityResolution = await _networkIdentityResolver.ResolveAsync(
+                _runtimeState.GetInstallationIdentity(),
+                cancellationToken);
+
+            if (networkIdentityResolution.Status != NetworkIdentityStatus.Ready)
+            {
+                _runtimeState.MarkDegraded();
+                _logger.LogError(
+                    "Network identity is not usable at {FilePath}. Status: {Status}. Reason: {ErrorMessage}",
+                    networkIdentityResolution.FilePath,
+                    networkIdentityResolution.ErrorCode ?? networkIdentityResolution.Status.ToCode(),
+                    networkIdentityResolution.ErrorMessage);
+
+                return;
+            }
+
+            _logger.LogInformation(
+                "Network identity ready. NetworkIdentityId: {NetworkIdentityId}. PublicKeyFingerprint: {PublicKeyFingerprint}",
+                networkIdentityResolution.Metadata!.NetworkIdentityId,
+                networkIdentityResolution.Metadata.PublicKeyFingerprint);
+
+            _runtimeState.SetNetworkIdentity(networkIdentityResolution.Metadata);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _runtimeState.MarkDegraded();
+            _logger.LogError(exception, "Network identity resolution failed during startup recovery.");
+        }
+    }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("{ServiceName} stopping cleanly.", ProductInfo.ServiceDisplayName);
         await base.StopAsync(cancellationToken);
+
+        var marker = await _runMarker.MarkStoppedAsync(cancellationToken);
+        if (!marker.Removed)
+        {
+            _logger.LogWarning(
+                "Agent Service running marker could not be removed at {FilePath}: {ErrorMessage}",
+                marker.FilePath,
+                marker.ErrorMessage);
+        }
     }
 }

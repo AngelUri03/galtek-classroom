@@ -3,10 +3,10 @@ package com.galtek.classroom.network;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.galtek.classroom.persistence.AtomicFiles;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 
 public class MasterTrustStore {
 
@@ -53,18 +53,13 @@ public class MasterTrustStore {
         }
 
         Files.createDirectories(dataDirectory);
-        Path tempPath = filePath.resolveSibling(filePath.getFileName() + "." + java.util.UUID.randomUUID() + ".tmp");
         try {
-            OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), document);
-            Files.move(
-                    tempPath,
+            AtomicFiles.writeAtomically(
                     filePath,
-                    StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE);
+                    true,
+                    output -> OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(output, document));
         } catch (JsonProcessingException exception) {
             throw new IOException("paired-clients.json could not be serialized.", exception);
-        } finally {
-            Files.deleteIfExists(tempPath);
         }
     }
 }

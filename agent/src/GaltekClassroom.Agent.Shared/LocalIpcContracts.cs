@@ -128,10 +128,25 @@ public sealed record LocalDeviceStatus
     [JsonPropertyOrder(10)]
     public IReadOnlyDictionary<string, object?> Features { get; init; } = new Dictionary<string, object?>();
 
+    [JsonPropertyName("startupPhase")]
+    [JsonPropertyOrder(11)]
+    public string StartupPhase { get; init; } = "STARTING";
+
+    [JsonPropertyName("previousShutdownWasUnclean")]
+    [JsonPropertyOrder(12)]
+    public bool PreviousShutdownWasUnclean { get; init; }
+
+    [JsonPropertyName("recoveryActive")]
+    [JsonPropertyOrder(13)]
+    public bool RecoveryActive { get; init; }
+
     public static LocalDeviceStatus From(
         InstallationIdentity installationIdentity,
         string hostname,
-        LicenseState licenseState)
+        LicenseState licenseState,
+        string startupPhase = "STARTING",
+        bool previousShutdownWasUnclean = false,
+        bool recoveryActive = false)
     {
         ArgumentNullException.ThrowIfNull(installationIdentity);
         ArgumentNullException.ThrowIfNull(licenseState);
@@ -148,7 +163,10 @@ public sealed record LocalDeviceStatus
             ExpiresAtUtc = licenseState.ExpiresAtUtc,
             LastValidatedAtUtc = licenseState.LastValidatedAtUtc,
             Roles = licenseState.Roles.ToArray(),
-            Features = CopyFeatures(licenseState.Features)
+            Features = CopyFeatures(licenseState.Features),
+            StartupPhase = startupPhase,
+            PreviousShutdownWasUnclean = previousShutdownWasUnclean,
+            RecoveryActive = recoveryActive
         };
     }
 

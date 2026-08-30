@@ -1085,3 +1085,56 @@
 ### Commit sugerido
 
 `perf: define low resource performance budgets`
+
+## 2026-08-29 - Prompt 14.4
+
+### Realizado
+
+- Auditado startup real de Agent, Session Agent y Master frente a power loss, red ausente y boot storm.
+- Agent Service mantiene `StartupType=Automatic` y agrega startup progresivo con fases `STARTING`, `RECOVERING`, `MINIMAL_READY`, `SECURITY_READY`, `NETWORK_READY`, `OPERATION_READY` y `DEGRADED`.
+- `Worker.StartAsync` queda en camino critico minimo: running marker + Installation Identity; Network Identity se resuelve en background y gRPC espera `SECURITY_READY`.
+- Commercial License completa queda diferida fuera del startup critico; los handlers de operaciones futuras se rechazan si la licencia no esta activa.
+- `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` sin exponer secretos.
+- Agregados running markers `agent-service.running` y `master-backend.running` para detectar shutdown no limpio sin heartbeat de disco.
+- Agregado `DurableFileWriter` en Agent y `AtomicFiles` en Master para escrituras atomicas/durables localizadas de archivos criticos.
+- Conservado SQLite con WAL, `synchronous=NORMAL`, Hikari pequeno y `PRAGMA quick_check`; no se borra WAL/SHM ni se recrea DB ante shutdown no limpio.
+- Documentada clasificacion futura `EPHEMERAL`, `NORMAL` y `CRITICAL_DURABLE` sin crear framework grande de durabilidad.
+- Agregado jitter acotado de reconexion del Agent: initial 0-2s y retry backoff + jitter moderado.
+- Agregados modelos puros Java para readiness de plano de control, politica de startup/recovery y operaciones remotas inciertas.
+- Agregadas pruebas .NET y Java para clean/unclean shutdown, no writes periodicos, no regeneracion de Network Identity, readiness minima, jitter, bloqueo por licencia, Master ready con 0 Clients, visual policy y semantica de operacion incierta.
+- Actualizada documentacion de contexto, arquitectura, modelo funcional, reglas, estado, decisiones e historial.
+
+### Decisiones tomadas
+
+- POWER LOSS IS NORMAL.
+- FAST RECOVERY > VISUAL FEATURES.
+- CONTROL PLANE FIRST.
+- El Master no espera a todos los Clients ni a un minimo de Clients online para quedar disponible.
+- No asumir `SUCCESS` ante perdida de ACK, energia o red.
+- Boot/reconnect/heartbeat no inicia captura, proyeccion, thumbnails, sync ni inventario pesado.
+
+### Cambios descartados
+
+- No se implemento Prompt 14.5.
+- No se implementaron operaciones Windows reales.
+- No se implementaron captura, proyeccion, filesystem sync, UI, scheduler real ni handlers remotos productivos.
+- No se cambio SQLite globalmente de `synchronous=NORMAL` a `FULL`.
+- No se borro ni recreo DB/WAL/SHM como estrategia de recovery.
+- No se hizo commit.
+
+### Pendiente
+
+- Reconciliacion real de operaciones inciertas y workflows reales de workspace/sync.
+- Transferencias reales con staging, checksums, resume y commit atomico.
+- Scheduler/backpressure real y diagnostico on-demand productivo.
+- UI, mDNS/discovery, captura/proyeccion real y handlers remotos tipados en fases posteriores.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 134 pruebas superadas (14 Session, 120 Service).
+- `mvn clean verify` en `master-backend`: correcto, 135 pruebas superadas.
+
+### Commit sugerido
+
+`perf: add power loss recovery and fast startup`

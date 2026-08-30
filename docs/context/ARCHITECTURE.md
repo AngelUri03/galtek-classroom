@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 14.4 convierte perdida de energia, reinicio abrupto y boot storm en condiciones normales de diseno. El Agent separa startup minimo de validaciones pesadas: marca arranque con `agent-service.running`, llega a `MINIMAL_READY` tras Installation Identity y expone por IPC `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive`. La validacion comercial completa queda diferida fuera del camino critico de IPC/red. El Master agrega `master-backend.running`, helpers de escritura atomica/durable y modelos puros de recovery para readiness, politicas de arranque y semantica de operaciones inciertas. La reconexion del Client agrega jitter acotado para evitar thundering herd sin reemplazar el backoff.
+
 Prompt 14.3 convierte performance y bajo consumo en requisitos arquitectonicos medibles. Agrega modelos puros Java para perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, clases de trabajo de recursos, budgets de memoria/concurrencia, diagnostico on-demand y load shedding. Tambien agrega constantes compartidas C# para esos nombres y corrige ruido claro de idle: requests IPC exitosos y conexion IPC pasan a `DEBUG`, los retries repetidos de gRPC bajan a `DEBUG` y el heartbeat del Agent ya no relee `authorized-masters.json` en cada ciclo.
 
 Prompt 14.2 fija el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. Agrega modelos/enums/planners puros para estrategias de asignacion, preparacion progresiva por Device, estados de workspace canonico/local, prioridad operacional, modos de proyeccion, politica normal de `PRIMARY`/`SECONDARY` y reglas de limpieza segura de working copies. No agrega migraciones ni persistencia nueva.
@@ -38,9 +40,9 @@ Los Clients ejecutan localmente Windows, aplicaciones interactivas, Chrome, USB,
 
 Hardware objetivo documentado:
 
-- Master: Intel Core i5 8a generacion aprox., 8 GB RAM, SSD 500 GB.
-- Clients legacy: aprox. 16 equipos Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD 256 GB.
-- Clients renovados: aprox. 10 equipos Core i5 6a generacion, 8 GB RAM, SSD 256 GB.
+- Master: Intel Core i5 8a generacion aprox., 16 GB DDR4, SSD 256 GB.
+- Clients legacy: aprox. 16 equipos con hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y CPUs Core 2 Duo / Celeron / AMD antiguos.
+- Clients renovados: aprox. 10 equipos Core i5 6a generacion, 8 GB DDR4, SSD 256 GB.
 
 Flujo real de primaria:
 
@@ -70,8 +72,8 @@ VIGENTE DESDE PROMPT 14.3:
   - Observabilidad/funciones visuales.
   - Tareas background no esenciales.
 - Perfiles operacionales de Client:
-  - `LEGACY`: Celeron/Core Duo/Pentium o similar, 4 GB RAM, HDD y equipos extremadamente lentos.
-  - `STANDARD`: Core i5 6a generacion aprox., 8 GB RAM, SSD 256 GB.
+  - `LEGACY`: perfil conservador para hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y equipos extremadamente lentos.
+  - `STANDARD`: perfil para Clients renovados con 8 GB DDR4, SSD 256 GB y mayor margen operativo.
 - El perfil desconocido de Client se trata como `LEGACY`.
 - El perfil del Master queda modelado como `MASTER_BALANCED`.
 - Los perfiles de rendimiento no son identidad, seguridad, autorizacion ni trust.
@@ -87,7 +89,7 @@ Budgets de Client:
 
 Budgets del Master:
 
-- Hardware objetivo: i5 8a gen aprox., 8 GB RAM, SSD.
+- Hardware objetivo: i5 8a gen aprox., 16 GB DDR4, SSD 256 GB.
 - Backend Java deliberadamente pequeno, con objetivo inicial de heap <= 512 MB salvo profiling real que justifique mas.
 - SQLite local, WAL, Hikari pequeno y queries batch-friendly siguen siendo la direccion.
 - No introducir Redis, Kafka, Elasticsearch, RabbitMQ, DB server separado ni infraestructura distribuida pesada para el producto local.
@@ -110,6 +112,29 @@ Politicas futuras:
 - Workspace futuro nunca debe escanear recursivamente todos los `StudentWorkspace` de todas las PCs; sync debe ser incremental, por cambios o por workflow/evento.
 - Logging de produccion: `INFO` solo eventos significativos; sin logs por heartbeat sano, PING sano ni conexion saludable repetitiva; errores repetidos deben rate-limitarse o coalescer conceptualmente.
 - Diagnostico de performance: on-demand, snapshot ligero, sin recoleccion constante, sin persistir telemetria y sin enviarla por heartbeat.
+
+## Power-loss resilience y startup rapido
+
+VIGENTE DESDE PROMPT 14.4:
+
+- Power loss is normal: un corte de energia, kill del proceso, reboot o arranque masivo del aula debe producir recovery conservador, no corrupcion silenciosa ni perdida asumida.
+- Fast startup tiene prioridad sobre funciones visuales o pesadas. El plano de control local debe estar disponible antes de licencia comercial completa, WMI costoso, inventario, thumbnails, captura, sync o transferencias.
+- El Agent declara fases de startup: `STARTING`, `RECOVERING`, `MINIMAL_READY`, `SECURITY_READY`, `NETWORK_READY`, `OPERATION_READY` y `DEGRADED`.
+- `MINIMAL_READY` significa que Local IPC y la Installation Identity ya pueden responder de forma segura; no implica licencia activa ni autorizacion remota completa.
+- `previousShutdownWasUnclean` se deriva de un marker persistente que solo se escribe al inicio y se elimina en detencion limpia; no hay writes periodicos de heartbeat para ese marker.
+- `recoveryActive` indica que el proceso esta resolviendo identidad/trust/red despues de un shutdown no limpio o durante startup temprano.
+- El Master puede quedar control-plane ready con proceso vivo y SQLite listo aunque haya 0 Clients online; nunca espera a que todos los Clients arranquen.
+- SQLite conserva WAL/SHM y usa su propio recovery; Galtek no borra ni recrea `classroom.db`, `classroom.db-wal` o `classroom.db-shm` ante marker de apagado no limpio.
+- Archivos criticos JSON/dat se escriben via temp file en el mismo directorio, flush/fsync y move/replace atomico cuando corresponde.
+- Boot, `ClientHello`, pairing, registration, reconnect y heartbeat no disparan captura, proyeccion, thumbnails, filesystem sync, inventario pesado ni operaciones visuales automaticas.
+- Operacion remota sin ACK o sin resultado confirmado no se considera `SUCCESS`; queda como incertidumbre recuperable que exige reconciliacion.
+- Boot storm se mitiga con reconexion Client saliente, backoff acotado y jitter inicial/retry pequeno para evitar reconexiones perfectamente sincronizadas.
+
+Clasificacion futura de durabilidad:
+
+- `EPHEMERAL`: heartbeat, `ONLINE`/`OFFLINE`, preview state y telemetria ligera. Debe vivir en memoria y reconstruirse.
+- `NORMAL`: metadata reconstruible o recuperable, persistida con transacciones/escrituras crash-safe razonables.
+- `CRITICAL_DURABLE`: cambios que no deben reconocerse como confirmados antes de durabilidad suficiente; requieren flush/fsync/commit atomico segun el backend concreto.
 
 ## Master
 
@@ -172,6 +197,7 @@ IMPLEMENTADO:
   - `windows`: cuentas administradas `PRIMARY`/`SECONDARY`, estado de sesion Windows y preflight batch para cambio de cuenta.
   - `network`: Network Identity del Master, Client descriptors, pairing challenge/response, trust store y revocacion.
   - `performance`: perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, budgets, clases de trabajo, diagnostico on-demand, estado `DEGRADED` y load shedding conceptual.
+  - `recovery`: marker de ejecucion Master, readiness de plano de control, politicas de startup y semantica de operaciones remotas inciertas.
 - Modelos puros Prompt 14.2:
   - `StudentAssignmentStrategy`: `LIST_ORDER`, `RANDOM`, `PREVIOUS`, `MANUAL`.
   - `StudentPreparationStage` y `StudentPreparationState` para `ASSIGNED -> PREPARING_WINDOWS_SESSION -> PREPARING_WORKSPACE -> PREPARING_BROWSER -> APPLYING_CLASS_CONTEXT -> READY`, con estados `PENDING`, `IN_PROGRESS`, `READY`, `PARTIAL_READY`, `RECOVERY_REQUIRED` y `FAILED`.
@@ -187,6 +213,11 @@ IMPLEMENTADO:
   - `ClientPerformanceBudget`: concurrencia pesada por perfil, budgets idle y regla de no autorizacion por perfil.
   - `MasterPerformanceBudget`: heap objetivo inicial 512 MB, Hikari pequeno y no terminal server/infraestructura distribuida pesada.
   - `LoadSheddingPolicy`, `SheddableWork`, `ResourcePressureState.DEGRADED` y `PerformanceDiagnosticPolicy.onDemandOnly()`.
+- Modelos puros Prompt 14.4:
+  - `MasterStartupReadiness` permite `controlPlaneReady()` con proceso vivo y storage listo, sin esperar Clients online.
+  - `StartupWorkPolicy` permite solo `CONTROL_CRITICAL` durante startup de control y difiere `VISUAL`, `TRANSFER` y `BACKGROUND` durante recovery.
+  - `StartupEvent` documenta que boot, Session Agent startup, `ClientHello`, pairing, registration, reconnect, heartbeat y online no inician captura automatica.
+  - `RemoteOperationRecoveryPolicy` evita modelar como exito una operacion remota sin ACK/resultado confirmado.
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
@@ -213,6 +244,8 @@ IMPLEMENTADO:
 - `PRAGMA foreign_keys=ON`, WAL, `synchronous=NORMAL` y `busy_timeout` configurado.
 - Pool Hikari pequeno para SQLite local.
 - `MasterDatabaseInitializer` con `PRAGMA quick_check` antes/despues de migrar cuando corresponde.
+- `MasterRunMarker` crea `master-backend.running` al arrancar y lo elimina en cierre limpio para detectar apagado no limpio sin tocar SQLite/WAL/SHM.
+- `AtomicFiles` centraliza escrituras atomicas/durables de archivos criticos del Master con temp file, flush/fsync y move atomico.
 - Estado de almacenamiento `MasterStorageState` con `READY`, `UNAVAILABLE`, `CORRUPT` y `MIGRATION_FAILED`.
 - Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceNetworkBinding`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
 - Servicios transaccionales de administracion de aula, alumnos, devices, assignments, workspaces, perfiles, catalogo y batch.
@@ -271,7 +304,7 @@ NO IMPLEMENTADO:
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
-- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, power-loss recovery tecnico, performance tuning y mDNS.
+- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de operaciones/workflows inciertos, performance tuning y mDNS.
 
 ## Almacenamiento local del Master
 
@@ -341,6 +374,11 @@ IMPLEMENTADO:
 - Cuenta de servicio: `LocalSystem`.
 - Startup type: `Automatic`.
 - Recovery configurado por instalador: reiniciar ante fallos con retrasos de 5, 15 y 60 segundos; reset de contador cada 86400 segundos.
+- `ServiceRunMarker` crea `agent-service.running` al inicio y lo elimina al cierre limpio para detectar shutdown no limpio sin escribir periodicamente.
+- Startup rapido por fases: Installation Identity habilita `MINIMAL_READY`, Network Identity habilita `SECURITY_READY`, conexion autenticada habilita `NETWORK_READY` y licencia/operacion puede elevar a `OPERATION_READY`.
+- La validacion comercial completa, incluida la parte que puede consultar hardware/WMI, queda fuera del camino critico inicial de Local IPC y conexion de red.
+- Hosted services arrancan el Worker minimo, luego Local IPC, luego monitor de licencia y despues conexion al Master, para exponer control local antes que trabajo diferible.
+- `Worker.StartAsync` devuelve tras resolver Installation Identity; Network Identity se resuelve en background y la conexion gRPC espera a `SECURITY_READY` antes de usar trust/red.
 - Publicacion productiva inicial: `Release`, `win-x64`, self-contained, carpeta no single-file.
 - Binarios instalados en `<ProgramFiles>\Galtek\Classroom\Agent\`.
 - Scripts PowerShell en `installer/windows/` para publicar, instalar/actualizar y desinstalar.
@@ -377,10 +415,12 @@ IMPLEMENTADO:
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
 - `ClientCapabilityProvider` anuncia solo `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
+- Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
 - Los retries repetidos de conexion gRPC se registran en `DEBUG` tras el primer warning para evitar spam de retry.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; sin handlers productivos, toda operacion conocida o futura devuelve `OPERATION_NOT_IMPLEMENTED`.
+- `RemoteOperationDispatcher` rechaza ejecucion de handlers cuando Commercial License todavia no esta activa, preservando el bloqueo comercial aunque la validacion completa se difiera fuera del startup critico.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.
@@ -405,6 +445,7 @@ IMPLEMENTADO:
 - Limite maximo de mensaje de 64 KiB.
 - Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
+- `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` para diagnostico local de recovery.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
 - `GET_MASTER_AUTHORIZATION` deriva el SID real del cliente Named Pipe y no acepta SID en el payload.
 - Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no en `INFO`, para evitar logs periodicos durante idle.
@@ -757,6 +798,7 @@ IMPLEMENTADO:
 - Archivo `authorized-masters.json` para trust persistido de Masters emparejados con el Client.
 - Llave privada de Network Identity fuera de JSON, en Windows CNG/KSP de maquina.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
+- `DurableFileWriter` centraliza escritura de archivos criticos del Agent con temp file, flush/fsync y reemplazo/movimiento atomico.
 - Escritura del Master binding con archivo temporal, flush y reemplazo/movimiento atomico.
 - Escritura de `network-identity.json` mediante archivo temporal, flush y move atomico sin sobrescritura automatica.
 - `license.dat` guarda solo el JWT recibido.

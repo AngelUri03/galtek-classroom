@@ -1,3 +1,5 @@
+using GaltekClassroom.Agent.Service.Runtime;
+
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
 
 public enum MasterConnectionState
@@ -18,6 +20,7 @@ public sealed record MasterConnectionSnapshot(
 public sealed class MasterConnectionStateTracker
 {
     private readonly object _sync = new();
+    private readonly AgentRuntimeState? _runtimeState;
     private MasterConnectionSnapshot _snapshot = new(
         MasterConnectionState.Offline,
         null,
@@ -25,6 +28,15 @@ public sealed class MasterConnectionStateTracker
         null,
         null,
         null);
+
+    public MasterConnectionStateTracker()
+    {
+    }
+
+    public MasterConnectionStateTracker(AgentRuntimeState runtimeState)
+    {
+        _runtimeState = runtimeState;
+    }
 
     public MasterConnectionSnapshot Snapshot
     {
@@ -58,6 +70,7 @@ public sealed class MasterConnectionStateTracker
             utc,
             null,
             null));
+        _runtimeState?.MarkNetworkReady();
     }
 
     public void SetOffline(

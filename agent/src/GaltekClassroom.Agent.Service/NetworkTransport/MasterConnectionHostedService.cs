@@ -30,9 +30,12 @@ public sealed class MasterConnectionHostedService : BackgroundService
 
         try
         {
+            var installationIdentity = await _runtimeState.WaitForInstallationIdentityAsync(stoppingToken);
+            var networkIdentity = await _runtimeState.WaitForNetworkIdentityAsync(stoppingToken);
+
             await _connectionClient.RunAsync(
-                _runtimeState.GetInstallationIdentity(),
-                _runtimeState.GetNetworkIdentity(),
+                installationIdentity,
+                networkIdentity,
                 stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

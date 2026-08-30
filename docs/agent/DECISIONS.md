@@ -255,7 +255,7 @@
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
-- Hardware objetivo real: Master i5 8a gen aprox., 8 GB RAM y SSD 500 GB; Clients mixtos con legacy lentos HDD y renovados SSD.
+- Hardware objetivo real: Master i5 8a gen aprox., 16 GB DDR4 y SSD 256 GB; Clients renovados aprox. 10 con Core i5 6a gen, 8 GB DDR4 y SSD 256 GB; Clients legacy aprox. 16 con hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y CPUs Core 2 Duo / Celeron / AMD antiguos.
 - Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
 - Cuando performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa o el control critico de la maestra.
 - Cuando Galtek no realiza trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, sin scanning continuo, sin WMI periodico, sin writes periodicos y sin logs sanos repetitivos.
@@ -301,3 +301,17 @@
 - `DEGRADED` representa presion de recursos y no equivale a `OFFLINE`; un Client puede seguir controlable aunque suspenda previews.
 - Diagnostico de performance es on-demand, con snapshot ligero; no se recolecta constantemente, no se persiste telemetria y no se envia por heartbeat.
 - Fallas normales del dominio: Client offline, perdida de red, Master temporalmente no disponible, Client reiniciado, operacion sin ACK, corte electrico, HDD lento, almacenamiento lleno y archivo parcialmente transferido.
+- Power loss, reboot abrupto, kill del proceso y boot storm son condiciones normales de operacion de aula.
+- Fast startup del plano de control tiene prioridad sobre validacion comercial completa, WMI costoso, inventario, thumbnails, captura, proyeccion, transferencias grandes, filesystem sync y diagnostico pesado.
+- El Agent puede estar `MINIMAL_READY` con Installation Identity y Local IPC disponibles antes de estar `SECURITY_READY`, `NETWORK_READY` u `OPERATION_READY`.
+- `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` como diagnostico seguro; no expone secretos.
+- La validacion comercial completa del Agent puede diferirse fuera del camino critico de arranque, manteniendo la licencia en estado bloqueante hasta resolverla.
+- El dispatcher de operaciones del Agent no ejecuta handlers mientras Commercial License no este activa.
+- El Master queda control-plane ready con proceso vivo y storage listo; no espera a que todos los Clients esten online ni a que haya al menos un Client.
+- El marker de ejecucion detecta shutdown no limpio y no reemplaza SQLite recovery ni borra `classroom.db`, WAL o SHM.
+- Los markers de ejecucion se escriben al inicio y se eliminan en cierre limpio; no son heartbeat persistente ni generan writes periodicos.
+- Archivos criticos del Master y Agent deben escribirse con temp file en el mismo directorio, flush/fsync y move/replace atomico cuando aplique.
+- Clasificacion futura de durabilidad: `EPHEMERAL` para heartbeat/presencia/preview/telemetria en memoria, `NORMAL` para metadata reconstruible o recuperable y `CRITICAL_DURABLE` para cambios que no deben confirmarse antes de durabilidad suficiente.
+- Boot, Session Agent startup, `ClientHello`, pairing, registration, reconnect, heartbeat y `DEVICE_ONLINE` no disparan captura, proyeccion, thumbnails, filesystem sync, inventario pesado ni scans recursivos.
+- Una operacion remota sin ACK o sin `OperationResult` confirmado no cuenta como `SUCCESS`; requiere reconciliacion posterior.
+- Reconexiones masivas usan backoff y jitter acotado, manteniendo conexion saliente iniciada por el Client.

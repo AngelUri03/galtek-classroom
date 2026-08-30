@@ -24,6 +24,10 @@ public sealed class MasterConnectionOptions
 
     public int MaxMessageBytes { get; init; } = 64 * 1024;
 
+    public TimeSpan InitialConnectJitterMax { get; init; } = TimeSpan.FromSeconds(2);
+
+    public TimeSpan ReconnectJitterMax { get; init; } = TimeSpan.FromSeconds(1);
+
     public IReadOnlyList<TimeSpan> ReconnectDelays { get; init; } = new[]
     {
         TimeSpan.FromSeconds(2),
@@ -48,6 +52,14 @@ public sealed class MasterConnectionOptions
             ConnectTimeout = ReadTimeSpan(section, "ConnectTimeout", TimeSpan.FromSeconds(15)),
             CertificateLifetime = ReadTimeSpan(section, "CertificateLifetime", TimeSpan.FromDays(7)),
             MaxMessageBytes = Math.Clamp(ReadInt(section, "MaxMessageBytes", 64 * 1024), 1024, 1024 * 1024),
+            InitialConnectJitterMax = ReadNonNegativeTimeSpan(
+                section,
+                "InitialConnectJitterMax",
+                TimeSpan.FromSeconds(2)),
+            ReconnectJitterMax = ReadNonNegativeTimeSpan(
+                section,
+                "ReconnectJitterMax",
+                TimeSpan.FromSeconds(1)),
             ReconnectDelays = ReadReconnectDelays(section)
         };
     }
@@ -70,6 +82,11 @@ public sealed class MasterConnectionOptions
     private static TimeSpan ReadTimeSpan(IConfiguration section, string key, TimeSpan fallback)
     {
         return TimeSpan.TryParse(section[key], out var value) && value > TimeSpan.Zero ? value : fallback;
+    }
+
+    private static TimeSpan ReadNonNegativeTimeSpan(IConfiguration section, string key, TimeSpan fallback)
+    {
+        return TimeSpan.TryParse(section[key], out var value) && value >= TimeSpan.Zero ? value : fallback;
     }
 
     private static IReadOnlyList<TimeSpan> ReadReconnectDelays(IConfiguration section)

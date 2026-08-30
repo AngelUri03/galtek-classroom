@@ -63,6 +63,7 @@ paired-clients.json
 master-network-identity.json
 master-network-identity.key
 master-network-identity.protector
+*.running
 *.jwt
 *private*.pem
 dev-public-key.pem

@@ -8,11 +8,13 @@ El producto queda orientado principalmente a maestras de kinder y primaria que a
 
 ## Hardware objetivo
 
-El Master previsto de primaria es una PC de profesora con Intel Core i5 de 8a generacion aprox., 8 GB RAM y SSD de 500 GB. Debe absorber orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion, estado del aula y procesamiento administrativo razonable.
+El Master previsto de primaria es una PC de profesora con Intel Core i5 de 8a generacion aprox., 16 GB DDR4 y SSD de 256 GB. Debe absorber orquestacion, almacenamiento canonico de trabajos, metadata escolar, manifests/checksums futuros, distribucion de contenido, coordinacion batch, recuperacion, estado del aula y procesamiento administrativo razonable.
 
-Los Clients previstos son mixtos: aprox. 16 equipos legacy con Celeron/Core Duo/Pentium o similar, 4 GB RAM y HDD de 256 GB, mas aprox. 10 equipos renovados con Core i5 6a generacion, 8 GB RAM y SSD de 256 GB. El diseno funcional debe operar sobre el peor Client sin hacer que los equipos rapidos esperen a los lentos.
+Los Clients previstos son mixtos: aprox. 16 equipos legacy con hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y CPUs Core 2 Duo / Celeron / AMD antiguos, mas aprox. 10 equipos renovados con Core i5 6a generacion, 8 GB DDR4 y SSD de 256 GB. El diseno funcional debe operar sobre el peor Client sin hacer que los equipos rapidos esperen a los lentos.
 
 Regla permanente: Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja. Cuando performance compite con una funcion secundaria, se degrada la funcion secundaria antes que afectar Windows, la aplicacion educativa del alumno o el control critico de la maestra.
+
+Regla permanente desde Prompt 14.4: un corte de energia, reinicio abrupto o encendido masivo del aula es una condicion normal de operacion, no un caso raro. El sistema debe recuperar primero el plano de control local, reportar incertidumbre sin inventar exito, evitar trabajos visuales/pesados automaticos al boot y permitir operar los equipos disponibles sin esperar a todos los Clients.
 
 ## Problema que resuelve
 
@@ -96,6 +98,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Existe transporte gRPC/mTLS minimo para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; todavia no existe mDNS real ni comandos remotos funcionales.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
+- Prompt 14.4 agrega resiliencia ante apagones, startup rapido, markers de ejecucion, escrituras atomicas/durables para archivos criticos y jitter de reconexion sin implementar comandos Windows reales.
 - El producto no debe convertirse en un canal de ejecucion remota arbitraria.
 - `Network Identity != Pairing != Device != Student`.
 - El Master genera y controla `deviceId`; nunca se confia en un `deviceId` declarado por el Client como identidad.
@@ -118,6 +121,10 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - `CLASS_TIME_TO_READY` es KPI principal: minimizar el tiempo desde llegada/encendido hasta que los alumnos pueden iniciar actividad.
 - El Master conserva el workspace canonico; el Client conserva una working copy local durante el uso y solo puede limpiarse despues de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Si falta confirmacion de sync, no asumir exito ni perdida: conservar working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
+- Ante perdida de energia, reinicio, desconexion o falta de ACK, no asumir `SUCCESS`; una operacion remota incierta requiere reconciliacion posterior.
+- El plano de control tiene prioridad sobre el plano visual: Local IPC, identidad, trust, heartbeat/reconexion y acciones criticas futuras deben quedar disponibles antes que thumbnails, captura, proyeccion, inventario, transferencias grandes o sync pesado.
+- El Master no espera a que todos los Clients arranquen para quedar operativo; se considera control-plane ready con proceso vivo y almacenamiento listo, aunque el conteo de Clients online sea cero.
+- Boot, `ClientHello`, pairing, registration, reconnect y heartbeat no deben iniciar captura, proyeccion, thumbnails, filesystem sync ni inventario pesado automaticamente.
 - Operaciones pesadas como distribucion, thumbnails o inventario nunca deben impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
 - Cuando Galtek no esta realizando trabajo solicitado, el Client debe quedar casi idle: CPU cercano a 0%, sin captura, sin scanning continuo, sin WMI periodico, sin writes periodicos y sin logs por heartbeat/PING sano.
 - Los budgets de memoria son objetivos de ingenieria, no garantias contractuales: Agent Service preferiblemente <= 60 MB idle, Session Agent <= 40 MB idle, Client combinado <= 100 MB idle; superar aprox. 150 MB combinado en idle requiere justificacion y revision.

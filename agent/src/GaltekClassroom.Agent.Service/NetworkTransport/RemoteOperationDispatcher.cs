@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Protocol.Network.V1;
 
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
@@ -9,12 +10,14 @@ public sealed class RemoteOperationDispatcher
     private readonly IReadOnlyDictionary<NetworkOperationType, IRemoteOperationHandler> _handlers;
     private readonly RemoteOperationOptions _options;
     private readonly ISystemClock _clock;
+    private readonly ILicenseStateProvider? _licenseStateProvider;
     private readonly ConcurrentDictionary<string, OperationState> _operations = new(StringComparer.Ordinal);
 
     public RemoteOperationDispatcher(
         IEnumerable<IRemoteOperationHandler> handlers,
         RemoteOperationOptions options,
-        ISystemClock clock)
+        ISystemClock clock,
+        ILicenseStateProvider? licenseStateProvider = null)
     {
         ArgumentNullException.ThrowIfNull(handlers);
         ArgumentNullException.ThrowIfNull(options);
@@ -25,6 +28,7 @@ public sealed class RemoteOperationDispatcher
             .ToDictionary(group => group.Key, group => group.First());
         _options = options;
         _clock = clock;
+        _licenseStateProvider = licenseStateProvider;
     }
 
     public async Task<RemoteOperationDispatchResult> DispatchAsync(
@@ -69,6 +73,16 @@ public sealed class RemoteOperationDispatcher
                 OperationExecutionStatus.Failed,
                 NetworkOperationErrorCode.ProtocolViolation,
                 "OperationRequest is malformed.",
+                startedAt);
+        }
+
+        if (_licenseStateProvider is not null && !_licenseStateProvider.CurrentState.Active)
+        {
+            return Result(
+                request,
+                OperationExecutionStatus.Failed,
+                NetworkOperationErrorCode.OperationRejected,
+                "Commercial license is not active.",
                 startedAt);
         }
 

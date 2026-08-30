@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 
 namespace GaltekClassroom.Agent.Service.Tests;
@@ -205,6 +207,33 @@ public sealed class MasterNetworkTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task OperationDispatcher_WhenCommercialLicenseIsNotActive_RejectsBeforeHandler()
+    {
+        var handler = new CountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow),
+            new StaticLicenseStateProvider(LicenseState.Blocked(
+                CommercialLicenseStatus.ActivationRequired,
+                FixedNow,
+                "Commercial license has not been resolved yet.")));
+
+        RemoteOperationDispatchResult dispatch = await dispatcher.DispatchAsync(new OperationRequest
+        {
+            OperationId = "operation-license-blocked",
+            OperationType = NetworkOperationType.LockInput,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds()
+        }, CancellationToken.None);
+
+        Assert.Equal(OperationExecutionStatus.Failed, dispatch.Result.Status);
+        Assert.Equal(NetworkOperationErrorCode.OperationRejected, dispatch.Result.ErrorCode);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
     public void ReconnectBackoffIncreasesAndCanBeReset()
     {
         var backoff = new MasterConnectionBackoff(
@@ -220,6 +249,63 @@ public sealed class MasterNetworkTransportTests : IDisposable
         backoff.Reset();
 
         Assert.Equal(TimeSpan.FromSeconds(1), backoff.NextDelay());
+    }
+
+    [Fact]
+    public void ReconnectBackoff_AddsBoundedJitterWithoutRemovingBaseDelay()
+    {
+        var backoff = new MasterConnectionBackoff(
+        [
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(5)
+        ],
+        new ScriptedReconnectJitter(TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(750)),
+        TimeSpan.FromSeconds(1));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(2250), backoff.NextDelay());
+        Assert.Equal(TimeSpan.FromMilliseconds(5750), backoff.NextDelay());
+    }
+
+    [Fact]
+    public void InitialConnectJitter_IsSmallAndCanBeZero()
+    {
+        var zero = new MasterConnectionBackoff(
+            [TimeSpan.FromSeconds(2)],
+            new ScriptedReconnectJitter(TimeSpan.Zero),
+            TimeSpan.FromSeconds(1));
+        var delayed = new MasterConnectionBackoff(
+            [TimeSpan.FromSeconds(2)],
+            new ScriptedReconnectJitter(TimeSpan.FromSeconds(2)),
+            TimeSpan.FromSeconds(1));
+
+        Assert.Equal(TimeSpan.Zero, zero.InitialDelay(TimeSpan.FromSeconds(2)));
+        Assert.Equal(TimeSpan.FromSeconds(2), delayed.InitialDelay(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public void InitialConnectJitter_AllowsMultipleClientsToAvoidPerfectSynchronization()
+    {
+        var plannedInitialDelays = new[]
+        {
+            new MasterConnectionBackoff(
+                [TimeSpan.FromSeconds(2)],
+                new ScriptedReconnectJitter(TimeSpan.Zero),
+                TimeSpan.FromSeconds(1)),
+            new MasterConnectionBackoff(
+                [TimeSpan.FromSeconds(2)],
+                new ScriptedReconnectJitter(TimeSpan.FromMilliseconds(500)),
+                TimeSpan.FromSeconds(1)),
+            new MasterConnectionBackoff(
+                [TimeSpan.FromSeconds(2)],
+                new ScriptedReconnectJitter(TimeSpan.FromMilliseconds(1250)),
+                TimeSpan.FromSeconds(1))
+        }.Select(backoff => backoff.InitialDelay(TimeSpan.FromSeconds(2))).ToArray();
+
+        Assert.All(plannedInitialDelays, delay => Assert.InRange(
+            delay,
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(2)));
+        Assert.True(plannedInitialDelays.Distinct().Count() > 1);
     }
 
     public void Dispose()
@@ -369,6 +455,16 @@ public sealed class MasterNetworkTransportTests : IDisposable
         }
     }
 
+    private sealed class StaticLicenseStateProvider : ILicenseStateProvider
+    {
+        public StaticLicenseStateProvider(LicenseState currentState)
+        {
+            CurrentState = currentState;
+        }
+
+        public LicenseState CurrentState { get; }
+    }
+
     private sealed class RsaNetworkIdentityKeyStore : INetworkIdentityKeyStore, IDisposable
     {
         private readonly Dictionary<string, RSA> _keys = new(StringComparer.Ordinal);
@@ -468,6 +564,32 @@ public sealed class MasterNetworkTransportTests : IDisposable
         private static string Fingerprint(RSA key)
         {
             return Convert.ToHexString(SHA256.HashData(key.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+        }
+    }
+
+    private sealed class ScriptedReconnectJitter : IReconnectJitter
+    {
+        private readonly Queue<TimeSpan> _values;
+
+        public ScriptedReconnectJitter(params TimeSpan[] values)
+        {
+            _values = new Queue<TimeSpan>(values);
+        }
+
+        public TimeSpan NextJitter(TimeSpan maxJitter)
+        {
+            if (_values.Count == 0 || maxJitter <= TimeSpan.Zero)
+            {
+                return TimeSpan.Zero;
+            }
+
+            var value = _values.Dequeue();
+            if (value < TimeSpan.Zero || value > maxJitter)
+            {
+                throw new InvalidOperationException("Scripted jitter value is outside the requested bound.");
+            }
+
+            return value;
         }
     }
 }

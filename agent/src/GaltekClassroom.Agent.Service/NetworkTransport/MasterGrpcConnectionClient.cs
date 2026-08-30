@@ -23,6 +23,7 @@ public sealed class MasterGrpcConnectionClient
     private readonly ISystemClock _clock;
     private readonly MasterConnectionStateTracker _stateTracker;
     private readonly RemoteOperationDispatcher _operationDispatcher;
+    private readonly IReconnectJitter _jitter;
 
     public MasterGrpcConnectionClient(
         ILogger<MasterGrpcConnectionClient> logger,
@@ -33,7 +34,8 @@ public sealed class MasterGrpcConnectionClient
         INetworkIdentityKeyStore keyStore,
         ISystemClock clock,
         MasterConnectionStateTracker stateTracker,
-        RemoteOperationDispatcher operationDispatcher)
+        RemoteOperationDispatcher operationDispatcher,
+        IReconnectJitter jitter)
     {
         _logger = logger;
         _options = options;
@@ -44,6 +46,7 @@ public sealed class MasterGrpcConnectionClient
         _clock = clock;
         _stateTracker = stateTracker;
         _operationDispatcher = operationDispatcher;
+        _jitter = jitter;
     }
 
     public async Task RunAsync(
@@ -60,8 +63,16 @@ public sealed class MasterGrpcConnectionClient
             return;
         }
 
-        var backoff = new MasterConnectionBackoff(_options.ReconnectDelays);
+        var backoff = new MasterConnectionBackoff(
+            _options.ReconnectDelays,
+            _jitter,
+            _options.ReconnectJitterMax);
         var failureStreak = 0;
+        var initialDelay = backoff.InitialDelay(_options.InitialConnectJitterMax);
+        if (initialDelay > TimeSpan.Zero)
+        {
+            await Task.Delay(initialDelay, stoppingToken);
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {

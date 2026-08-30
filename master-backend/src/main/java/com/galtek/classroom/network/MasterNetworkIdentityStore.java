@@ -3,10 +3,10 @@ package com.galtek.classroom.network;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.galtek.classroom.persistence.AtomicFiles;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 
 public class MasterNetworkIdentityStore {
 
@@ -59,14 +59,13 @@ public class MasterNetworkIdentityStore {
             throw new IOException("master-network-identity.json already exists; refusing to overwrite it.");
         }
 
-        Path tempPath = filePath.resolveSibling(filePath.getFileName() + "." + java.util.UUID.randomUUID() + ".tmp");
         try {
-            OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), metadata);
-            Files.move(tempPath, filePath, StandardCopyOption.ATOMIC_MOVE);
+            AtomicFiles.writeAtomically(
+                    filePath,
+                    false,
+                    output -> OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(output, metadata));
         } catch (JsonProcessingException exception) {
             throw new IOException("master-network-identity.json could not be serialized.", exception);
-        } finally {
-            Files.deleteIfExists(tempPath);
         }
     }
 }

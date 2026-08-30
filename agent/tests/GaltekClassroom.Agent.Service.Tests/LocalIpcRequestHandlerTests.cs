@@ -105,6 +105,9 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
         Assert.Equal(identity.InstallationId.ToString("D"), payload.GetProperty("installationId").GetString());
         Assert.Equal("PC-AULA-07", payload.GetProperty("hostname").GetString());
         Assert.Equal("ACTIVATION_REQUIRED", payload.GetProperty("licenseStatus").GetString());
+        Assert.Equal("MINIMAL_READY", payload.GetProperty("startupPhase").GetString());
+        Assert.False(payload.GetProperty("previousShutdownWasUnclean").GetBoolean());
+        Assert.False(payload.GetProperty("recoveryActive").GetBoolean());
         Assert.DoesNotContain("jwt", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("cpuHash", json, StringComparison.Ordinal);
         Assert.DoesNotContain("motherboardHash", json, StringComparison.Ordinal);

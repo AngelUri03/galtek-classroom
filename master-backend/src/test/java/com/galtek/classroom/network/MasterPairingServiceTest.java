@@ -164,6 +164,24 @@ class MasterPairingServiceTest {
     }
 
     @Test
+    void invalidTrustStoreAfterRestartFailsClosed() throws Exception {
+        Fixture fixture = createFixture("invalid-trust-restart");
+        TestClientIdentity client = TestClientIdentity.create();
+        PairingChallenge challenge = fixture.service.createPairingChallenge(client.descriptor(), true).challenge();
+        fixture.service.completePairing(client.responseTo(challenge));
+        Files.writeString(
+                tempDir.resolve("invalid-trust-restart").resolve(PairingConstants.PAIRED_CLIENTS_FILE_NAME),
+                "{ not-json");
+
+        Fixture restarted = createFixture("invalid-trust-restart", fixture.clock, fixture.keyStore);
+        MasterClientAuthorization authorization = restarted.service.isClientAuthorized(client.descriptor());
+
+        assertThat(restarted.trustStore.read().status()).isEqualTo(MasterTrustStoreReadStatus.INVALID);
+        assertThat(authorization.authorized()).isFalse();
+        assertThat(authorization.errorCode()).isEqualTo(ErrorCode.MASTER_NOT_PAIRED);
+    }
+
+    @Test
     void revocationBlocksFutureAuthorizationWithoutDeletingTrustRecord() {
         Fixture fixture = createFixture("revocation");
         TestClientIdentity client = TestClientIdentity.create();

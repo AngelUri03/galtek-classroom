@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using GaltekClassroom.Agent.Service.Persistence;
 using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Identity;
@@ -141,16 +142,8 @@ public sealed class InstallationIdentityStore
         try
         {
             var json = JsonSerializer.Serialize(identity, WriteOptions);
-            await File.WriteAllTextAsync(tempPath, json, Utf8WithoutBom, cancellationToken);
-
-            if (File.Exists(_filePath))
-            {
-                File.Replace(tempPath, _filePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
-            }
-            else
-            {
-                File.Move(tempPath, _filePath);
-            }
+            await DurableFileWriter.WriteTextAsync(tempPath, json, Utf8WithoutBom, cancellationToken);
+            DurableFileWriter.ReplaceOrMove(tempPath, _filePath);
         }
         finally
         {

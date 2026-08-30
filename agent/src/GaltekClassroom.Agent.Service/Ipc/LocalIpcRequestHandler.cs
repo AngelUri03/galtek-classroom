@@ -109,11 +109,15 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
     {
         var identity = _runtimeState.GetInstallationIdentity();
         var licenseState = _licenseManager.CurrentState;
+        var runtime = _runtimeState.Snapshot;
 
         return LocalDeviceStatus.From(
             identity,
             _hostNameProvider.GetHostName(),
-            licenseState);
+            licenseState,
+            runtime.StartupPhase.ToCode(),
+            runtime.PreviousShutdownWasUnclean,
+            runtime.RecoveryActive);
     }
 
     private LocalIpcMachineCodePayload GetMachineCode()

@@ -15,6 +15,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(new RemoteOperationOptions());
         services.AddSingleton<ClientCapabilityProvider>();
         services.AddSingleton<AgentVersionProvider>();
+        services.AddSingleton<IReconnectJitter, RandomReconnectJitter>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();

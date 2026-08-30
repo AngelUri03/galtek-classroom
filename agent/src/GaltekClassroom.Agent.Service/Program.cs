@@ -134,8 +134,8 @@ builder.Services.AddWindowsService(options =>
 });
 
 builder.Services.AddHostedService<Worker>();
-builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
 builder.Services.AddHostedService<LocalIpcServer>();
+builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
 builder.Services.AddHostedService<MasterConnectionHostedService>();
 
 var host = builder.Build();
