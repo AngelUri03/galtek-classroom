@@ -79,13 +79,30 @@ public sealed class SessionAgentBackgroundHostTests
 
         public Task<LocalIpcPingPayload> PingAsync(CancellationToken cancellationToken)
         {
-            PingCalls++;
-            return Task.FromResult(new LocalIpcPingPayload());
+            return Task.FromResult(TryPing(cancellationToken));
+        }
+
+        public Task<LocalAgentIpcResult<LocalIpcPingPayload>> TryPingAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(LocalAgentIpcResult<LocalIpcPingPayload>.Success(
+                TryPing(cancellationToken)));
         }
 
         public Task<LocalDeviceStatus> GetDeviceStatusAsync(CancellationToken cancellationToken)
         {
             return Task.FromResult(new LocalDeviceStatus());
+        }
+
+        public Task<LocalAgentIpcResult<LocalDeviceStatus>> TryGetDeviceStatusAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(LocalAgentIpcResult<LocalDeviceStatus>.Success(new LocalDeviceStatus()));
+        }
+
+        private LocalIpcPingPayload TryPing(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PingCalls++;
+            return new LocalIpcPingPayload();
         }
     }
 }

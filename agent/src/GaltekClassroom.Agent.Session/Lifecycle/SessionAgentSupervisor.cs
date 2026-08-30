@@ -59,11 +59,16 @@ public sealed class SessionAgentSupervisor
 
                 try
                 {
-                    await _client.PingAsync(cancellationToken);
+                    var statusResult = await _client.TryGetDeviceStatusAsync(cancellationToken);
+                    if (!statusResult.Succeeded || statusResult.Payload is null)
+                    {
+                        await _delay.DelayAsync(backoff.NextDelay(), cancellationToken);
+                        continue;
+                    }
+
                     SetState(SessionAgentLifecycleState.Connected);
 
-                    var status = await _client.GetDeviceStatusAsync(cancellationToken);
-                    SetLastDeviceStatus(status);
+                    SetLastDeviceStatus(statusResult.Payload);
                     SetState(SessionAgentLifecycleState.Ready);
                     backoff.Reset();
 
@@ -96,7 +101,11 @@ public sealed class SessionAgentSupervisor
 
             try
             {
-                await _client.PingAsync(cancellationToken);
+                var ping = await _client.TryPingAsync(cancellationToken);
+                if (!ping.Succeeded)
+                {
+                    return;
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

@@ -11,7 +11,7 @@ public sealed class SessionAgentSupervisorTests
     {
         using var cancellation = new CancellationTokenSource();
         var delayObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var client = new ScriptedLocalAgentClient([false], status: CreateStatus());
+        var client = new ScriptedLocalAgentClient(statusResults: [false], pingResults: [], status: CreateStatus());
         var delay = new RecordingDelay((_, _) => delayObserved.TrySetResult(), waitUntilCanceled: true);
         var supervisor = CreateSupervisor(client, delay);
 
@@ -38,7 +38,10 @@ public sealed class SessionAgentSupervisorTests
         using var cancellation = new CancellationTokenSource();
         var readyObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var expectedStatus = CreateStatus("ACTIVE");
-        var client = new ScriptedLocalAgentClient([false, false, true], expectedStatus);
+        var client = new ScriptedLocalAgentClient(
+            statusResults: [false, false, true],
+            pingResults: [],
+            expectedStatus);
         var delay = new RecordingDelay();
         var supervisor = CreateSupervisor(client, delay);
         supervisor.StateChanged += state =>
@@ -55,15 +58,18 @@ public sealed class SessionAgentSupervisorTests
         Assert.True(readyObserved.Task.IsCompleted);
         Assert.Equal(SessionAgentLifecycleState.Stopping, supervisor.State);
         Assert.Equal(expectedStatus, supervisor.LastDeviceStatus);
-        Assert.Equal(3, client.PingCalls);
-        Assert.Equal(1, client.DeviceStatusCalls);
+        Assert.Equal(0, client.PingCalls);
+        Assert.Equal(3, client.DeviceStatusCalls);
     }
 
     [Fact]
     public async Task RunAsync_WhenServiceIsHealthy_PollsAfterHealthyInterval()
     {
         using var cancellation = new CancellationTokenSource();
-        var client = new ScriptedLocalAgentClient([true, true], CreateStatus());
+        var client = new ScriptedLocalAgentClient(
+            statusResults: [true],
+            pingResults: [true],
+            CreateStatus());
         var delay = new RecordingDelay((delayValue, _) =>
         {
             if (delayValue == TimeSpan.FromSeconds(15))
@@ -80,10 +86,36 @@ public sealed class SessionAgentSupervisorTests
     }
 
     [Fact]
+    public async Task RunAsync_WhenInitialStatusSucceeds_DoesNotSendRedundantPingBeforeReady()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var readyObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new ScriptedLocalAgentClient(
+            statusResults: [true],
+            pingResults: [],
+            CreateStatus("ACTIVE"));
+        var supervisor = CreateSupervisor(client, new RecordingDelay());
+        supervisor.StateChanged += state =>
+        {
+            if (state == SessionAgentLifecycleState.Ready)
+            {
+                readyObserved.TrySetResult();
+                cancellation.Cancel();
+            }
+        };
+
+        await supervisor.RunAsync(cancellation.Token).WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(readyObserved.Task.IsCompleted);
+        Assert.Equal(0, client.PingCalls);
+        Assert.Equal(1, client.DeviceStatusCalls);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenCancelled_StopsCleanly()
     {
         using var cancellation = new CancellationTokenSource();
-        var client = new ScriptedLocalAgentClient([false], CreateStatus());
+        var client = new ScriptedLocalAgentClient(statusResults: [false], pingResults: [], status: CreateStatus());
         var delay = new RecordingDelay((_, _) => cancellation.Cancel());
         var supervisor = CreateSupervisor(client, delay);
 
@@ -146,11 +178,16 @@ public sealed class SessionAgentSupervisorTests
 
     private sealed class ScriptedLocalAgentClient : ILocalAgentIpcClient
     {
+        private readonly Queue<bool> _statusResults;
         private readonly Queue<bool> _pingResults;
         private readonly LocalDeviceStatus _status;
 
-        public ScriptedLocalAgentClient(IEnumerable<bool> pingResults, LocalDeviceStatus status)
+        public ScriptedLocalAgentClient(
+            IEnumerable<bool> statusResults,
+            IEnumerable<bool> pingResults,
+            LocalDeviceStatus status)
         {
+            _statusResults = new Queue<bool>(statusResults);
             _pingResults = new Queue<bool>(pingResults);
             _status = status;
         }
@@ -159,7 +196,20 @@ public sealed class SessionAgentSupervisorTests
 
         public int DeviceStatusCalls { get; private set; }
 
-        public Task<LocalIpcPingPayload> PingAsync(CancellationToken cancellationToken)
+        public async Task<LocalIpcPingPayload> PingAsync(CancellationToken cancellationToken)
+        {
+            var result = await TryPingAsync(cancellationToken);
+            if (result.Succeeded && result.Payload is not null)
+            {
+                return result.Payload;
+            }
+
+            throw new LocalAgentIpcException(
+                result.ErrorCode ?? "LOCAL_AGENT_UNAVAILABLE",
+                result.ErrorMessage ?? "Service is down.");
+        }
+
+        public Task<LocalAgentIpcResult<LocalIpcPingPayload>> TryPingAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             PingCalls++;
@@ -167,17 +217,38 @@ public sealed class SessionAgentSupervisorTests
             var isAvailable = _pingResults.Count == 0 || _pingResults.Dequeue();
             if (!isAvailable)
             {
-                throw new LocalAgentIpcException("LOCAL_AGENT_UNAVAILABLE", "Service is down.");
+                return Task.FromResult(LocalAgentIpcResult<LocalIpcPingPayload>.Failure(
+                    "LOCAL_AGENT_UNAVAILABLE",
+                    "Service is down."));
             }
 
-            return Task.FromResult(new LocalIpcPingPayload());
+            return Task.FromResult(LocalAgentIpcResult<LocalIpcPingPayload>.Success(new LocalIpcPingPayload()));
         }
 
-        public Task<LocalDeviceStatus> GetDeviceStatusAsync(CancellationToken cancellationToken)
+        public async Task<LocalDeviceStatus> GetDeviceStatusAsync(CancellationToken cancellationToken)
+        {
+            var result = await TryGetDeviceStatusAsync(cancellationToken);
+            if (result.Succeeded && result.Payload is not null)
+            {
+                return result.Payload;
+            }
+
+            throw new LocalAgentIpcException(
+                result.ErrorCode ?? "LOCAL_AGENT_UNAVAILABLE",
+                result.ErrorMessage ?? "Service is down.");
+        }
+
+        public Task<LocalAgentIpcResult<LocalDeviceStatus>> TryGetDeviceStatusAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             DeviceStatusCalls++;
-            return Task.FromResult(_status);
+
+            var isAvailable = _statusResults.Count == 0 || _statusResults.Dequeue();
+            return Task.FromResult(isAvailable
+                ? LocalAgentIpcResult<LocalDeviceStatus>.Success(_status)
+                : LocalAgentIpcResult<LocalDeviceStatus>.Failure(
+                    "LOCAL_AGENT_UNAVAILABLE",
+                    "Service is down."));
         }
     }
 }

@@ -21,6 +21,7 @@ public sealed class LocalAgentIpcClient : ILocalAgentIpcClient
     {
         WriteIndented = false
     };
+    private static readonly Dictionary<string, object?> EmptyPayload = new(capacity: 0, StringComparer.Ordinal);
 
     private readonly string _pipeName;
     private readonly TimeSpan _connectTimeout;
@@ -46,21 +47,45 @@ public sealed class LocalAgentIpcClient : ILocalAgentIpcClient
         return SendAsync<LocalIpcPingPayload>(LocalIpcOperations.Ping, cancellationToken);
     }
 
+    public Task<LocalAgentIpcResult<LocalIpcPingPayload>> TryPingAsync(CancellationToken cancellationToken)
+    {
+        return TrySendAsync<LocalIpcPingPayload>(LocalIpcOperations.Ping, cancellationToken);
+    }
+
     public Task<LocalDeviceStatus> GetDeviceStatusAsync(CancellationToken cancellationToken)
     {
         return SendAsync<LocalDeviceStatus>(LocalIpcOperations.GetDeviceStatus, cancellationToken);
+    }
+
+    public Task<LocalAgentIpcResult<LocalDeviceStatus>> TryGetDeviceStatusAsync(CancellationToken cancellationToken)
+    {
+        return TrySendAsync<LocalDeviceStatus>(LocalIpcOperations.GetDeviceStatus, cancellationToken);
     }
 
     private async Task<TPayload> SendAsync<TPayload>(
         string operation,
         CancellationToken cancellationToken)
     {
+        var result = await TrySendAsync<TPayload>(operation, cancellationToken);
+        if (result.Succeeded && result.Payload is not null)
+        {
+            return result.Payload;
+        }
+
+        throw new LocalAgentIpcException(
+            result.ErrorCode ?? LocalIpcErrorCodes.InternalError,
+            result.ErrorMessage ?? $"IPC operation failed: {result.ErrorCode ?? LocalIpcErrorCodes.InternalError}.");
+    }
+
+    private async Task<LocalAgentIpcResult<TPayload>> TrySendAsync<TPayload>(
+        string operation,
+        CancellationToken cancellationToken)
+    {
         var requestId = Guid.NewGuid().ToString("D");
-        var request = new LocalIpcRequest
+        var request = new SessionLocalIpcRequest
         {
             RequestId = requestId,
-            Operation = operation,
-            Payload = new Dictionary<string, object?>()
+            Operation = operation
         };
 
         await using var pipe = new NamedPipeClientStream(
@@ -78,48 +103,84 @@ public sealed class LocalAgentIpcClient : ILocalAgentIpcClient
                 cancellationToken);
 
             var responseJson = await LocalIpcFraming.ReadJsonAsync(pipe, cancellationToken);
-            var response = JsonSerializer.Deserialize<LocalIpcResponse>(responseJson, JsonOptions)
-                ?? throw new LocalAgentIpcException(
+            var response = JsonSerializer.Deserialize<LocalIpcResponse>(responseJson, JsonOptions);
+            if (response is null)
+            {
+                return LocalAgentIpcResult<TPayload>.Failure(
                     LocalIpcErrorCodes.MalformedRequest,
                     "IPC response was empty.");
+            }
 
             if (!string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
             {
-                throw new LocalAgentIpcException(
+                return LocalAgentIpcResult<TPayload>.Failure(
                     LocalIpcErrorCodes.ResponseMismatch,
                     "IPC response requestId did not match the request.");
             }
 
             if (!response.Success)
             {
-                throw new LocalAgentIpcException(
-                    response.ErrorCode ?? LocalIpcErrorCodes.InternalError,
-                    $"IPC operation failed: {response.ErrorCode ?? LocalIpcErrorCodes.InternalError}.");
+                var errorCode = response.ErrorCode ?? LocalIpcErrorCodes.InternalError;
+                return LocalAgentIpcResult<TPayload>.Failure(
+                    errorCode,
+                    $"IPC operation failed: {errorCode}.");
             }
 
             if (response.Payload is not JsonElement payload)
             {
-                throw new LocalAgentIpcException(
+                return LocalAgentIpcResult<TPayload>.Failure(
                     LocalIpcErrorCodes.MalformedRequest,
                     "IPC response payload was missing.");
             }
 
-            return payload.Deserialize<TPayload>(JsonOptions)
-                ?? throw new LocalAgentIpcException(
+            var typedPayload = payload.Deserialize<TPayload>(JsonOptions);
+            if (typedPayload is null)
+            {
+                return LocalAgentIpcResult<TPayload>.Failure(
                     LocalIpcErrorCodes.MalformedRequest,
                     "IPC response payload could not be deserialized.");
+            }
+
+            return LocalAgentIpcResult<TPayload>.Success(typedPayload);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (TimeoutException exception)
         {
-            throw new LocalAgentIpcException(
+            return LocalAgentIpcResult<TPayload>.Failure(
                 "LOCAL_AGENT_UNAVAILABLE",
                 $"Local Agent Service did not accept the IPC connection: {exception.Message}");
         }
         catch (IOException exception)
         {
-            throw new LocalAgentIpcException(
+            return LocalAgentIpcResult<TPayload>.Failure(
                 "LOCAL_AGENT_UNAVAILABLE",
                 $"Local Agent Service is unavailable: {exception.Message}");
         }
+        catch (LocalIpcFramingException exception)
+        {
+            return LocalAgentIpcResult<TPayload>.Failure(
+                LocalIpcErrorCodes.MalformedRequest,
+                $"IPC response frame was invalid: {exception.Message}");
+        }
+        catch (JsonException exception)
+        {
+            return LocalAgentIpcResult<TPayload>.Failure(
+                LocalIpcErrorCodes.MalformedRequest,
+                $"IPC response JSON was invalid: {exception.Message}");
+        }
+    }
+
+    private sealed record SessionLocalIpcRequest
+    {
+        public int ProtocolVersion { get; init; } = LocalIpcProtocol.ProtocolVersion;
+
+        public string RequestId { get; init; } = string.Empty;
+
+        public string Operation { get; init; } = string.Empty;
+
+        public object Payload { get; init; } = EmptyPayload;
     }
 }

@@ -13,21 +13,16 @@ if (!commandLine.IsValid)
     return 2;
 }
 
-var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-{
-    WriteIndented = true
-};
-
 if (commandLine.Mode == SessionAgentCommandMode.IpcStatus)
 {
     WindowsConsole.AttachToParentForCommandLine();
-    return await RunIpcStatusAsync(jsonOptions, CancellationToken.None);
+    return await RunIpcStatusAsync(CancellationToken.None);
 }
 
 if (commandLine.Mode == SessionAgentCommandMode.IpcPing)
 {
     WindowsConsole.AttachToParentForCommandLine();
-    return await RunIpcPingAsync(jsonOptions, CancellationToken.None);
+    return await RunIpcPingAsync(CancellationToken.None);
 }
 
 using var shutdown = new CancellationTokenSource();
@@ -64,15 +59,13 @@ finally
     AssemblyLoadContext.Default.Unloading -= unloadHandler;
 }
 
-static async Task<int> RunIpcStatusAsync(
-    JsonSerializerOptions jsonOptions,
-    CancellationToken cancellationToken)
+static async Task<int> RunIpcStatusAsync(CancellationToken cancellationToken)
 {
     try
     {
         var client = new LocalAgentIpcClient();
         var status = await client.GetDeviceStatusAsync(cancellationToken);
-        Console.WriteLine(JsonSerializer.Serialize(status, jsonOptions));
+        Console.WriteLine(JsonSerializer.Serialize(status, CreateConsoleJsonOptions()));
         return 0;
     }
     catch (LocalAgentIpcException exception)
@@ -82,15 +75,13 @@ static async Task<int> RunIpcStatusAsync(
     }
 }
 
-static async Task<int> RunIpcPingAsync(
-    JsonSerializerOptions jsonOptions,
-    CancellationToken cancellationToken)
+static async Task<int> RunIpcPingAsync(CancellationToken cancellationToken)
 {
     try
     {
         var client = new LocalAgentIpcClient();
         var ping = await client.PingAsync(cancellationToken);
-        Console.WriteLine(JsonSerializer.Serialize(ping, jsonOptions));
+        Console.WriteLine(JsonSerializer.Serialize(ping, CreateConsoleJsonOptions()));
         return 0;
     }
     catch (LocalAgentIpcException exception)
@@ -98,4 +89,12 @@ static async Task<int> RunIpcPingAsync(
         await Console.Error.WriteLineAsync($"{exception.ErrorCode}: {exception.Message}");
         return 1;
     }
+}
+
+static JsonSerializerOptions CreateConsoleJsonOptions()
+{
+    return new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
 }

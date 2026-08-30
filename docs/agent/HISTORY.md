@@ -1169,3 +1169,31 @@
 ### Commit sugerido
 
 `perf(agent): optimize service idle runtime`
+
+## 2026-08-30 - Prompt 14.5B
+
+### Realizado
+
+- Optimizado el runtime idle del Session Agent sin cambiar WinExe, AtLogon, RunLevel Limited, mutex por sesion, rechazo de Session 0 ni permanencia ante Service caido.
+- Eliminado el `PING` redundante antes de `GET_DEVICE_STATUS` durante recuperacion/conexion inicial: un solo status confirma Service reachable, IPC functional y estado inicial.
+- Conservado polling saludable por `PING` cada 15 segundos, por ser el request mas pequeno cuando no hay trabajo interactivo.
+- El supervisor usa resultados IPC no excepcionales para offline/retry normal y duerme con backoff `2s/5s/10s/30s`.
+- Reducidas allocations de request IPC del Session Agent con payload vacio estatico y sin crear opciones JSON de consola durante startup background.
+- Agregada prueba para asegurar que no hay `PING` redundante antes de `READY`.
+
+### Cambios descartados
+
+- No se agregaron timers, polling nuevo, conexiones persistentes, WMI, process scanning, filesystem scanning, UI, tray, telemetria ni funciones interactivas.
+- No se cambio el protocolo IPC v1 ni se agrego IPC write.
+- No se modifico Master Java, Agent Service ni Agent.Shared.
+- No se ejecutaron Maven, tests Java ni suite Service.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Session.Tests\GaltekClassroom.Agent.Session.Tests.csproj` en `agent`: correcto, 15 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`perf(session): optimize idle supervisor`
