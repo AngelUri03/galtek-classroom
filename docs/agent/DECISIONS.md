@@ -65,7 +65,7 @@
 - IPC v1 usa `protocolVersion = 1`.
 - IPC v1 limita el payload JSON a 64 KiB.
 - IPC v1 es read-only.
-- IPC v1 solo permite `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE` y `GET_MASTER_AUTHORIZATION`.
+- IPC v1 solo permite `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION` y `GET_RUNTIME_DIAGNOSTICS`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.
 - El Master Backend no lee `installation.json`, no lee `license.dat`, no valida JWT y no reconstruye Machine Code localmente.

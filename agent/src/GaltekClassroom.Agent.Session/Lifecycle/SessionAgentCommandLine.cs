@@ -4,7 +4,9 @@ public enum SessionAgentCommandMode
 {
     Background,
     IpcPing,
-    IpcStatus
+    IpcStatus,
+    RuntimeDiagnostics,
+    AgentRuntimeDiagnostics
 }
 
 public sealed record SessionAgentCommandLine(
@@ -14,13 +16,17 @@ public sealed record SessionAgentCommandLine(
     public bool IsValid => ErrorMessage is null;
 
     public bool IsOneShotIpcCommand =>
-        Mode is SessionAgentCommandMode.IpcPing or SessionAgentCommandMode.IpcStatus;
+        Mode is SessionAgentCommandMode.IpcPing
+            or SessionAgentCommandMode.IpcStatus
+            or SessionAgentCommandMode.AgentRuntimeDiagnostics;
 
     public static SessionAgentCommandLine Parse(string[] args)
     {
         const string backgroundArgument = "--background";
         const string ipcPingArgument = "--ipc-ping";
         const string ipcStatusArgument = "--ipc-status";
+        const string runtimeDiagnosticsArgument = "--runtime-diagnostics";
+        const string agentRuntimeDiagnosticsArgument = "--agent-runtime-diagnostics";
 
         var mode = SessionAgentCommandMode.Background;
         var explicitModeSet = false;
@@ -43,6 +49,23 @@ public sealed record SessionAgentCommandLine(
             if (string.Equals(argument, ipcStatusArgument, StringComparison.OrdinalIgnoreCase))
             {
                 SetMode(SessionAgentCommandMode.IpcStatus, argument, ref mode, ref explicitModeSet, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, runtimeDiagnosticsArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(SessionAgentCommandMode.RuntimeDiagnostics, argument, ref mode, ref explicitModeSet, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, agentRuntimeDiagnosticsArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(
+                    SessionAgentCommandMode.AgentRuntimeDiagnostics,
+                    argument,
+                    ref mode,
+                    ref explicitModeSet,
+                    ref error);
                 continue;
             }
 

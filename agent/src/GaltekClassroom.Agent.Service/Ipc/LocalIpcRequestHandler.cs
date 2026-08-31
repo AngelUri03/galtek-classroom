@@ -95,6 +95,9 @@ public sealed class LocalIpcRequestHandler : ILocalIpcRequestHandler
             LocalIpcOperations.GetMasterAuthorization => LocalIpcResponse.Ok(
                 requestId,
                 await _masterAuthorizationService.GetAuthorizationAsync(clientContext, cancellationToken)),
+            LocalIpcOperations.GetRuntimeDiagnostics => LocalIpcResponse.Ok(
+                requestId,
+                RuntimeDiagnosticsSnapshot.CaptureCurrentProcess(ProductInfo.ServiceDisplayName)),
             _ => LocalIpcResponse.Error(requestId, LocalIpcErrorCodes.OperationNotSupported)
         };
 

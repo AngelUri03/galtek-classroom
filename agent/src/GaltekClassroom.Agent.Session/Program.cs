@@ -1,4 +1,5 @@
 using System.Runtime.Loader;
+using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Agent.Session;
 using GaltekClassroom.Agent.Session.Ipc;
 using GaltekClassroom.Agent.Session.Lifecycle;
@@ -23,6 +24,21 @@ if (commandLine.Mode == SessionAgentCommandMode.IpcPing)
 {
     WindowsConsole.AttachToParentForCommandLine();
     return await RunIpcPingAsync(CancellationToken.None);
+}
+
+if (commandLine.Mode == SessionAgentCommandMode.RuntimeDiagnostics)
+{
+    WindowsConsole.AttachToParentForCommandLine();
+    Console.WriteLine(JsonSerializer.Serialize(
+        RuntimeDiagnosticsSnapshot.CaptureCurrentProcess(ProductInfo.SessionAgentName),
+        CreateConsoleJsonOptions()));
+    return 0;
+}
+
+if (commandLine.Mode == SessionAgentCommandMode.AgentRuntimeDiagnostics)
+{
+    WindowsConsole.AttachToParentForCommandLine();
+    return await RunAgentRuntimeDiagnosticsAsync(CancellationToken.None);
 }
 
 using var shutdown = new CancellationTokenSource();
@@ -82,6 +98,22 @@ static async Task<int> RunIpcPingAsync(CancellationToken cancellationToken)
         var client = new LocalAgentIpcClient();
         var ping = await client.PingAsync(cancellationToken);
         Console.WriteLine(JsonSerializer.Serialize(ping, CreateConsoleJsonOptions()));
+        return 0;
+    }
+    catch (LocalAgentIpcException exception)
+    {
+        await Console.Error.WriteLineAsync($"{exception.ErrorCode}: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RunAgentRuntimeDiagnosticsAsync(CancellationToken cancellationToken)
+{
+    try
+    {
+        var client = new LocalAgentIpcClient();
+        var diagnostics = await client.GetRuntimeDiagnosticsAsync(cancellationToken);
+        Console.WriteLine(JsonSerializer.Serialize(diagnostics, CreateConsoleJsonOptions()));
         return 0;
     }
     catch (LocalAgentIpcException exception)

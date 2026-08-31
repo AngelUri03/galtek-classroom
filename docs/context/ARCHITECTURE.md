@@ -6,6 +6,8 @@ Prompt 14.4 convierte perdida de energia, reinicio abrupto y boot storm en condi
 
 Prompt 14.3 convierte performance y bajo consumo en requisitos arquitectonicos medibles. Agrega modelos puros Java para perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, clases de trabajo de recursos, budgets de memoria/concurrencia, diagnostico on-demand y load shedding. Tambien agrega constantes compartidas C# para esos nombres y corrige ruido claro de idle: requests IPC exitosos y conexion IPC pasan a `DEBUG`, los retries repetidos de gRPC bajan a `DEBUG` y el heartbeat del Agent ya no relee `authorized-masters.json` en cada ciclo.
 
+Prompt 14.5D cierra la optimizacion preventiva inicial y fija el principio "no optimizar sin medir". Agrega snapshots runtime ligeros y on-demand para Agent Service, Session Agent y Master Java con APIs estandar, mas una guia manual de medicion real. No agrega telemetria continua, timers, persistencia, dashboard, Protobuf, scheduler general ni tuning JVM/.NET.
+
 Prompt 14.2 fija el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. Agrega modelos/enums/planners puros para estrategias de asignacion, preparacion progresiva por Device, estados de workspace canonico/local, prioridad operacional, modos de proyeccion, politica normal de `PRIMARY`/`SECONDARY` y reglas de limpieza segura de working copies. No agrega migraciones ni persistencia nueva.
 
 Prompt 14 registra Clients paired como Devices persistentes del Master sin redisenar pairing ni mTLS. El Master conserva la autoridad sobre `deviceId`, persiste el vinculo vigente en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, acepta capabilities tipadas reportadas por `ClientHello` y superpone presencia viva en memoria sobre Devices registrados. El framework de operaciones remotas queda tipado en Protobuf y en el Agent, pero ninguna operacion funcional real se ejecuta todavia; toda operacion sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
@@ -28,7 +30,7 @@ Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master B
 
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
-Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code y autorizacion Master local al Master Backend Java sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
+Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
 Las capacidades operativas de administracion remota siguen planificadas. Prompt 14 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
 
@@ -112,6 +114,7 @@ Politicas futuras:
 - Workspace futuro nunca debe escanear recursivamente todos los `StudentWorkspace` de todas las PCs; sync debe ser incremental, por cambios o por workflow/evento.
 - Logging de produccion: `INFO` solo eventos significativos; sin logs por heartbeat sano, PING sano ni conexion saludable repetitiva; errores repetidos deben rate-limitarse o coalescer conceptualmente.
 - Diagnostico de performance: on-demand, snapshot ligero, sin recoleccion constante, sin persistir telemetria y sin enviarla por heartbeat.
+- Performance tuning adicional requiere medicion reproducible en hardware real.
 
 ## Power-loss resilience y startup rapido
 
@@ -213,6 +216,7 @@ IMPLEMENTADO:
   - `ClientPerformanceBudget`: concurrencia pesada por perfil, budgets idle y regla de no autorizacion por perfil.
   - `MasterPerformanceBudget`: heap objetivo inicial 512 MB, Hikari pequeno y no terminal server/infraestructura distribuida pesada.
   - `LoadSheddingPolicy`, `SheddableWork`, `ResourcePressureState.DEGRADED` y `PerformanceDiagnosticPolicy.onDemandOnly()`.
+  - `RuntimeDiagnosticsSnapshot` Java para heap, non-heap, threads y uptime via MXBeans, calculado solo bajo solicitud.
 - Modelos puros Prompt 14.4:
   - `MasterStartupReadiness` permite `controlPlaneReady()` con proceso vivo y storage listo, sin esperar Clients online.
   - `StartupWorkPolicy` permite solo `CONTROL_CRITICAL` durante startup de control y difiere `VISUAL`, `TRANSFER` y `BACKGROUND` durante recovery.
@@ -443,11 +447,12 @@ IMPLEMENTADO:
 - Named Pipe server versionado `GaltekClassroom.Agent.v1`.
 - Framing IPC con prefijo de longitud de 4 bytes BIG ENDIAN mas JSON UTF-8.
 - Limite maximo de mensaje de 64 KiB.
-- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
+- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
 - `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` para diagnostico local de recovery.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
 - `GET_MASTER_AUTHORIZATION` deriva el SID real del cliente Named Pipe y no acepta SID en el payload.
+- `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del Agent Service con memoria aproximada, CPU acumulado, threads, uptime y GC managed memory.
 - Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no en `INFO`, para evitar logs periodicos durante idle.
 - ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
 
@@ -608,13 +613,13 @@ IMPLEMENTADO:
 
 - Windows Named Pipe `GaltekClassroom.Agent.v1`.
 - `GaltekClassroom.Agent.Service` es el servidor IPC.
-- `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS` en CLI one-shot y en supervisor background.
+- `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS` en CLI one-shot y en supervisor background; tambien puede consultar `GET_RUNTIME_DIAGNOSTICS` bajo solicitud explicita.
 - Master Backend Java consume `GET_DEVICE_STATUS`, `GET_MACHINE_CODE` y `GET_MASTER_AUTHORIZATION`.
 - Protocolo documentado en `protocol/local-ipc-v1.md`.
 - `protocolVersion = 1`.
 - Mensajes JSON UTF-8 con prefijo de longitud de 4 bytes BIG ENDIAN.
 - Limite de payload de 64 KiB.
-- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
+- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - IPC v1 es read-only.
 - El SID de autorizacion Master se deriva del token real del cliente conectado al Named Pipe mediante impersonation; no viene del payload.
 - Version desconocida devuelve `IPC_PROTOCOL_UNSUPPORTED`.

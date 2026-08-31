@@ -6,7 +6,7 @@ Esta es la especificacion canonica cross-language para el IPC local entre:
 - `GaltekClassroom.Agent.Session`
 - `master-backend`
 
-IPC v1 es estrictamente read-only. No define activacion de licencia, cambios de binding ni comandos operativos.
+IPC v1 es estrictamente read-only. No define activacion de licencia, cambios de binding, escritura de configuracion ni comandos operativos.
 
 ## Transporte
 
@@ -215,6 +215,58 @@ Campos sensibles prohibidos:
 
 Esta respuesta solo responde si la cuenta local actual puede usar esta instalacion Master. No autoriza control de clientes remotos, pairing, mTLS ni confianza de red.
 
+### GET_RUNTIME_DIAGNOSTICS
+
+Devuelve un snapshot ligero de runtime del proceso `GaltekClassroom.Agent.Service` en el momento de la solicitud. No inicia timer, no persiste telemetria, no escribe SQLite y no se envia por heartbeat.
+
+Payload de request:
+
+```json
+{}
+```
+
+Payload de respuesta:
+
+```json
+{
+  "product": "GALTEK_CLASSROOM",
+  "component": "Galtek Classroom Agent Service",
+  "capturedAtUtc": "2026-08-30T18:00:00Z",
+  "samplingMode": "ON_DEMAND",
+  "processId": 1234,
+  "processName": "GaltekClassroom.Agent.Service",
+  "startedAtUtc": "2026-08-30T17:45:00Z",
+  "uptime": "00:15:00.0000000",
+  "uptimeMs": 900000,
+  "totalProcessorTime": "00:00:01.2340000",
+  "totalProcessorTimeMs": 1234,
+  "workingSetBytes": 52428800,
+  "privateMemoryBytes": 67108864,
+  "threadCount": 12,
+  "managedMemoryBytes": 8388608
+}
+```
+
+Campos permitidos:
+
+- `product`
+- `component`
+- `capturedAtUtc`
+- `samplingMode`
+- `processId`
+- `processName`
+- `startedAtUtc`
+- `uptime`
+- `uptimeMs`
+- `totalProcessorTime`
+- `totalProcessorTimeMs`
+- `workingSetBytes`
+- `privateMemoryBytes`
+- `threadCount`
+- `managedMemoryBytes`
+
+Los valores son aproximados y dependen del sistema operativo/runtime. No son contrato de producto ni deben convertirse en unit tests de memoria exacta.
+
 ## Errores
 
 Codigos actuales:
@@ -242,6 +294,7 @@ IPC v1 es read-only. Las unicas operaciones permitidas son:
 - `GET_DEVICE_STATUS`
 - `GET_MACHINE_CODE`
 - `GET_MASTER_AUTHORIZATION`
+- `GET_RUNTIME_DIAGNOSTICS`
 
 No estan permitidas operaciones write como activacion, set/update/delete de Master binding, bloqueo, apagado, proyeccion, apertura de aplicaciones ni ejecucion de comandos.
 

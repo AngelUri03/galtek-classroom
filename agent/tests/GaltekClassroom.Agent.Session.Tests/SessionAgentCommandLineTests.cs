@@ -35,6 +35,26 @@ public sealed class SessionAgentCommandLineTests
     }
 
     [Fact]
+    public void Parse_WhenRuntimeDiagnosticsIsSelected_UsesLocalDiagnosticsMode()
+    {
+        var commandLine = SessionAgentCommandLine.Parse(["--runtime-diagnostics"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(SessionAgentCommandMode.RuntimeDiagnostics, commandLine.Mode);
+        Assert.False(commandLine.IsOneShotIpcCommand);
+    }
+
+    [Fact]
+    public void Parse_WhenAgentRuntimeDiagnosticsIsSelected_UsesIpcDiagnosticsMode()
+    {
+        var commandLine = SessionAgentCommandLine.Parse(["--agent-runtime-diagnostics"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(SessionAgentCommandMode.AgentRuntimeDiagnostics, commandLine.Mode);
+        Assert.True(commandLine.IsOneShotIpcCommand);
+    }
+
+    [Fact]
     public void Parse_WhenBackgroundConflictsWithIpcCommand_IsInvalid()
     {
         var commandLine = SessionAgentCommandLine.Parse(["--background", "--ipc-ping"]);

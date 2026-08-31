@@ -7,6 +7,7 @@ using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Shared;
+using System.Text.Json;
 
 var commandLine = AgentCommandLine.Parse(args);
 
@@ -74,6 +75,16 @@ if (commandLine.Mode == AgentCommandMode.NetworkIdentityStatus)
     var status = await statusService.GetStatusAsync(CancellationToken.None);
 
     Console.WriteLine(NetworkIdentityConsoleJsonSerializer.SerializeStatus(status));
+    return;
+}
+
+if (commandLine.Mode == AgentCommandMode.RuntimeDiagnostics)
+{
+    builder.Logging.ClearProviders();
+
+    Console.WriteLine(JsonSerializer.Serialize(
+        RuntimeDiagnosticsSnapshot.CaptureCurrentProcess(ProductInfo.ServiceDisplayName),
+        CreateConsoleJsonOptions()));
     return;
 }
 
@@ -184,4 +195,12 @@ static async Task<string?> ReadLicenseFromFileAsync(
         await Console.Error.WriteLineAsync($"License file could not be read: {exception.Message}");
         return null;
     }
+}
+
+static JsonSerializerOptions CreateConsoleJsonOptions()
+{
+    return new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
 }

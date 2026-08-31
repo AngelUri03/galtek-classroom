@@ -9,7 +9,8 @@ public enum AgentCommandMode
     ActivateLicenseFromFile,
     BindMasterCurrentUser,
     BindMasterAccount,
-    NetworkIdentityStatus
+    NetworkIdentityStatus,
+    RuntimeDiagnostics
 }
 
 public sealed record AgentCommandLine(
@@ -32,6 +33,7 @@ public sealed record AgentCommandLine(
         const string bindMasterAccountArgument = "--bind-master-account";
         const string replaceMasterBindingArgument = "--replace-master-binding";
         const string networkIdentityStatusArgument = "--network-identity-status";
+        const string runtimeDiagnosticsArgument = "--runtime-diagnostics";
 
         var mode = AgentCommandMode.Service;
         var hostArgs = new List<string>();
@@ -105,6 +107,12 @@ public sealed record AgentCommandLine(
             if (string.Equals(argument, networkIdentityStatusArgument, StringComparison.OrdinalIgnoreCase))
             {
                 SetMode(AgentCommandMode.NetworkIdentityStatus, argument, ref mode, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, runtimeDiagnosticsArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.RuntimeDiagnostics, argument, ref mode, ref error);
                 continue;
             }
 

@@ -132,6 +132,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - El Session Agent idle no debe capturar pantalla, pintar overlays, abrir UI, escanear procesos/filesystem ni consultar Windows de forma periodica costosa.
 - Produccion debe usar `INFO` solo para eventos significativos; errores repetitivos deben rate-limitarse o coalescer conceptualmente.
 - Diagnostico de performance solo on-demand: snapshot ligero, sin recoleccion constante, sin persistir telemetria y sin enviarla por heartbeat.
+- Performance tuning adicional requiere medicion reproducible en hardware real.
 - `DEGRADED` es estado de presion de recursos y no equivale a `OFFLINE`.
 - Load shedding debe sacrificar prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes de control critico.
 - Nunca sacrificar primero heartbeat/control basico, `UNLOCK_INPUT`, `STOP_PROJECTION`, recovery, proteccion de workspace o estado de sesion necesario para empezar clase.

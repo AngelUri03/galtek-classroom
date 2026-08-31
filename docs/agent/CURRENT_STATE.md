@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-30 - Prompt 14.5C.
+2026-08-30 - Prompt 14.5D.
 
 ## Estado del proyecto
 
@@ -21,6 +21,8 @@ Prompt 14.5A optimiza de forma concreta el runtime idle del Agent Service sin ca
 Prompt 14.5B optimiza de forma concreta el runtime idle del Session Agent sin cambiar su arquitectura ni agregar funciones interactivas. El supervisor elimina el `PING` redundante antes de `GET_DEVICE_STATUS` al recuperar conexion, conserva polling sano por `PING` cada 15 segundos, usa resultados IPC no excepcionales para el flujo normal offline/retry y evita crear opciones JSON de consola durante startup background.
 
 Prompt 14.5C optimiza de forma concreta el runtime idle del Master Backend sin cambiar arquitectura, seguridad ni comportamiento funcional. El Master conserva SQLite/WAL/`synchronous=NORMAL`, Hikari pequeno, Flyway, `quick_check`, timeout heartbeat de 45 segundos, TLS/mTLS, trust fail-closed y `MasterAccessGuard`. Se reducen timers, threads, queries y allocations sanas en gRPC, presence snapshots, `ClientHello` registrado e IPC local.
+
+Prompt 14.5D cierra formalmente la etapa de optimizacion preventiva inicial. La revision conjunta de Agent Service, Session Agent y Master Backend no encontro contradicciones reales entre 14.5A/B/C en lifecycle, cleanup, shutdown, schedulers, caches ni seguridad. Se agrega diagnostico runtime ligero y on-demand para pruebas reales, sin telemetria continua, timers, persistencia, dashboard, Protobuf, scheduler general ni tuning JVM/.NET.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
@@ -79,7 +81,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Errores estructurados para cuentas/sesion Windows administrada: `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `WINDOWS_SESSION_UNKNOWN`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED`, `SESSION_SWITCH_FAILED` y `CREDENTIAL_PROVIDER_UNAVAILABLE`.
 - Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
-- Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`.
+- Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del proceso real `GaltekClassroom.Agent.Service`: working set aproximado, private memory aproximada, CPU acumulado, thread count, uptime y GC managed memory aproximada.
 - El transporte IPC local del Master usa virtual threads por intercambio en vez de un cached pool de threads de plataforma.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
 - Agent Service como autoridad local de Installation Identity, Commercial License y Master Windows Binding.
@@ -158,16 +161,21 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `GET_DEVICE_STATUS` ahora incluye `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive`.
 - Session Agent background/autostart via Scheduled Task `GaltekClassroomSessionAgent`; conserva WinExe, AtLogon, RunLevel Limited, mutex por sesion, rechazo de Session 0 y permanencia aunque el Service este caido.
 - Session Agent optimizado en Prompt 14.5B: recuperacion inicial con un solo `GET_DEVICE_STATUS`, polling saludable por `PING` cada 15 segundos, backoff `2s/5s/10s/30s`, resultados IPC no excepcionales en el supervisor y sin opciones JSON de consola durante startup background.
+- `GaltekClassroom.Agent.Service.exe --runtime-diagnostics` emite snapshot on-demand del proceso actual del Service en modo consola/diagnostico.
+- `GaltekClassroom.Agent.Session.exe --agent-runtime-diagnostics` consulta por IPC read-only el snapshot runtime del Agent Service.
+- `GaltekClassroom.Agent.Session.exe --runtime-diagnostics` emite snapshot on-demand del proceso Session que ejecuta el diagnostico local.
+- El Master Backend agrega `RuntimeDiagnosticsSnapshot` basado en `MemoryMXBean`, `ThreadMXBean` y `RuntimeMXBean`, invocable con `--runtime-diagnostics` sin levantar Spring.
+- `docs/testing/PERFORMANCE_VALIDATION.md` documenta medicion manual real para Client legacy idle/offline/online, Master 0 Clients, Master aprox. 26 Clients, startup y `CLASS_TIME_TO_READY`.
 - Documentacion de API, contexto, arquitectura, modelo funcional, reglas, decisiones, estado e historial actualizada.
 - Contratos compartidos C# para perfiles de performance, clases de trabajo de recursos, estado `DEGRADED` y trabajo sacrificable futuro.
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 14.5C.
+- Ningun desarrollo activo dejado a medias dentro del Prompt 14.5D.
 
 ## Pendiente inmediato
 
-- No queda pendiente inmediato dentro del alcance de Prompt 14.5C.
+- No queda pendiente inmediato dentro del alcance de Prompt 14.5D.
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
@@ -176,11 +184,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
 - Implementar sync real, USB real y distribucion real en fases posteriores sin romper la regla `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Implementar preview/captura/proyeccion real en fases posteriores distinguiendo modos y costos.
-- Implementar scheduler/backpressure real, medicion con profiling real, deteccion conservadora de perfil y diagnostico on-demand en fases posteriores.
+- Implementar scheduler/backpressure real, medicion con profiling real y deteccion conservadora de perfil en fases posteriores solo con evidencia.
 - Implementar reconciliacion real de operaciones remotas inciertas y workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
-- Prompt 14.5A, 14.5B y 14.5C quedan cerrados; Prompt 14.5D sigue pendiente y no fue implementado.
+- Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
 ## Cambios aceptados
@@ -223,6 +231,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Los perfiles de performance no son identidad, trust, pairing ni autorizacion.
 - `DEGRADED` representa presion de recursos y no equivale a `OFFLINE`.
 - Diagnostico de performance debe ser on-demand, sin telemetria continua ni envio por heartbeat.
+- Performance tuning adicional requiere medicion reproducible en hardware real.
 - Load shedding sacrifica prefetch, inventario no esencial, thumbnails, calidad/FPS de preview, transferencias no urgentes y background antes que control critico.
 - El Master no es terminal server; aplicaciones interactivas de alumnos corren localmente en Clients.
 - `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni restringen apps/input/sesion sin accion administrativa explicita futura.
@@ -287,10 +296,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
-- `mvn '-Dtest=MasterNetworkHeartbeatMonitorTest,MasterNetworkTransportTest,MasterPairingServiceTest,NetworkClientControllerTest,MasterAdminControllerTest,WindowsNamedPipeLocalAgentClientTest' test` en `master-backend`: correcto, 44 pruebas superadas.
-- `mvn test` en `master-backend`: correcto, 136 pruebas superadas.
-- No se ejecuto .NET en Prompt 14.5C.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 17 pruebas Session y 124 pruebas Service superadas.
+- `mvn clean verify` en `master-backend`: correcto, 137 pruebas superadas y jar generado.
+- `C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
+- `C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
+- `java -jar .\target\galtek-classroom-master-backend-0.1.0-SNAPSHOT.jar --runtime-diagnostics` en `master-backend`: correcto, emitio JSON runtime.
 
 ## Proximo paso recomendado
 
-Elegir explicitamente el siguiente alcance. Prompt 14.5A, 14.5B y 14.5C quedan cerrados. Prompt 14.5D, discovery/mDNS, UI, filesystem/sync real, USB real, proyeccion/captura real, scheduler/backpressure real, diagnostico on-demand productivo, reconciliacion real de operaciones inciertas y handlers reales de operaciones remotas siguen para fases posteriores.
+Avanzar a Prompt 15 solo con capacidades reales de producto. Medir impacto cuando aparezcan hot paths nuevos, optimizar incrementalmente y no hacer otra auditoria general de performance sin evidencia.

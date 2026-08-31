@@ -57,6 +57,13 @@ public sealed class LocalAgentIpcClient : ILocalAgentIpcClient
         return SendAsync<LocalDeviceStatus>(LocalIpcOperations.GetDeviceStatus, cancellationToken);
     }
 
+    public Task<RuntimeDiagnosticsSnapshot> GetRuntimeDiagnosticsAsync(CancellationToken cancellationToken)
+    {
+        return SendAsync<RuntimeDiagnosticsSnapshot>(
+            LocalIpcOperations.GetRuntimeDiagnostics,
+            cancellationToken);
+    }
+
     public Task<LocalAgentIpcResult<LocalDeviceStatus>> TryGetDeviceStatusAsync(CancellationToken cancellationToken)
     {
         return TrySendAsync<LocalDeviceStatus>(LocalIpcOperations.GetDeviceStatus, cancellationToken);

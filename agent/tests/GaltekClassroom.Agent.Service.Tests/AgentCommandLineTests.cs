@@ -55,4 +55,13 @@ public sealed class AgentCommandLineTests
         Assert.True(commandLine.IsValid);
         Assert.Equal(AgentCommandMode.NetworkIdentityStatus, commandLine.Mode);
     }
+
+    [Fact]
+    public void Parse_WhenRuntimeDiagnosticsIsSelected_UsesRuntimeDiagnosticsMode()
+    {
+        var commandLine = AgentCommandLine.Parse(["--runtime-diagnostics"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.RuntimeDiagnostics, commandLine.Mode);
+    }
 }

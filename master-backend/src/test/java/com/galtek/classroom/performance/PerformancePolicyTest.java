@@ -74,6 +74,20 @@ class PerformancePolicyTest {
     }
 
     @Test
+    void runtimeDiagnosticsSnapshotUsesStandardMxBeansOnDemand() {
+        var snapshot = RuntimeDiagnosticsSnapshot.capture("test-master");
+
+        assertThat(snapshot.product()).isEqualTo("GALTEK_CLASSROOM");
+        assertThat(snapshot.component()).isEqualTo("test-master");
+        assertThat(snapshot.samplingMode()).isEqualTo("ON_DEMAND");
+        assertThat(snapshot.heapUsedBytes()).isGreaterThanOrEqualTo(0);
+        assertThat(snapshot.heapCommittedBytes()).isGreaterThanOrEqualTo(snapshot.heapUsedBytes());
+        assertThat(snapshot.nonHeapUsedBytes()).isGreaterThanOrEqualTo(0);
+        assertThat(snapshot.liveThreadCount()).isPositive();
+        assertThat(snapshot.uptimeMs()).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
     void performanceProfilesDoNotGrantAuthorization() {
         assertThat(ClientPerformanceBudget.forProfile(DevicePerformanceProfile.STANDARD).profileGrantsAuthorization())
                 .isFalse();

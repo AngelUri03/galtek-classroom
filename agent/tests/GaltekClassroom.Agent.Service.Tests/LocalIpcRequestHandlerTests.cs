@@ -141,6 +141,31 @@ public sealed class LocalIpcRequestHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task HandleAsync_WhenRuntimeDiagnosticsIsRequested_ReturnsOnDemandSnapshot()
+    {
+        var handler = CreateHandler();
+        var requestId = Guid.NewGuid().ToString("D");
+
+        var responseJson = await handler.HandleAsync(JsonSerializer.Serialize(new LocalIpcRequest
+        {
+            RequestId = requestId,
+            Operation = LocalIpcOperations.GetRuntimeDiagnostics
+        }, JsonOptions), CancellationToken.None);
+
+        using var document = JsonDocument.Parse(responseJson);
+        var payload = document.RootElement.GetProperty("payload");
+
+        Assert.True(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal(ProductInfo.ProductCode, payload.GetProperty("product").GetString());
+        Assert.Equal(ProductInfo.ServiceDisplayName, payload.GetProperty("component").GetString());
+        Assert.Equal("ON_DEMAND", payload.GetProperty("samplingMode").GetString());
+        Assert.Equal(Environment.ProcessId, payload.GetProperty("processId").GetInt32());
+        Assert.True(payload.GetProperty("managedMemoryBytes").GetInt64() >= 0);
+        Assert.True(payload.GetProperty("workingSetBytes").GetInt64() > 0);
+        Assert.True(payload.GetProperty("threadCount").GetInt32() > 0);
+    }
+
+    [Fact]
     public async Task HandleAsync_WhenMasterAuthorizationHasNoBinding_ReturnsNotConfigured()
     {
         var handler = CreateHandler();

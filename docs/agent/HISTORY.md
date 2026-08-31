@@ -1230,3 +1230,47 @@
 ### Commit sugerido
 
 `perf(master): optimize backend idle runtime`
+
+## 2026-08-30 - Prompt 14.5D
+
+### Realizado
+
+- Cerrada formalmente la etapa de optimizacion preventiva inicial de Galtek Classroom.
+- Revisada la consistencia conjunta de Prompt 14.5A, 14.5B y 14.5C en Agent Service, Session Agent y Master Backend.
+- No se encontraron contradicciones reales en lifecycle, cleanup/disposal, shutdown, schedulers, caches, races claras ni debilitamiento accidental de seguridad.
+- Agregado `RuntimeDiagnosticsSnapshot` compartido .NET para snapshot on-demand del proceso actual con working set aproximado, private memory aproximada, CPU acumulado, thread count, uptime y GC managed memory aproximada.
+- Agregada operacion IPC read-only `GET_RUNTIME_DIAGNOSTICS` para medir el proceso real `GaltekClassroom.Agent.Service` bajo solicitud explicita.
+- Agregado `GaltekClassroom.Agent.Service.exe --runtime-diagnostics` para diagnostico local del proceso actual del Service en modo consola.
+- Agregado `GaltekClassroom.Agent.Session.exe --agent-runtime-diagnostics` para consultar por IPC el snapshot runtime del Agent Service.
+- Agregado `GaltekClassroom.Agent.Session.exe --runtime-diagnostics` para diagnostico local del proceso Session que ejecuta el comando.
+- Agregado `RuntimeDiagnosticsSnapshot` Java basado en `MemoryMXBean`, `ThreadMXBean` y `RuntimeMXBean`.
+- Agregado `--runtime-diagnostics` en Master Java para snapshot local ligero sin levantar Spring.
+- Creada `docs/testing/PERFORMANCE_VALIDATION.md` con escenarios manuales Client legacy idle, Master offline/online, Master 0 Clients, Master aprox. 26 Clients, startup y `CLASS_TIME_TO_READY`.
+- Actualizada regla permanente: performance tuning adicional requiere medicion reproducible en hardware real.
+- Prompt 14.5A CLOSED.
+- Prompt 14.5B CLOSED.
+- Prompt 14.5C CLOSED.
+- Prompt 14.5D CLOSED.
+
+### Cambios descartados
+
+- No se implementaron nuevas funciones operativas.
+- No se implementaron captura, filesystem, UI, mDNS, Windows handlers, scheduler general ni Prompt 15.
+- No se agregaron timers, telemetry service, persistencia, SQLite, dashboard, Prometheus, Micrometer adicional, historico ni envio periodico al Master.
+- No se modifico Protobuf ni se agrego IPC write.
+- No se hizo tuning JVM ni .NET: sin `-Xmx`, `-Xms`, flags GC, Netty flags, GC overrides, ReadyToRun, trimming, NativeAOT, single-file ni `GCHeapHardLimit`.
+- No se cambiaron packaging self-contained ni perfiles `LEGACY`, `STANDARD`, `MASTER_BALANCED`.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 17 pruebas Session y 124 pruebas Service superadas.
+- `mvn clean verify` en `master-backend`: correcto, 137 pruebas superadas y jar generado.
+- `C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
+- `C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
+- `java -jar .\target\galtek-classroom-master-backend-0.1.0-SNAPSHOT.jar --runtime-diagnostics` en `master-backend`: correcto, emitio JSON runtime.
+
+### Commit sugerido
+
+`perf: close initial runtime optimization phase`
