@@ -1274,3 +1274,36 @@
 ### Commit sugerido
 
 `perf: close initial runtime optimization phase`
+
+## 2026-08-30 - Prompt 15A
+
+### Realizado
+
+- Implementadas las primeras operaciones remotas productivas del Agent: `SHUTDOWN` y `RESTART`.
+- Agregados `ShutdownOperationHandler` y `RestartOperationHandler` como handlers tipados explicitos sobre `RemoteOperationDispatcher`.
+- Agregada abstraccion injectable `IWindowsPowerController` para aislar pruebas de la llamada nativa real.
+- Agregado `WindowsPowerController` productivo con `InitiateSystemShutdownExW`, habilitacion explicita de `SeShutdownPrivilege`, countdown fijo de 10 segundos, mensaje constante y `forceAppsClosed=false`.
+- Agregada capability Protobuf `POWER_CONTROL_V1` y mapeo Java a `DeviceCapability.POWER_CONTROL_V1`.
+- Agregados errores estructurados `POWER_CONTROL_UNAVAILABLE` y `POWER_CONTROL_FAILED`.
+- Conservada la deduplicacion por `operationId`; una request duplicada no programa dos solicitudes de power control.
+- Conservado bloqueo por Commercial License activa antes de ejecutar handlers.
+- Documentada la semantica: `SUCCESS` significa que Windows acepto la solicitud, no que el equipo ya esta apagado o reiniciado.
+
+### Cambios descartados
+
+- No se implemento endpoint/batch de Master para enviar operaciones; queda para Prompt 15B.
+- No se implementaron UI, Session Agent, IPC Service -> Session, scheduler, worker, timers ni reconciliacion Master.
+- No se implementaron otras operaciones Windows ni handlers genericos.
+- No se uso `shutdown.exe`, `cmd.exe`, PowerShell, scripts, WMI shell, `Process.Start`, `SendKeys`, force-close ni elevacion de procesos.
+- No se ejecuto manualmente SHUTDOWN ni RESTART en la computadora de desarrollo.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests|FullyQualifiedName~OperationContractsTests"` en `agent`: correcto, 31 pruebas superadas.
+- `mvn -Dtest=MasterNetworkTransportTest test` en `master-backend`: correcto, 14 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): implement secure power control operations`

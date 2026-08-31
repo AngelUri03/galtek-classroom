@@ -154,6 +154,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.HeartbeatV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.OperationFrameworkV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.SessionAgentAvailable, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.PowerControlV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
     }
@@ -204,6 +205,24 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.True(second.Duplicate);
         Assert.Equal(1, handler.Calls);
         Assert.Equal(first.Result.CompletedAtUnixMs, second.Result.CompletedAtUnixMs);
+    }
+
+    [Fact]
+    public async Task RevokedMasterIsRejectedBeforeOperationHandlerCanRun()
+    {
+        var clientIdentity = CreateClientIdentity();
+        var master = CreateTrustedMaster("master-key", PairingStatus.Revoked);
+        var handler = new CountingOperationHandler();
+        await SaveTrustAsync(clientIdentity, master.Record);
+
+        var resolved = await CreateResolver().ResolveAsync(
+            MasterNetworkIdentityId,
+            clientIdentity,
+            CancellationToken.None);
+
+        Assert.False(resolved.Trusted);
+        Assert.Equal(PairingStatus.Revoked, resolved.Status);
+        Assert.Equal(0, handler.Calls);
     }
 
     [Fact]

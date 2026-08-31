@@ -107,7 +107,7 @@
 - `REVOKED` bloquea administracion del Client y no se reutiliza silenciosamente.
 - IP, MAC y hostname no autorizan administracion.
 - Licencia MASTER valida no crea pairing con Clients.
-- mDNS real, discovery real, endpoints reales de pairing/discovery sobre red y comandos remotos siguen pendientes.
+- mDNS real, discovery real, endpoints reales de pairing/discovery sobre red y comandos remotos restantes siguen pendientes.
 - El transporte seguro de Prompt 13 usa el trust ya establecido y no redisena pairing.
 - Prompt 14 construyo registro/capabilities y framework de operaciones sobre este transporte, sin redisenar pairing/mTLS ni agregar comandos remotos genericos.
 - `Network Identity`, `Pairing`, `Device` y `Student` son conceptos distintos y no deben colapsarse en una sola identidad.
@@ -115,11 +115,18 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; una operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED` y no toca Windows.
+- El Agent deduplica operaciones por `operationId`; `SHUTDOWN` y `RESTART` tienen handlers reales en el Agent y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
+- `SHUTDOWN` y `RESTART` pertenecen al Agent Service, no al Session Agent.
+- Power control productivo usa API nativa Windows, actualmente `InitiateSystemShutdownExW`.
+- Antes de solicitar power control, el Agent habilita explicitamente `SeShutdownPrivilege` con APIs Windows soportadas.
+- Power control usa countdown fijo inicial de 10 segundos y mensaje constante; el Master no envia timeout arbitrario, `force=true` ni mensajes arbitrarios para estas operaciones.
+- Power control no fuerza cierre de aplicaciones en esta version.
+- `OperationResult SUCCESS` para `SHUTDOWN` y `RESTART` significa que Windows acepto la solicitud, no que la PC ya se apago o reinicio.
+- Fallos de power control se reportan como `POWER_CONTROL_UNAVAILABLE` no retryable o `POWER_CONTROL_FAILED` retryable, sin exponer codigos Win32 crudos como mensaje principal.
 - El `installationId` sera permanente y correspondera al `sub` de la licencia.
 - La validacion de hardware sera tolerante: 3 de 4 hashes deben coincidir.
 - La validacion completa de Commercial License obtiene el fingerprint de hardware actual al arrancar y al activar/renovar; el monitor de 60 segundos solo revisa expiracion temporal.

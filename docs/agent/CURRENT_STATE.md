@@ -2,13 +2,13 @@
 
 ## Ultima actualizacion
 
-2026-08-30 - Prompt 14.5D.
+2026-08-30 - Prompt 15A.
 
 ## Estado del proyecto
 
 Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity. El Client conserva su Network Identity en `GaltekClassroom.Agent.Service`; el Master Backend agrega una Network Identity propia, private key cifrada fuera de SQLite/JSON plano y trust store local. El pairing requiere intencion explicita, usa challenge/response firmado, expira challenges, bloquea replay, persiste trust en ambos lados y permite revocacion.
 
-Prompt 14 implementa registro real de Devices sobre Clients paired, capabilities tipadas y framework de operaciones no ejecutable. El Master genera `deviceId`, persiste el vinculo Device -> Network Identity en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, y mantiene presencia viva principalmente en memoria. El Agent anuncia capabilities reales (`HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`) y responde operaciones sin handler con `OPERATION_NOT_IMPLEMENTED`, sin ejecutar acciones Windows.
+Prompt 14 implementa registro real de Devices sobre Clients paired, capabilities tipadas y framework de operaciones. El Master genera `deviceId`, persiste el vinculo Device -> Network Identity en `device_network_bindings`, expone `GET /api/network/clients` y `POST /api/classrooms/{classroomId}/devices/register`, y mantiene presencia viva principalmente en memoria.
 
 Prompt 14.2 formaliza el modelo operativo real del aula primaria y la arquitectura Master/Client sin implementar operaciones Windows reales. El Master conserva workspaces canonicos y orquestacion; los Clients ejecutan aplicaciones localmente y conservan working copies. `PRIMARY` y `SECONDARY` son Windows normal por default, no kiosco. La preparacion del aula es progresiva por Device, `CLASS_TIME_TO_READY` queda como KPI principal y ninguna PC lenta debe bloquear a las demas.
 
@@ -24,13 +24,15 @@ Prompt 14.5C optimiza de forma concreta el runtime idle del Master Backend sin c
 
 Prompt 14.5D cierra formalmente la etapa de optimizacion preventiva inicial. La revision conjunta de Agent Service, Session Agent y Master Backend no encontro contradicciones reales entre 14.5A/B/C en lifecycle, cleanup, shutdown, schedulers, caches ni seguridad. Se agrega diagnostico runtime ligero y on-demand para pruebas reales, sin telemetria continua, timers, persistencia, dashboard, Protobuf, scheduler general ni tuning JVM/.NET.
 
+Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `SHUTDOWN` y `RESTART`. Llegan exclusivamente por `OperationRequest` sobre el transporte gRPC/mTLS existente, despues de trust `PAIRED`, no `REVOKED`, Device correcto, Commercial License activa y dispatcher autorizado. El Agent anuncia `POWER_CONTROL_V1`, ejecuta power control con API nativa Windows, habilita `SeShutdownPrivilege`, usa countdown fijo de 10 segundos, no fuerza cierre de aplicaciones y devuelve `SUCCESS` solo cuando Windows acepta la solicitud.
+
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni comandos remotos funcionales.
+El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni endpoint/batch de Master para enviar operaciones remotas.
 
 ## Implementado
 
@@ -121,8 +123,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`; capabilities desconocidas se ignoran y no autorizan.
-- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler, sin ejecutar acciones Windows.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`; capabilities desconocidas se ignoran y no autorizan.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
+- `ShutdownOperationHandler` y `RestartOperationHandler` son handlers tipados explicitos para `SHUTDOWN` y `RESTART`; no existe handler generico de comandos.
+- `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
+- `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
+- `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
+- Fallos de power control se mapean a `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED` sin exponer stack traces, rutas, tokens ni codigos Win32 crudos como mensaje principal.
 - `RemoteOperationDispatcher` rechaza ejecucion de handlers si Commercial License no esta activa, preservando el bloqueo comercial tras diferir la validacion completa.
 - El cache de deduplicacion de `RemoteOperationDispatcher` queda acotado por retencion y maximo de operation IDs completados, con limpieza lazy durante dispatch y sin timers nuevos.
 - IPC saludable reduce allocations: `PING` reutiliza payload inmutable, `GET_DEVICE_STATUS` reutiliza roles/features vacios cuando aplica y `LocalIpcFraming.WriteJsonAsync` evita construir un frame duplicado completo en memoria.
@@ -171,7 +178,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Ningun desarrollo activo dejado a medias dentro del Prompt 14.5D.
+- Prompt 15A cerrado tecnicamente.
+- No queda desarrollo 15A a medias.
+- Prompt 15B es el siguiente alcance: dispatch/batch desde Master.
 
 ## Pendiente inmediato
 
@@ -187,7 +196,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar scheduler/backpressure real, medicion con profiling real y deteccion conservadora de perfil en fases posteriores solo con evidencia.
 - Implementar reconciliacion real de operaciones remotas inciertas y workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
-- Implementar comandos administrativos remotos tipados en fases posteriores sobre el transporte seguro.
+- Implementar en Prompt 15B el endpoint/batch de Master que envie operaciones remotas por el transporte seguro.
+- Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
@@ -216,7 +226,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado, deduplicado por `operationId` y sin handlers Windows reales; operaciones no implementadas devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `SHUTDOWN` y `RESTART` tienen handlers reales en el Agent, y las operaciones restantes sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- Power control del Agent usa API nativa Windows, no shell ni procesos externos.
+- `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
+- `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
+- `POWER_CONTROL_UNAVAILABLE` no es retryable; `POWER_CONTROL_FAILED` representa fallo operacional potencialmente transitorio.
 - `students/batch` permite parcialidad por fila; un alumno invalido no cancela los demas.
 - `assignments/batch` preflight completo antes de writes; `TARGET_OCCUPIED` no reemplaza automaticamente.
 - El Master no almacena ni envia passwords de cuentas Windows administradas; la UI no recibe secretos.
@@ -297,12 +311,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
-- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 17 pruebas Session y 124 pruebas Service superadas.
-- `mvn clean verify` en `master-backend`: correcto, 137 pruebas superadas y jar generado.
-- `C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
-- `C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --runtime-diagnostics` en `agent`: correcto, emitio JSON runtime.
-- `java -jar .\target\galtek-classroom-master-backend-0.1.0-SNAPSHOT.jar --runtime-diagnostics` en `master-backend`: correcto, emitio JSON runtime.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests|FullyQualifiedName~OperationContractsTests"` en `agent`: correcto, 31 pruebas superadas.
+- `mvn -Dtest=MasterNetworkTransportTest test` en `master-backend`: correcto, 14 pruebas superadas.
 
 ## Proximo paso recomendado
 
-Avanzar a Prompt 15 solo con capacidades reales de producto. Medir impacto cuando aparezcan hot paths nuevos, optimizar incrementalmente y no hacer otra auditoria general de performance sin evidencia.
+Avanzar a Prompt 15B para que el Master envie `SHUTDOWN`/`RESTART` por el framework seguro existente. No agregar UI ni otras operaciones Windows antes de definir ese dispatch.

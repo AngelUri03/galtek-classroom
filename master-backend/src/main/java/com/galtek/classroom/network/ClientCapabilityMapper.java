@@ -32,6 +32,7 @@ public final class ClientCapabilityMapper {
             case NETWORK_CAPABILITY_HEARTBEAT_V1 -> DeviceCapability.HEARTBEAT_V1;
             case NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1 -> DeviceCapability.OPERATION_FRAMEWORK_V1;
             case NETWORK_CAPABILITY_SESSION_AGENT_AVAILABLE -> DeviceCapability.SESSION_AGENT_AVAILABLE;
+            case NETWORK_CAPABILITY_POWER_CONTROL_V1 -> DeviceCapability.POWER_CONTROL_V1;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

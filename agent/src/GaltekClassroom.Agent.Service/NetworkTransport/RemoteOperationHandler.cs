@@ -16,6 +16,14 @@ public sealed record RemoteOperationHandlerResult(
     NetworkOperationErrorCode ErrorCode,
     string Message)
 {
+    public static RemoteOperationHandlerResult Success(string message)
+    {
+        return new RemoteOperationHandlerResult(
+            OperationExecutionStatus.Success,
+            NetworkOperationErrorCode.Unspecified,
+            message);
+    }
+
     public static RemoteOperationHandlerResult NotImplemented()
     {
         return new RemoteOperationHandlerResult(

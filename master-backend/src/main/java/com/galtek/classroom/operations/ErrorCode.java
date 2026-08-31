@@ -79,6 +79,8 @@ public enum ErrorCode {
     OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true),
     OPERATION_NOT_FOUND(ErrorCategory.OPERATION, false),
     OPERATION_NOT_IMPLEMENTED(ErrorCategory.OPERATION, false),
+    POWER_CONTROL_UNAVAILABLE(ErrorCategory.OPERATION, false),
+    POWER_CONTROL_FAILED(ErrorCategory.OPERATION, true),
 
     MASTER_DATABASE_UNAVAILABLE(ErrorCategory.PERSISTENCE, true),
     MASTER_DATABASE_CORRUPT(ErrorCategory.PERSISTENCE, false),

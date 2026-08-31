@@ -70,7 +70,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas y framework de operaciones sin ejecucion real todavia.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas y framework de operaciones tipadas. `SHUTDOWN` y `RESTART` ya tienen ejecucion productiva en el Agent; las demas operaciones continuan pendientes.
 - Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
@@ -95,7 +95,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS minimo para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; todavia no existe mDNS real ni comandos remotos funcionales.
+- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent y todavia no existe mDNS real ni endpoint/batch de Master para enviarlas.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - Prompt 14.4 agrega resiliencia ante apagones, startup rapido, markers de ejecucion, escrituras atomicas/durables para archivos criticos y jitter de reconexion sin implementar comandos Windows reales.

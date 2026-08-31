@@ -240,6 +240,28 @@ class MasterNetworkTransportTest {
     }
 
     @Test
+    void powerControlCapabilityIsMappedFromClientHello() throws Exception {
+        Fixture fixture = createFixture("power-control-capability");
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+
+        requests.onNext(helloEnvelope(client, "PC01", List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
+                NetworkCapability.NETWORK_CAPABILITY_POWER_CONTROL_V1), null));
+
+        assertThat(fixture.registry.find(client.descriptor().clientNetworkIdentityId()))
+                .get()
+                .satisfies(snapshot -> assertThat(snapshot.capabilities())
+                        .contains(
+                                DeviceCapability.HEARTBEAT_V1,
+                                DeviceCapability.OPERATION_FRAMEWORK_V1,
+                                DeviceCapability.POWER_CONTROL_V1));
+    }
+
+    @Test
     void heartbeatDoesNotRecordPersistentConnectionWrites() throws Exception {
         MutableClock clock = new MutableClock(FIXED_NOW);
         CountingNetworkClientConnectionService connectionService = new CountingNetworkClientConnectionService();

@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `SHUTDOWN` y `RESTART`. Se ejecutan solo cuando una `OperationRequest` valida llega por el transporte seguro existente y pasa por `RemoteOperationDispatcher`. El Service usa una abstraccion testeable `IWindowsPowerController`; la implementacion productiva habilita `SeShutdownPrivilege` y solicita apagado/reinicio mediante API nativa Windows con countdown fijo de 10 segundos, sin force-close, shell, scripts, WMI ni procesos externos. `SUCCESS` significa que Windows acepto la solicitud, no que el equipo ya este apagado.
+
 Prompt 14.4 convierte perdida de energia, reinicio abrupto y boot storm en condiciones normales de diseno. El Agent separa startup minimo de validaciones pesadas: marca arranque con `agent-service.running`, llega a `MINIMAL_READY` tras Installation Identity y expone por IPC `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive`. La validacion comercial completa queda diferida fuera del camino critico de IPC/red. El Master agrega `master-backend.running`, helpers de escritura atomica/durable y modelos puros de recovery para readiness, politicas de arranque y semantica de operaciones inciertas. La reconexion del Client agrega jitter acotado para evitar thundering herd sin reemplazar el backoff.
 
 Prompt 14.3 convierte performance y bajo consumo en requisitos arquitectonicos medibles. Agrega modelos puros Java para perfiles `LEGACY`/`STANDARD`, `MASTER_BALANCED`, clases de trabajo de recursos, budgets de memoria/concurrencia, diagnostico on-demand y load shedding. Tambien agrega constantes compartidas C# para esos nombres y corrige ruido claro de idle: requests IPC exitosos y conexion IPC pasan a `DEBUG`, los retries repetidos de gRPC bajan a `DEBUG` y el heartbeat del Agent ya no relee `authorized-masters.json` en cada ciclo.
@@ -14,7 +16,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult` sin comandos remotos reales. No hay mDNS ni discovery real.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`. El Agent ya ejecuta `SHUTDOWN` y `RESTART` cuando llegan por ese framework seguro. No hay mDNS, discovery real ni endpoint/batch de Master para enviar operaciones.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -32,7 +34,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota siguen planificadas. Prompt 14 no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura, bloqueo ni comandos remotos.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15A solo ejecuta power control (`SHUTDOWN`/`RESTART`) en el Agent Service; no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
 
 ## Modelo operativo Master/Client
 
@@ -278,13 +280,13 @@ IMPLEMENTADO:
 - `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
 - `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
 - `ClientConnectionRegistry` mantiene presencia viva por Client autenticado y distingue Client paired sin Device de Device registrado (`CONNECTING`, `ONLINE`, `OFFLINE`).
-- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
 - Las capabilities son informacion operativa y no autorizacion.
 - `NetworkClientAdminService` lista Clients known/paired con estado seguro y registra Devices solo tras verificar trust `PAIRED`, no `REVOKED` y ausencia de doble registro.
 - `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin escribir SQLite en cada heartbeat.
 - `MasterNetworkHeartbeatMonitor` marca `OFFLINE` tras timeout de heartbeat configurado.
 - Certificado TLS del Master emitido en memoria desde su Network Identity, ligado al fingerprint ya persistido por pairing.
-- Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes, capabilities, registro de Devices, no writes persistentes por heartbeat y trust/binding persistente tras reinicio.
+- Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes, capabilities incluyendo `POWER_CONTROL_V1`, registro de Devices, no writes persistentes por heartbeat y trust/binding persistente tras reinicio.
 
 PLANIFICADO:
 
@@ -302,7 +304,7 @@ NO IMPLEMENTADO:
 - Autenticacion.
 - Descubrimiento.
 - mDNS real.
-- Comandos remotos hacia Clients.
+- Endpoint/batch de Master para enviar operaciones remotas hacia Clients.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
@@ -417,13 +419,17 @@ IMPLEMENTADO:
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
 - `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
-- `ClientCapabilityProvider` anuncia solo `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
 - Los retries repetidos de conexion gRPC se registran en `DEBUG` tras el primer warning para evitar spam de retry.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
-- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; sin handlers productivos, toda operacion conocida o futura devuelve `OPERATION_NOT_IMPLEMENTED`.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; `SHUTDOWN` y `RESTART` tienen handlers productivos y cualquier operacion sin handler sigue devolviendo `OPERATION_NOT_IMPLEMENTED`.
+- `ShutdownOperationHandler` y `RestartOperationHandler` son handlers tipados explicitos y usan `IWindowsPowerController`; no existe handler generico de comandos.
+- `WindowsPowerController` usa `InitiateSystemShutdownExW` como API nativa Windows, habilita `SeShutdownPrivilege` mediante `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no ejecuta `shutdown.exe`, `cmd.exe`, PowerShell, scripts, WMI shell ni procesos externos.
+- Power control usa countdown fijo de 10 segundos, mensaje constante, `forceAppsClosed=false` y no acepta payload arbitrario, `force=true`, timeout arbitrario ni mensajes enviados por Master.
+- `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud; si Windows no la acepta se devuelve `FAILED` con `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED`.
 - `RemoteOperationDispatcher` rechaza ejecucion de handlers cuando Commercial License todavia no esta activa, preservando el bloqueo comercial aunque la validacion completa se difiera fuera del startup critico.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
@@ -486,7 +492,7 @@ NO IMPLEMENTADO:
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Endpoints/IPC de pairing reales expuestos a UI/transporte.
 - Comandos MASTER protegidos por autorizacion de red.
-- Comandos remotos.
+- Comandos remotos distintos de `SHUTDOWN` y `RESTART`.
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
@@ -581,7 +587,7 @@ IMPLEMENTADO:
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
 - `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
-- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.
@@ -589,7 +595,7 @@ IMPLEMENTADO:
 - Heartbeat pequeno, sin polling HTTP, sin telemetria pesada, sin logs sanos y sin writes persistentes por ciclo.
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
 - Framework Protobuf compatible para `OperationRequest`, `OperationAccepted` y `OperationResult`, con `operationId`, `operationType`, `targetDeviceId`, `protocolVersion`, timeout y `ErrorCode` tipado.
-- El Agent deduplica `OperationRequest` por `operationId`; una operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED` y no toca Windows.
+- El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN` y `RESTART` usan handlers reales de power control y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
 - Timeout de heartbeat default 45 segundos en el Master.
 - Reconexión del Client con backoff acotado.
 
@@ -597,13 +603,14 @@ PLANIFICADO:
 
 - El descubrimiento usara mDNS/DNS-SD en una fase posterior.
 - Exponer pairing/discovery mediante flujos reales de red sin confundir discovery con trust, en una fase posterior.
-- Handlers reales de comandos administrativos remotos tipados sobre el framework de operaciones, en una fase posterior.
+- Handlers reales restantes de comandos administrativos remotos tipados sobre el framework de operaciones, en una fase posterior.
 
 NO IMPLEMENTADO:
 
 - Descubrimiento real.
 - APIs reales de discovery/pairing sobre red.
-- Comandos remotos.
+- Endpoint/batch de Master para enviar operaciones remotas.
+- Comandos remotos distintos de `SHUTDOWN` y `RESTART`.
 
 Nota de seguridad: descubrir un equipo no significa confiar en el. Network Identity tampoco equivale a trust; el trust aparece solo tras pairing explicito y puede revocarse.
 
@@ -829,7 +836,10 @@ VIGENTE DESDE AHORA:
 
 - No permitir ejecucion remota arbitraria.
 - No aceptar `cmd.exe /c`, PowerShell arbitrario, shell remota ni rutas arbitrarias enviadas por un Master.
-- Usar comandos futuros explicitos y estructurados, por ejemplo `LOCK_INPUT`, `UNLOCK_INPUT`, `OPEN_APPLICATION` con `appId`, `SHUTDOWN`, `RESTART`, `START_PROJECTION`, `STOP_PROJECTION`.
+- Usar operaciones remotas explicitas y estructuradas, por ejemplo `LOCK_INPUT`, `UNLOCK_INPUT`, `OPEN_APPLICATION` con `appId`, `SHUTDOWN`, `RESTART`, `START_PROJECTION`, `STOP_PROJECTION`.
+- `SHUTDOWN` y `RESTART` ya implementados en el Agent deben seguir pasando por gRPC/mTLS, trust `PAIRED`, no `REVOKED`, Commercial License activa y `RemoteOperationDispatcher`; no existe una via paralela de ejecucion.
+- Power control debe usar API nativa Windows y no `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts, `Process.Start`, `SendKeys` ni elevacion de procesos.
+- Power control no fuerza cierre de aplicaciones en esta version y `SUCCESS` significa que Windows acepto la solicitud, no que el apagado/reinicio ya concluyo.
 - Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - Los comandos futuros para cuentas administradas solo enviaran `accountId` logico (`PRIMARY`/`SECONDARY`), nunca passwords.
 - El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
@@ -874,6 +884,6 @@ VIGENTE DESDE AHORA:
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando se implementen comandos administrativos futuros sobre el transporte seguro.
-- Existe transporte gRPC/mTLS minimo para conexion, identificacion y heartbeat; todavia no existe mDNS, discovery real ni comandos remotos.
+- Existe transporte gRPC/mTLS para conexion, identificacion, heartbeat y operaciones remotas tipadas; todavia no existe mDNS, discovery real ni comandos remotos distintos de `SHUTDOWN` y `RESTART`.
 - El transporte seguro usa el trust ya establecido por pairing y no redisena pairing como discovery.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

@@ -10,6 +10,8 @@ public sealed class OperationContractsTests
     {
         var operations = ConstantValues(typeof(ClassroomOperationTypes));
 
+        Assert.Contains(ClassroomOperationTypes.Shutdown, operations);
+        Assert.Contains(ClassroomOperationTypes.Restart, operations);
         Assert.Contains(ClassroomOperationTypes.OpenApplication, operations);
         Assert.Contains(ClassroomOperationTypes.OpenUrl, operations);
         Assert.Contains(ClassroomOperationTypes.DistributeFile, operations);
@@ -127,6 +129,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.CredentialProviderUnavailable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.OperationNotImplemented, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.PowerControlUnavailable, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.PowerControlFailed, errorCodes);
     }
 
     private static HashSet<string> ConstantValues(Type type)

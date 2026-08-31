@@ -2,9 +2,9 @@
 
 This directory contains protocol documents shared by the Java Master backend and the C# Agent components.
 
-The definitive gRPC protocol is intentionally not implemented in Prompt 01. Future work must define explicit, structured messages and commands, then generate Java and C# bindings from the same `.proto` sources.
+The current gRPC transport protocol is defined in `network/v1/galtek-classroom-network-v1.proto` and generates Java and C# bindings from the same source. It covers secure Master-Client connection, `ClientHello`, heartbeat, typed capabilities and the remote operation framework.
 
-Discovery, trust, pairing, mTLS, device certificates, screen streams, projection, and administrative commands remain planned features.
+Discovery, screen streams, projection and most administrative commands remain planned features. `SHUTDOWN` and `RESTART` are the first productive Agent-side operations, exposed only through the typed remote operation framework.
 
 Current local protocol:
 

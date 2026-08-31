@@ -242,4 +242,6 @@ public static class ClassroomOperationErrorCodes
     public const string MasterWindowsAccountNotAuthorized = "MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED";
     public const string MasterNotPaired = "MASTER_NOT_PAIRED";
     public const string OperationNotImplemented = "OPERATION_NOT_IMPLEMENTED";
+    public const string PowerControlUnavailable = "POWER_CONTROL_UNAVAILABLE";
+    public const string PowerControlFailed = "POWER_CONTROL_FAILED";
 }

@@ -8,7 +8,8 @@ public sealed class ClientCapabilityProvider
     [
         NetworkCapability.HeartbeatV1,
         NetworkCapability.OperationFrameworkV1,
-        NetworkCapability.SessionAgentAvailable
+        NetworkCapability.SessionAgentAvailable,
+        NetworkCapability.PowerControlV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

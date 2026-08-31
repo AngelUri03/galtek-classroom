@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura, proyeccion ni comandos remotos funcionales.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente.
 
 ## Principio de producto
 
@@ -233,7 +233,7 @@ Desde Prompt 14:
 - El Master genera y controla `deviceId`; no se acepta `deviceId` declarado por el Client como identidad.
 - El vinculo vigente entre Device y Network Identity se persiste en `device_network_bindings`.
 - `paired-clients.json` sigue siendo la autoridad de trust; SQLite no reemplaza pairing.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1` y `SESSION_AGENT_AVAILABLE`.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
 
@@ -814,6 +814,8 @@ Campos base:
 
 El contrato no incluye `command string`, `executablePath`, shell, PowerShell, `cmd`, argumentos arbitrarios ni payload JSON generico de comandos. El Agent deduplica por `operationId`, aplica timeout y devuelve resultados estructurados con `ErrorCode`. Mientras no exista un handler productivo para una operacion, el resultado debe ser `OPERATION_NOT_IMPLEMENTED` y no debe tocar Windows.
 
+Desde Prompt 15A, `SHUTDOWN` y `RESTART` son las primeras operaciones productivas del Agent. Se ejecutan en el Agent Service mediante power control nativo de Windows, sin Session Agent, sin shell, sin procesos externos, sin force-close y sin payload arbitrario enviado por Master. `SUCCESS` en estas operaciones significa que Windows acepto la solicitud con countdown fijo inicial, no que la PC ya se apago o reinicio. Si Windows no acepta la solicitud, el resultado debe ser `FAILED` con un error operacional estructurado como `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED`.
+
 Para aceptar una operacion real futura deben cumplirse todas las condiciones: mTLS valido, Master correcto, trust `PAIRED`, no `REVOKED`, Device registrado y `operationType` conocido. Las capabilities informan lo que el Agent soporta; no autorizan la ejecucion.
 
 ## Open URL
@@ -1176,6 +1178,7 @@ AGENT_UNAVAILABLE
 SESSION_NOT_AVAILABLE temporal
 TRANSFER_FAILED
 FILE_WRITE_FAILED
+POWER_CONTROL_FAILED
 WINDOWS_SESSION_UNKNOWN
 WINDOWS_LOGON_FAILED
 WINDOWS_LOGOFF_FAILED
@@ -1192,6 +1195,7 @@ INSUFFICIENT_DISK_SPACE
 ACCOUNT_NOT_CONFIGURED
 MANAGED_CREDENTIAL_NOT_CONFIGURED
 CREDENTIAL_PROVIDER_UNAVAILABLE
+POWER_CONTROL_UNAVAILABLE
 ```
 
 No debe existir retry infinito.
