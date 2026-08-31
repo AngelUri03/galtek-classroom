@@ -17,6 +17,7 @@ public enum ErrorCode {
     AGENT_UNAVAILABLE(ErrorCategory.DEVICE, true),
     SESSION_NOT_AVAILABLE(ErrorCategory.DEVICE, true),
     DEVICE_BUSY(ErrorCategory.DEVICE, true),
+    CAPABILITY_NOT_SUPPORTED(ErrorCategory.DEVICE, false),
     SOURCE_DEVICE_UNAVAILABLE(ErrorCategory.DEVICE, true),
     TARGET_DEVICE_UNAVAILABLE(ErrorCategory.DEVICE, true),
 
@@ -79,6 +80,8 @@ public enum ErrorCode {
     OPERATION_ALREADY_RUNNING(ErrorCategory.OPERATION, true),
     OPERATION_NOT_FOUND(ErrorCategory.OPERATION, false),
     OPERATION_NOT_IMPLEMENTED(ErrorCategory.OPERATION, false),
+    OPERATION_REJECTED(ErrorCategory.OPERATION, false),
+    OPERATION_RESULT_UNKNOWN(ErrorCategory.OPERATION, false),
     POWER_CONTROL_UNAVAILABLE(ErrorCategory.OPERATION, false),
     POWER_CONTROL_FAILED(ErrorCategory.OPERATION, true),
 

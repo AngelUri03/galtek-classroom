@@ -2,8 +2,10 @@ package com.galtek.classroom.network;
 
 import com.galtek.classroom.network.NetworkDtos.DeviceRegistrationResponse;
 import com.galtek.classroom.network.NetworkDtos.NetworkClientResponse;
+import com.galtek.classroom.network.NetworkDtos.PowerControlBatchResponse;
 import com.galtek.classroom.network.NetworkDtos.RegisterDeviceRequest;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +26,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class NetworkClientController {
 
     private final NetworkClientAdminService service;
+    private final PowerControlDispatchService powerControlDispatchService;
 
-    public NetworkClientController(NetworkClientAdminService service) {
+    public NetworkClientController(
+            NetworkClientAdminService service,
+            PowerControlDispatchService powerControlDispatchService) {
         this.service = service;
+        this.powerControlDispatchService = powerControlDispatchService;
     }
 
     @GetMapping("/network/clients")
@@ -40,5 +46,12 @@ public class NetworkClientController {
             @RequestBody(required = false) RegisterDeviceRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(service.registerDevice(classroomId, request));
+    }
+
+    @PostMapping("/classrooms/{classroomId}/power-control")
+    public PowerControlBatchResponse powerControl(
+            @PathVariable String classroomId,
+            @RequestBody(required = false) Map<String, Object> request) {
+        return powerControlDispatchService.dispatch(classroomId, request);
     }
 }

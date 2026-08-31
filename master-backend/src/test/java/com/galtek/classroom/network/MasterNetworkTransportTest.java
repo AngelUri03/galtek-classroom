@@ -11,6 +11,10 @@ import com.galtek.classroom.network.v1.ConnectionState;
 import com.galtek.classroom.network.v1.Heartbeat;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkCapability;
+import com.galtek.classroom.network.v1.NetworkOperationType;
+import com.galtek.classroom.network.v1.OperationExecutionStatus;
+import com.galtek.classroom.network.v1.OperationResult;
+import com.galtek.classroom.operations.OperationType;
 import io.grpc.Context;
 import io.grpc.stub.StreamObserver;
 import java.security.KeyPair;
@@ -262,6 +266,39 @@ class MasterNetworkTransportTest {
     }
 
     @Test
+    void operationResultOnAcceptedStreamCompletesPendingDispatch() throws Exception {
+        Fixture fixture = createFixture("operation-result-routing");
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+        requests.onNext(helloEnvelope(client, "PC01"));
+        ClientConnectionSnapshot snapshot = fixture.registry.find(client.descriptor().clientNetworkIdentityId())
+                .orElseThrow();
+
+        var handle = fixture.remoteOperationGateway.dispatch(
+                        snapshot,
+                        OperationType.SHUTDOWN,
+                        "batch-routing",
+                        "PC01")
+                .orElseThrow();
+        requests.onNext(ClientEnvelope.newBuilder()
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setOperationResult(OperationResult.newBuilder()
+                        .setOperationId("batch-routing")
+                        .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN)
+                        .setTargetDeviceId("PC01")
+                        .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                        .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS)
+                        .build())
+                .build());
+
+        assertThat(responses.values().getLast().hasOperationRequest()).isTrue();
+        assertThat(handle.completion()).isCompletedWithValueMatching(outcome -> outcome.errorCode() == null);
+        assertThat(fixture.remoteOperationGateway.pendingCount()).isZero();
+    }
+
+    @Test
     void heartbeatDoesNotRecordPersistentConnectionWrites() throws Exception {
         MutableClock clock = new MutableClock(FIXED_NOW);
         CountingNetworkClientConnectionService connectionService = new CountingNetworkClientConnectionService();
@@ -342,12 +379,16 @@ class MasterNetworkTransportTest {
         var trustStore = new MasterTrustStore(dataDir);
         var pairingService = new MasterPairingService(identityResolver, keyStore, trustStore, clock, new SecureRandom());
         var registry = new ClientConnectionRegistry(clock);
+        var remoteOperationGateway = new MasterRemoteOperationGateway(clock, Duration.ofMillis(250));
         var service = new MasterNetworkGrpcService(
                 new MasterNetworkConnectionAuthenticator(pairingService),
                 registry,
                 connectionService,
-                clock);
-        return new Fixture(pairingService, trustStore, registry, service, clock);
+                remoteOperationGateway,
+                clock,
+                () -> {
+                });
+        return new Fixture(pairingService, trustStore, registry, service, remoteOperationGateway, clock);
     }
 
     private StreamObserver<ClientEnvelope> openStream(
@@ -417,6 +458,7 @@ class MasterNetworkTransportTest {
             MasterTrustStore trustStore,
             ClientConnectionRegistry registry,
             MasterNetworkGrpcService service,
+            MasterRemoteOperationGateway remoteOperationGateway,
             Clock clock) {
 
         void pair(TestClientIdentity client) {

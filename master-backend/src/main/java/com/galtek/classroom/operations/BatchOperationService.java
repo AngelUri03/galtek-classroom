@@ -30,6 +30,12 @@ public class BatchOperationService {
         return operation;
     }
 
+    @Transactional
+    public BatchOperation replaceResults(BatchOperation operation) {
+        batchOperationRepository.replaceResults(operation, nowUtc());
+        return operation;
+    }
+
     public Optional<BatchOperation> findById(String operationId) {
         return batchOperationRepository.findById(operationId);
     }

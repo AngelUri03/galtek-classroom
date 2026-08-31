@@ -8,6 +8,8 @@ import com.galtek.classroom.network.v1.Heartbeat;
 import com.galtek.classroom.network.v1.HeartbeatAck;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkConnectionGrpc;
+import com.galtek.classroom.network.v1.OperationAccepted;
+import com.galtek.classroom.network.v1.OperationResult;
 import io.grpc.stub.StreamObserver;
 import java.time.Clock;
 import java.util.UUID;
@@ -17,6 +19,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
     private final MasterNetworkConnectionAuthenticator authenticator;
     private final ClientConnectionRegistry connectionRegistry;
     private final NetworkClientConnectionService networkClientConnectionService;
+    private final MasterRemoteOperationGateway remoteOperationGateway;
     private final Clock clock;
     private final Runnable heartbeatMonitorActivation;
 
@@ -25,19 +28,27 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
             Clock clock) {
-        this(authenticator, connectionRegistry, networkClientConnectionService, clock, () -> {
-        });
+        this(
+                authenticator,
+                connectionRegistry,
+                networkClientConnectionService,
+                new MasterRemoteOperationGateway(clock),
+                clock,
+                () -> {
+                });
     }
 
     public MasterNetworkGrpcService(
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
+            MasterRemoteOperationGateway remoteOperationGateway,
             Clock clock,
             Runnable heartbeatMonitorActivation) {
         this.authenticator = authenticator;
         this.connectionRegistry = connectionRegistry;
         this.networkClientConnectionService = networkClientConnectionService;
+        this.remoteOperationGateway = remoteOperationGateway;
         this.clock = clock;
         this.heartbeatMonitorActivation = heartbeatMonitorActivation == null ? () -> {
         } : heartbeatMonitorActivation;
@@ -71,8 +82,8 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                 switch (envelope.getPayloadCase()) {
                     case CLIENT_HELLO -> handleHello(envelope.getClientHello());
                     case HEARTBEAT -> handleHeartbeat(envelope.getHeartbeat());
-                    case OPERATION_ACCEPTED -> handleOperationResponse("OperationAccepted");
-                    case OPERATION_RESULT -> handleOperationResponse("OperationResult");
+                    case OPERATION_ACCEPTED -> handleOperationAccepted(envelope.getOperationAccepted());
+                    case OPERATION_RESULT -> handleOperationResult(envelope.getOperationResult());
                     default -> reject(
                             clientNetworkIdentityId == null ? "" : clientNetworkIdentityId.toString(),
                             MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
@@ -126,7 +137,8 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         ConnectionState.CONNECTION_STATE_CONNECTING,
                         "",
                         "");
-                connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
+                ClientConnectionSnapshot snapshot = connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
+                remoteOperationGateway.registerSession(snapshot, responseObserver);
                 heartbeatMonitorActivation.run();
                 accepted = true;
                 sendStatus(
@@ -150,6 +162,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         tlsFingerprint);
                 if (!authorization.accepted()) {
                     connectionRegistry.markOffline(clientNetworkIdentityId, connectionId, authorization.reasonCode());
+                    remoteOperationGateway.disconnect(clientNetworkIdentityId, connectionId, authorization.reasonCode());
                     reject(
                             clientNetworkIdentityId.toString(),
                             authorization.reasonCode(),
@@ -157,7 +170,8 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                     return;
                 }
 
-                connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
+                ClientConnectionSnapshot snapshot = connectionRegistry.markOnline(clientNetworkIdentityId, connectionId);
+                remoteOperationGateway.registerSession(snapshot, responseObserver);
                 responseObserver.onNext(MasterEnvelope.newBuilder()
                         .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
                         .setHeartbeatAck(HeartbeatAck.newBuilder()
@@ -169,13 +183,43 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         .build());
             }
 
-            private void handleOperationResponse(String messageName) {
+            private void handleOperationAccepted(OperationAccepted operationAccepted) {
+                if (!operationResponseAuthorized("OperationAccepted")) {
+                    return;
+                }
+                if (!MasterNetworkTransportConstants.PROTOCOL_VERSION.equals(operationAccepted.getProtocolVersion())) {
+                    reject(
+                            clientNetworkIdentityId.toString(),
+                            MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
+                            "OperationAccepted uses an unsupported operation protocol version.");
+                    return;
+                }
+
+                remoteOperationGateway.handleAccepted(operationAccepted, clientNetworkIdentityId, connectionId);
+            }
+
+            private void handleOperationResult(OperationResult operationResult) {
+                if (!operationResponseAuthorized("OperationResult")) {
+                    return;
+                }
+                if (!MasterNetworkTransportConstants.PROTOCOL_VERSION.equals(operationResult.getProtocolVersion())) {
+                    reject(
+                            clientNetworkIdentityId.toString(),
+                            MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
+                            "OperationResult uses an unsupported operation protocol version.");
+                    return;
+                }
+
+                remoteOperationGateway.handleResult(operationResult, clientNetworkIdentityId, connectionId);
+            }
+
+            private boolean operationResponseAuthorized(String messageName) {
                 if (!accepted || clientNetworkIdentityId == null) {
                     reject(
                             "",
                             MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
                             messageName + " requires an accepted ClientHello.");
-                    return;
+                    return false;
                 }
 
                 MasterNetworkConnectionAuthorization authorization = authenticator.authorizeExisting(
@@ -183,11 +227,15 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         tlsFingerprint);
                 if (!authorization.accepted()) {
                     connectionRegistry.markOffline(clientNetworkIdentityId, connectionId, authorization.reasonCode());
+                    remoteOperationGateway.disconnect(clientNetworkIdentityId, connectionId, authorization.reasonCode());
                     reject(
                             clientNetworkIdentityId.toString(),
                             authorization.reasonCode(),
                             authorization.message());
+                    return false;
                 }
+
+                return true;
             }
 
             private void reject(String clientIdentityId, String reasonCode, String message) {
@@ -220,6 +268,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
             private void closeOffline(String reasonCode) {
                 if (accepted && clientNetworkIdentityId != null) {
                     connectionRegistry.markOffline(clientNetworkIdentityId, connectionId, reasonCode);
+                    remoteOperationGateway.disconnect(clientNetworkIdentityId, connectionId, reasonCode);
                 }
             }
         };

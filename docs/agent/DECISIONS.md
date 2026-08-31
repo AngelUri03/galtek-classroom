@@ -42,7 +42,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La primera comunicacion real se limita a conexion, identificacion, estado y heartbeat.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat, framework tipado de operaciones y dispatch productivo solo para `SHUTDOWN` y `RESTART`; las demas operaciones siguen pendientes.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -120,6 +120,9 @@
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
 - El Agent deduplica operaciones por `operationId`; `SHUTDOWN` y `RESTART` tienen handlers reales en el Agent y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
+- `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
+- Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.
 - `SHUTDOWN` y `RESTART` pertenecen al Agent Service, no al Session Agent.
 - Power control productivo usa API nativa Windows, actualmente `InitiateSystemShutdownExW`.
 - Antes de solicitar power control, el Agent habilita explicitamente `SeShutdownPrivilege` con APIs Windows soportadas.

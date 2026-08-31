@@ -8,6 +8,8 @@ public interface BatchOperationRepository {
 
     void create(String classroomId, BatchOperation operation, OperationPayload payload, OffsetDateTime nowUtc);
 
+    void replaceResults(BatchOperation operation, OffsetDateTime nowUtc);
+
     Optional<BatchOperation> findById(String operationId);
 
     List<BatchTargetResult> findRetryableFailures(String operationId);

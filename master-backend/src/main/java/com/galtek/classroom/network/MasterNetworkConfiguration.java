@@ -83,12 +83,14 @@ public class MasterNetworkConfiguration {
             MasterNetworkConnectionAuthenticator authenticator,
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
+            MasterRemoteOperationGateway remoteOperationGateway,
             Clock clock,
             MasterNetworkHeartbeatMonitor heartbeatMonitor) {
         return new MasterNetworkGrpcService(
                 authenticator,
                 connectionRegistry,
                 networkClientConnectionService,
+                remoteOperationGateway,
                 clock,
                 heartbeatMonitor::ensureScanning);
     }

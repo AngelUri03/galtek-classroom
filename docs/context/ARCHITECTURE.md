@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con body tipado y lista explicita de `targetDeviceIds`. El Master hace preflight por Device, persiste una unica `BatchOperation`, envia `OperationRequest` por la conexion gRPC/mTLS autenticada solo a targets `READY`, correlaciona resultados por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN` no retryable; la reconciliacion real queda para una fase posterior.
+
 Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `SHUTDOWN` y `RESTART`. Se ejecutan solo cuando una `OperationRequest` valida llega por el transporte seguro existente y pasa por `RemoteOperationDispatcher`. El Service usa una abstraccion testeable `IWindowsPowerController`; la implementacion productiva habilita `SeShutdownPrivilege` y solicita apagado/reinicio mediante API nativa Windows con countdown fijo de 10 segundos, sin force-close, shell, scripts, WMI ni procesos externos. `SUCCESS` significa que Windows acepto la solicitud, no que el equipo ya este apagado.
 
 Prompt 14.4 convierte perdida de energia, reinicio abrupto y boot storm en condiciones normales de diseno. El Agent separa startup minimo de validaciones pesadas: marca arranque con `agent-service.running`, llega a `MINIMAL_READY` tras Installation Identity y expone por IPC `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive`. La validacion comercial completa queda diferida fuera del camino critico de IPC/red. El Master agrega `master-backend.running`, helpers de escritura atomica/durable y modelos puros de recovery para readiness, politicas de arranque y semantica de operaciones inciertas. La reconexion del Client agrega jitter acotado para evitar thundering herd sin reemplazar el backoff.
@@ -16,7 +18,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`. El Agent ya ejecuta `SHUTDOWN` y `RESTART` cuando llegan por ese framework seguro. No hay mDNS, discovery real ni endpoint/batch de Master para enviar operaciones.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult` y dispatch batch Master para power control. El Agent ya ejecuta `SHUTDOWN` y `RESTART` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -34,7 +36,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15A solo ejecuta power control (`SHUTDOWN`/`RESTART`) en el Agent Service; no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
 
 ## Modelo operativo Master/Client
 
@@ -183,6 +185,7 @@ IMPLEMENTADO:
   - `GET /api/classrooms/{id}/snapshot`.
   - `GET /api/network/clients`.
   - `POST /api/classrooms/{classroomId}/devices/register`.
+  - `POST /api/classrooms/{classroomId}/power-control`.
 - `RestControllerAdvice` uniforme para errores operacionales HTTP.
 - API documentada en `docs/api/master-api-v1.md`.
 - Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
@@ -233,6 +236,7 @@ IMPLEMENTADO:
 - Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - Estado de resultado por target `NO_CHANGE` tratado como exito no retryable.
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
+- `POST /api/classrooms/{classroomId}/power-control` registra una `BatchOperation` `SHUTDOWN` o `RESTART` antes de enviar requests y actualiza targets al terminar el fanout.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
 - `DistributeFileRequest` modela apertura opcional posterior mediante `openAfterDistribution` sin transferencia real.
 - `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, no como ruta arbitraria.
@@ -287,6 +291,11 @@ IMPLEMENTADO:
 - `MasterNetworkHeartbeatMonitor` marca `OFFLINE` tras timeout de heartbeat configurado.
 - Certificado TLS del Master emitido en memoria desde su Network Identity, ligado al fingerprint ya persistido por pairing.
 - Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes, capabilities incluyendo `POWER_CONTROL_V1`, registro de Devices, no writes persistentes por heartbeat y trust/binding persistente tras reinicio.
+- `MasterRemoteOperationGateway` mantiene sesiones gRPC autenticadas y pending operations en memoria por `(deviceId, operationId)`, envia `OperationRequest`, correlaciona `OperationAccepted`/`OperationResult` y limpia pending state en success, fallo, timeout o desconexion.
+- `PowerControlDispatchService` hace preflight por target: aula correcta, Device registrado, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` y capability `POWER_CONTROL_V1`.
+- `OperationAccepted` solo confirma reconocimiento del Agent; no marca exito. Solo `OperationResult SUCCESS` produce target `SUCCESS`.
+- Timeout o desconexion despues del envio produce `OPERATION_RESULT_UNKNOWN` no retryable y no se convierte en `DEVICE_OFFLINE`.
+- Pruebas Java para endpoint power-control, preflight parcial, correlacion gRPC por target, mapeo de resultados y limpieza de pending operations.
 
 PLANIFICADO:
 
@@ -304,7 +313,6 @@ NO IMPLEMENTADO:
 - Autenticacion.
 - Descubrimiento.
 - mDNS real.
-- Endpoint/batch de Master para enviar operaciones remotas hacia Clients.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
@@ -596,6 +604,9 @@ IMPLEMENTADO:
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
 - Framework Protobuf compatible para `OperationRequest`, `OperationAccepted` y `OperationResult`, con `operationId`, `operationType`, `targetDeviceId`, `protocolVersion`, timeout y `ErrorCode` tipado.
 - El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN` y `RESTART` usan handlers reales de power control y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Master despacha `SHUTDOWN`/`RESTART` batch con el mismo `operationId` para todos los Devices objetivo y correlaciona por `(deviceId, operationId)`.
+- `OperationAccepted` no equivale a exito; `OperationResult SUCCESS` es la unica confirmacion exitosa del target.
+- El resultado incierto posterior al envio se registra como `OPERATION_RESULT_UNKNOWN`, `FAILED`, no retryable, pendiente de reconciliacion futura.
 - Timeout de heartbeat default 45 segundos en el Master.
 - Reconexión del Client con backoff acotado.
 
@@ -609,7 +620,6 @@ NO IMPLEMENTADO:
 
 - Descubrimiento real.
 - APIs reales de discovery/pairing sobre red.
-- Endpoint/batch de Master para enviar operaciones remotas.
 - Comandos remotos distintos de `SHUTDOWN` y `RESTART`.
 
 Nota de seguridad: descubrir un equipo no significa confiar en el. Network Identity tampoco equivale a trust; el trust aparece solo tras pairing explicito y puede revocarse.

@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -163,6 +163,93 @@ Errores relevantes:
 - `409 NETWORK_IDENTITY_ALREADY_REGISTERED`: la Network Identity ya tiene Device vigente.
 - `409 DEVICE_ALREADY_REGISTERED`: la Installation Identity ya pertenece a un Device activo o binding vigente.
 - `503 MASTER_DATABASE_UNAVAILABLE` u otro codigo de storage: SQLite no esta disponible.
+
+## Power Control
+
+`POST /api/classrooms/{classroomId}/power-control`
+
+Endpoint protegido por `MasterAccessGuard`. Ejecuta una operacion batch remota tipada para `SHUTDOWN` o `RESTART` sobre Devices explicitos del aula.
+
+Request:
+
+```json
+{
+  "type": "SHUTDOWN",
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- `type` solo acepta `SHUTDOWN` o `RESTART`.
+- `targetDeviceIds` es obligatorio, no puede estar vacio y no puede contener duplicados.
+- No existe `all=true`; la UI futura resuelve la seleccion y envia IDs explicitos.
+- No se aceptan comandos, `executablePath`, argumentos arbitrarios, timeout, force, mensaje, shell ni payload JSON libre.
+
+Preflight por target:
+
+- El Device debe pertenecer al aula solicitada.
+- El Device debe estar registrado y tener binding vigente con Network Identity.
+- El trust debe estar `PAIRED` y no `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `POWER_CONTROL_V1`.
+
+`POWER_CONTROL_V1` indica soporte tecnico, no autorizacion. Trust, mTLS, registro y autorizacion local del Master siguen siendo obligatorios.
+
+Respuesta:
+
+```json
+{
+  "operationId": "uuid-batch",
+  "type": "SHUTDOWN",
+  "status": "PARTIAL_SUCCESS",
+  "targetCount": 3,
+  "successCount": 2,
+  "failedCount": 1,
+  "targets": [
+    {
+      "deviceId": "device-1",
+      "status": "SUCCESS",
+      "errorCode": null,
+      "message": "Agent reported operation success.",
+      "attempt": 1
+    },
+    {
+      "deviceId": "device-3",
+      "status": "FAILED",
+      "errorCode": "DEVICE_OFFLINE",
+      "message": "Device is offline.",
+      "attempt": 1
+    }
+  ]
+}
+```
+
+Semantica:
+
+- `SUCCESS` significa que el Agent reporto que Windows acepto la solicitud; no significa que el equipo ya este apagado o reiniciado.
+- `OperationAccepted` no marca exito.
+- `OPERATION_REJECTED` puede aparecer si el Agent responde `OperationAccepted` con estado `REJECTED` o `UNSPECIFIED`, o si devuelve un `OperationResult` con el error tipado equivalente. Actualmente no es retryable y no equivale a `OPERATION_RESULT_UNKNOWN`.
+- Si el Device estaba offline antes de enviar, se registra `DEVICE_OFFLINE` retryable.
+- Si la request fue enviada pero no llega `OperationResult` por timeout o desconexion, se registra `OPERATION_RESULT_UNKNOWN`, no retryable.
+- La correlacion interna usa `(deviceId, operationId)`, aunque el mismo `operationId` de batch se envie a varios Agents.
+- La UI/API debe decidir por `errorCode` tipado y no por texto de `message`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body faltante, `type` no permitido, targets vacios/duplicados o campos no soportados.
+- `403 <authorization.status>`: Master local no autorizado.
+- `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- Target `DEVICE_NOT_FOUND`: Device no pertenece al aula.
+- Target `DEVICE_NOT_REGISTERED`: Device sin binding vigente.
+- Target `MASTER_NOT_PAIRED` o `CLIENT_REVOKED`: trust invalido.
+- Target `CAPABILITY_NOT_SUPPORTED`: no anuncia `POWER_CONTROL_V1`.
+- Target `DEVICE_OFFLINE`: no hay conexion autenticada online antes del envio.
+- Target `OPERATION_REJECTED`: el Agent rechazo la operacion mediante respuesta tipada; no retryable actualmente.
+- Target `OPERATION_RESULT_UNKNOWN`: resultado incierto despues del envio.
 
 ## Classrooms
 

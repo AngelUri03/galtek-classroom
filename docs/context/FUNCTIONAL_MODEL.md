@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones, sin UI ni nuevas operaciones Windows.
 
 ## Principio de producto
 
@@ -816,6 +816,16 @@ El contrato no incluye `command string`, `executablePath`, shell, PowerShell, `c
 
 Desde Prompt 15A, `SHUTDOWN` y `RESTART` son las primeras operaciones productivas del Agent. Se ejecutan en el Agent Service mediante power control nativo de Windows, sin Session Agent, sin shell, sin procesos externos, sin force-close y sin payload arbitrario enviado por Master. `SUCCESS` en estas operaciones significa que Windows acepto la solicitud con countdown fijo inicial, no que la PC ya se apago o reinicio. Si Windows no acepta la solicitud, el resultado debe ser `FAILED` con un error operacional estructurado como `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED`.
 
+Desde Prompt 15B, el Master puede enviar `SHUTDOWN` y `RESTART` mediante `POST /api/classrooms/{classroomId}/power-control`. La request acepta solo `type` (`SHUTDOWN` o `RESTART`) y `targetDeviceIds` explicitos, obligatorios, no vacios y sin duplicados. No acepta comandos, rutas, argumentos, timeout, force, mensajes ni payload libre.
+
+El preflight Master es por Device y no cancela los demas targets: el Device debe pertenecer al aula solicitada, estar registrado, conservar binding vigente con Network Identity, tener trust `PAIRED`, no estar `REVOKED`, estar `ONLINE` por conexion autenticada y anunciar `POWER_CONTROL_V1`. La capability solo indica soporte tecnico; no autoriza. Los targets bloqueados quedan como `FAILED` estructurado y los `READY` se envian.
+
+El Master persiste primero una unica `BatchOperation` con el `operationId` del batch y targets `PENDING` o fallidos de preflight. El mismo `operationId` se envia a cada Agent objetivo; la correlacion del Master usa `(deviceId, operationId)` para evitar colisiones entre Devices. `OperationAccepted` no es exito; solo `OperationResult SUCCESS` marca el target como `SUCCESS`.
+
+`OPERATION_REJECTED` puede producirse cuando el Agent responde `OperationAccepted` con estado `REJECTED` o `UNSPECIFIED`, o cuando un `OperationResult` trae el error tipado `OPERATION_REJECTED`. Actualmente no es retryable. No equivale a `OPERATION_RESULT_UNKNOWN`: rechazo significa respuesta tipada del Agent, mientras resultado desconocido significa que no hubo resultado confirmado despues del envio. La decision se toma por enums/codigos tipados, no por comparar texto del mensaje.
+
+Si el Device estaba offline antes de enviar, el target usa `DEVICE_OFFLINE` retryable. Si la request fue enviada pero falta `OperationResult` por timeout, stream cerrado o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN`, no retryable, porque Windows pudo haber aceptado la accion. La reconciliacion formal queda fuera de 15B.
+
 Para aceptar una operacion real futura deben cumplirse todas las condiciones: mTLS valido, Master correcto, trust `PAIRED`, no `REVOKED`, Device registrado y `operationType` conocido. Las capabilities informan lo que el Agent soporta; no autorizan la ejecucion.
 
 ## Open URL
@@ -1078,10 +1088,13 @@ La UI futura debe permitir reintentar solo fallidos y no repetir manualmente los
 
 Prompt 08 persiste `BatchOperation` y `BatchTargetResult` con `operationId`, targets, estados, errores, mensaje operacional, `attempt` y payload JSON versionado. El retry se calcula solo sobre targets fallidos cuyo `ErrorCode` sea retryable.
 
+Prompt 15B reutiliza esa persistencia para power control. Una accion de maestra crea una sola `BatchOperation` `SHUTDOWN` o `RESTART`, aun cuando se envie a varios Devices. Al finalizar, todos los targets `SUCCESS` producen batch `SUCCESS`; mezcla de exitos y fallos produce `PARTIAL_SUCCESS`; todos fallidos produce `FAILED`.
+
 API Prompt 10:
 
 - `GET /api/operations`, `GET /api/operations/{id}` y `GET /api/operations/{id}/retryable-targets` exponen operaciones persistidas para la UI futura.
 - `assignments/batch` registra una operacion `ASSIGN_STUDENT` con resultados por fila.
+- `POST /api/classrooms/{classroomId}/power-control` registra operaciones batch `SHUTDOWN`/`RESTART` y `GET /api/operations/{id}` puede leer el resultado persistido.
 
 Ejemplo futuro:
 
@@ -1196,6 +1209,10 @@ ACCOUNT_NOT_CONFIGURED
 MANAGED_CREDENTIAL_NOT_CONFIGURED
 CREDENTIAL_PROVIDER_UNAVAILABLE
 POWER_CONTROL_UNAVAILABLE
+CAPABILITY_NOT_SUPPORTED
+OPERATION_NOT_IMPLEMENTED
+OPERATION_REJECTED
+OPERATION_RESULT_UNKNOWN
 ```
 
 No debe existir retry infinito.

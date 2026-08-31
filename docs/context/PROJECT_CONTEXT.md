@@ -95,7 +95,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent y todavia no existe mDNS real ni endpoint/batch de Master para enviarlas.
+- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent y el Master ya puede enviarlas por batch desde `POST /api/classrooms/{classroomId}/power-control`. Todavia no existe mDNS real ni discovery real.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - Prompt 14.4 agrega resiliencia ante apagones, startup rapido, markers de ejecucion, escrituras atomicas/durables para archivos criticos y jitter de reconexion sin implementar comandos Windows reales.

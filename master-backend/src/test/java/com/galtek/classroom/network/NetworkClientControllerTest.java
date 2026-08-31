@@ -2,6 +2,8 @@ package com.galtek.classroom.network;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,12 +13,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.galtek.classroom.device.DeviceCapability;
+import com.galtek.classroom.device.DeviceStatus;
 import com.galtek.classroom.localagent.LocalAgentClient;
 import com.galtek.classroom.localagent.MasterAuthorizationResponse;
+import com.galtek.classroom.network.MasterRemoteOperationGateway.DispatchHandle;
+import com.galtek.classroom.network.MasterRemoteOperationGateway.RemoteOperationKey;
+import com.galtek.classroom.network.MasterRemoteOperationGateway.RemoteOperationOutcome;
 import com.galtek.classroom.network.v1.ClientHello;
 import com.galtek.classroom.network.v1.NetworkCapability;
+import com.galtek.classroom.operations.OperationType;
+import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.persistence.MasterStorageState;
+import java.time.Duration;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -28,6 +37,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +48,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.mockito.ArgumentCaptor;
 
 @SpringBootTest(properties = {
         "debug=false",
@@ -80,9 +91,12 @@ class NetworkClientControllerTest {
     @MockitoBean
     private LocalAgentClient localAgentClient;
 
+    @MockitoBean
+    private MasterRemoteOperationGateway remoteOperationGateway;
+
     @BeforeEach
     void authorizeMaster() {
-        reset(localAgentClient);
+        reset(localAgentClient, remoteOperationGateway);
         storageState.markReady();
         when(localAgentClient.getMasterAuthorization()).thenReturn(new MasterAuthorizationResponse(
                 "AUTHORIZED",
@@ -90,6 +104,19 @@ class NetworkClientControllerTest {
                 true,
                 "AULA\\MaestraPrimaria",
                 "AULA\\MaestraPrimaria"));
+        when(remoteOperationGateway.resultTimeout()).thenReturn(Duration.ofMillis(50));
+        when(remoteOperationGateway.dispatch(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenAnswer(invocation -> {
+                    String deviceId = invocation.getArgument(3);
+                    String operationId = invocation.getArgument(2);
+                    return java.util.Optional.of(new DispatchHandle(
+                            new RemoteOperationKey(deviceId, operationId),
+                            CompletableFuture.completedFuture(
+                                    RemoteOperationOutcome.success("Agent reported operation success."))));
+                });
     }
 
     @Test
@@ -203,6 +230,166 @@ class NetworkClientControllerTest {
         assertThat(node.get("connectionStatus").asText()).isEqualTo("OFFLINE");
     }
 
+    @Test
+    void powerControlEndpointRequiresMasterAuthorizationBeforeClassroomLookup() throws Exception {
+        when(localAgentClient.getMasterAuthorization()).thenReturn(new MasterAuthorizationResponse(
+                "CURRENT_ACCOUNT_NOT_AUTHORIZED",
+                false,
+                true,
+                "AULA\\MaestraPrimaria",
+                "AULA\\Soporte"));
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", "missing-classroom")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "SHUTDOWN",
+                                "targetDeviceIds", List.of("device-1")))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CURRENT_ACCOUNT_NOT_AUTHORIZED"));
+
+        verifyNoInteractions(remoteOperationGateway);
+    }
+
+    @Test
+    void powerControlRejectsMalformedAndDuplicateTargets() throws Exception {
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", "classroom-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", "classroom-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "OPEN_URL",
+                                "targetDeviceIds", List.of("device-1")))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", "classroom-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "SHUTDOWN",
+                                "targetDeviceIds", List.of("device-1", "device-1")))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", "classroom-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "RESTART",
+                                "targetDeviceIds", List.of("device-1"),
+                                "force", true))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+    }
+
+    @Test
+    void powerControlDispatchesOnlyReadyRegisteredPairedOnlineTargetsAndPersistsResults() throws Exception {
+        String classroomId = createClassroom("Aula power " + id());
+        RegisteredClient pc01 = registerPoweredClient(classroomId, "PC01");
+        RegisteredClient pc02 = registerPoweredClient(classroomId, "PC02");
+        RegisteredClient offline = registerPoweredClient(classroomId, "PC03");
+        connectionRegistry.markOffline(
+                offline.client().descriptor().clientNetworkIdentityId(),
+                connectionId(offline.client()),
+                "TEST_OFFLINE");
+        RegisteredClient noCapability = registerClient(
+                classroomId,
+                "PC04",
+                List.of(
+                        NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                        NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1));
+        RegisteredClient revoked = registerPoweredClient(classroomId, "PC05");
+        pairingService.revokeClient(revoked.client().descriptor().clientNetworkIdentityId());
+        String otherClassroomId = createClassroom("Aula ajena " + id());
+        RegisteredClient otherClassroom = registerPoweredClient(otherClassroomId, "PC06");
+
+        JsonNode response = read(mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", classroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "SHUTDOWN",
+                                "targetDeviceIds", List.of(
+                                        pc01.deviceId(),
+                                        pc02.deviceId(),
+                                        offline.deviceId(),
+                                        noCapability.deviceId(),
+                                        revoked.deviceId(),
+                                        otherClassroom.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("SHUTDOWN"))
+                .andExpect(jsonPath("$.targetCount").value(6))
+                .andExpect(jsonPath("$.successCount").value(2))
+                .andExpect(jsonPath("$.failedCount").value(4))
+                .andExpect(jsonPath("$.status").value("PARTIAL_SUCCESS"))
+                .andReturn());
+
+        String operationId = response.get("operationId").asText();
+        assertThat(operationId).isNotBlank();
+        assertThat(target(response, pc01.deviceId()).get("status").asText()).isEqualTo("SUCCESS");
+        assertThat(target(response, pc02.deviceId()).get("status").asText()).isEqualTo("SUCCESS");
+        assertThat(target(response, offline.deviceId()).get("errorCode").asText())
+                .isEqualTo(ErrorCode.DEVICE_OFFLINE.name());
+        assertThat(target(response, noCapability.deviceId()).get("errorCode").asText())
+                .isEqualTo(ErrorCode.CAPABILITY_NOT_SUPPORTED.name());
+        assertThat(target(response, revoked.deviceId()).get("errorCode").asText())
+                .isEqualTo(ErrorCode.CLIENT_REVOKED.name());
+        assertThat(target(response, otherClassroom.deviceId()).get("errorCode").asText())
+                .isEqualTo(ErrorCode.DEVICE_NOT_FOUND.name());
+
+        ArgumentCaptor<String> operationIds = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> targetIds = ArgumentCaptor.forClass(String.class);
+        verify(remoteOperationGateway, org.mockito.Mockito.times(2)).dispatch(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(OperationType.SHUTDOWN),
+                operationIds.capture(),
+                targetIds.capture());
+        assertThat(operationIds.getAllValues()).containsExactly(operationId, operationId);
+        assertThat(targetIds.getAllValues()).containsExactly(pc01.deviceId(), pc02.deviceId());
+
+        mockMvc.perform(get("/api/operations/{id}", operationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("SHUTDOWN"))
+                .andExpect(jsonPath("$.status").value("PARTIAL_SUCCESS"))
+                .andExpect(jsonPath("$.targetCount").value(6))
+                .andExpect(jsonPath("$.targets.length()").value(6));
+    }
+
+    @Test
+    void powerControlAggregatesAllSuccessAndAllFailed() throws Exception {
+        String successClassroomId = createClassroom("Aula success " + id());
+        RegisteredClient pc01 = registerPoweredClient(successClassroomId, "PC07");
+        RegisteredClient pc02 = registerPoweredClient(successClassroomId, "PC08");
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", successClassroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "RESTART",
+                                "targetDeviceIds", List.of(pc01.deviceId(), pc02.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("RESTART"))
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.successCount").value(2))
+                .andExpect(jsonPath("$.failedCount").value(0));
+
+        String failedClassroomId = createClassroom("Aula failed " + id());
+        RegisteredClient offline = registerPoweredClient(failedClassroomId, "PC09");
+        connectionRegistry.markOffline(
+                offline.client().descriptor().clientNetworkIdentityId(),
+                connectionId(offline.client()),
+                "TEST_OFFLINE");
+
+        mockMvc.perform(post("/api/classrooms/{classroomId}/power-control", failedClassroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "type", "SHUTDOWN",
+                                "targetDeviceIds", List.of(offline.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.successCount").value(0))
+                .andExpect(jsonPath("$.failedCount").value(1));
+    }
+
     private TestClientIdentity pairedClient(UUID installationId) {
         TestClientIdentity client = TestClientIdentity.create(installationId);
         PairingChallenge challenge = pairingService
@@ -214,12 +401,27 @@ class NetworkClientControllerTest {
     }
 
     private void connect(TestClientIdentity client, String displayName) {
+        connect(client, displayName, List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1));
+    }
+
+    private void connect(TestClientIdentity client, String displayName, List<NetworkCapability> capabilities) {
         String connectionId = "connection-" + client.descriptor().clientNetworkIdentityId();
-        connectionRegistry.markConnecting(client.descriptor(), hello(client, displayName), connectionId);
+        connectionRegistry.markConnecting(client.descriptor(), hello(client, displayName, capabilities), connectionId);
         connectionRegistry.markOnline(client.descriptor().clientNetworkIdentityId(), connectionId);
     }
 
     private ClientHello hello(TestClientIdentity client, String displayName) {
+        return hello(client, displayName, List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1));
+    }
+
+    private ClientHello hello(
+            TestClientIdentity client,
+            String displayName,
+            List<NetworkCapability> capabilities) {
         ClientHello.Builder hello = ClientHello.newBuilder()
                 .setClientNetworkIdentityId(client.descriptor().clientNetworkIdentityId().toString())
                 .setClientInstallationId(client.descriptor().clientInstallationId().toString())
@@ -229,10 +431,36 @@ class NetworkClientControllerTest {
                 .setHostname(displayName.toLowerCase())
                 .setAgentVersion("0.5.0-test")
                 .setSentAtUnixMs(FIXED_NOW.toEpochMilli());
-        hello.addCapabilities(NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1);
-        hello.addCapabilities(NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1);
+        hello.addAllCapabilities(capabilities);
         hello.addCapabilitiesValue(999);
         return hello.build();
+    }
+
+    private RegisteredClient registerPoweredClient(String classroomId, String displayName) throws Exception {
+        return registerClient(classroomId, displayName, List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
+                NetworkCapability.NETWORK_CAPABILITY_POWER_CONTROL_V1));
+    }
+
+    private RegisteredClient registerClient(
+            String classroomId,
+            String displayName,
+            List<NetworkCapability> capabilities) throws Exception {
+        TestClientIdentity client = pairedClient(UUID.randomUUID());
+        connect(client, displayName, capabilities);
+        JsonNode registered = read(mockMvc.perform(post("/api/classrooms/{classroomId}/devices/register", classroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "networkIdentityId", client.descriptor().clientNetworkIdentityId().toString(),
+                                "displayName", displayName))))
+                .andExpect(status().isCreated())
+                .andReturn());
+        return new RegisteredClient(client, registered.get("deviceId").asText());
+    }
+
+    private String connectionId(TestClientIdentity client) {
+        return "connection-" + client.descriptor().clientNetworkIdentityId();
     }
 
     private String createClassroom(String displayName) throws Exception {
@@ -259,6 +487,15 @@ class NetworkClientControllerTest {
             values.add(capability.asText());
         }
         return values;
+    }
+
+    private JsonNode target(JsonNode response, String deviceId) {
+        for (JsonNode target : response.get("targets")) {
+            if (deviceId.equals(target.get("deviceId").asText())) {
+                return target;
+            }
+        }
+        throw new AssertionError("Power target not found: " + deviceId);
     }
 
     private JsonNode read(org.springframework.test.web.servlet.MvcResult result) throws Exception {
@@ -317,6 +554,11 @@ class NetworkClientControllerTest {
                     unsigned.signedAtUtc(),
                     sign(keyPair.getPrivate(), NetworkIdentityCrypto.canonicalResponseBytes(unsigned)));
         }
+    }
+
+    private record RegisteredClient(
+            TestClientIdentity client,
+            String deviceId) {
     }
 
     private static KeyPair generateKeyPair() {

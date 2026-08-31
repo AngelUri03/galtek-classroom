@@ -95,6 +95,50 @@ public class SqliteBatchOperationRepository implements BatchOperationRepository 
     }
 
     @Override
+    @Transactional
+    public void replaceResults(BatchOperation operation, OffsetDateTime nowUtc) {
+        try {
+            int updated = jdbcTemplate.update("""
+                    UPDATE batch_operations
+                    SET completed_at_utc = ?,
+                        status = ?,
+                        target_count = ?,
+                        version = version + 1
+                    WHERE operation_id = ?
+                    """,
+                    UtcTimestamps.toText(nowUtc),
+                    operation.status().name(),
+                    operation.targetCount(),
+                    operation.operationId());
+            SqliteJdbc.requireUpdated(updated, "Batch operation was not found.");
+
+            jdbcTemplate.update(
+                    "DELETE FROM batch_target_results WHERE operation_id = ?",
+                    operation.operationId());
+
+            for (BatchTargetResult target : operation.targets()) {
+                jdbcTemplate.update("""
+                        INSERT INTO batch_target_results (
+                            operation_id, target_type, target_id, target_display_name,
+                            status, error_code, message, attempt, updated_at_utc
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        operation.operationId(),
+                        target.target().type().name(),
+                        target.target().targetId(),
+                        target.target().displayName(),
+                        target.status().name(),
+                        target.errorCode() == null ? null : target.errorCode().name(),
+                        target.message(),
+                        target.attempt(),
+                        UtcTimestamps.toText(nowUtc));
+            }
+        } catch (DataAccessException exception) {
+            throw SqliteExceptionMapper.map("Batch operation results could not be replaced.", exception);
+        }
+    }
+
+    @Override
     public Optional<BatchOperation> findById(String operationId) {
         return SqliteJdbc.optional(
                 jdbcTemplate,

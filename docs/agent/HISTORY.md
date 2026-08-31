@@ -1307,3 +1307,38 @@
 ### Commit sugerido
 
 `feat(agent): implement secure power control operations`
+
+## 2026-08-31 - Prompt 15B
+
+### Realizado
+
+- Implementado `POST /api/classrooms/{classroomId}/power-control` para dispatch batch de `SHUTDOWN` y `RESTART` desde Master.
+- Protegido el endpoint con `MasterAccessGuard` antes de preflight o lectura escolar.
+- Validado body estricto: solo `type` y `targetDeviceIds`; targets obligatorios, no vacios y sin duplicados.
+- Agregado preflight por Device: aula correcta, Device registrado, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` y `POWER_CONTROL_V1`.
+- Reutilizada persistencia `BatchOperation` / `BatchTargetResult` con targets `PENDING` antes del envio y reemplazo final de resultados.
+- Agregado `MasterRemoteOperationGateway` para mantener sesiones gRPC autenticadas, enviar `OperationRequest`, correlacionar `OperationAccepted`/`OperationResult` por `(deviceId, operationId)` y limpiar pending state.
+- Conservado el mismo `operationId` de batch para varios Agents, con correlacion por target para evitar colisiones.
+- Agregados errores `CAPABILITY_NOT_SUPPORTED`, `OPERATION_REJECTED` y `OPERATION_RESULT_UNKNOWN`.
+- Tratado `OperationAccepted` solo como reconocimiento, nunca como `SUCCESS`.
+- Mapeado timeout/desconexion posterior al envio a `OPERATION_RESULT_UNKNOWN` no retryable.
+- Documentada la API y la semantica de `SUCCESS`: Windows acepto la solicitud, no que el equipo ya se apago/reinicio.
+
+### Cambios descartados
+
+- No se modifico el Agent ni .NET.
+- No se modifico Protobuf.
+- No se agrego UI.
+- No se agregaron nuevas operaciones Windows.
+- No se implemento retry automatico, scheduler general, worker permanente, cleanup timer ni reconciliacion 15C.
+- No se aceptaron comandos, shell, rutas, argumentos, force, timeout o payload libre por API.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=MasterNetworkTransportTest,MasterRemoteOperationGatewayTest,NetworkClientControllerTest" test` en `master-backend`: correcto.
+- `mvn test` en `master-backend`: correcto, 149 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): dispatch batch power control operations`
