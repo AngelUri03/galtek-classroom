@@ -84,6 +84,7 @@ public class MasterNetworkConfiguration {
             ClientConnectionRegistry connectionRegistry,
             NetworkClientConnectionService networkClientConnectionService,
             MasterRemoteOperationGateway remoteOperationGateway,
+            PowerOperationReconciliationService reconciliationService,
             Clock clock,
             MasterNetworkHeartbeatMonitor heartbeatMonitor) {
         return new MasterNetworkGrpcService(
@@ -91,6 +92,7 @@ public class MasterNetworkConfiguration {
                 connectionRegistry,
                 networkClientConnectionService,
                 remoteOperationGateway,
+                reconciliationService,
                 clock,
                 heartbeatMonitor::ensureScanning);
     }

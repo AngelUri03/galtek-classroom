@@ -22,7 +22,9 @@ import com.galtek.classroom.admin.AdminDtos.StudentResponse;
 import com.galtek.classroom.admin.AdminDtos.UpdateClassroomRequest;
 import com.galtek.classroom.admin.AdminDtos.UpdateGroupRequest;
 import com.galtek.classroom.admin.AdminDtos.UpdateStudentRequest;
+import com.galtek.classroom.network.PowerOperationReconciliationService;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -45,9 +47,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class MasterAdminController {
 
     private final MasterAdminService service;
+    private final PowerOperationReconciliationService reconciliationService;
 
-    public MasterAdminController(MasterAdminService service) {
+    public MasterAdminController(
+            MasterAdminService service,
+            PowerOperationReconciliationService reconciliationService) {
         this.service = service;
+        this.reconciliationService = reconciliationService;
     }
 
     @GetMapping("/master/bootstrap")
@@ -205,6 +211,13 @@ public class MasterAdminController {
     @GetMapping("/operations/{id}/retryable-targets")
     public List<OperationTargetResponse> retryableTargets(@PathVariable String id) {
         return service.retryableTargets(id);
+    }
+
+    @PostMapping("/operations/{id}/reconcile")
+    public OperationResponse reconcileOperation(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, Object> request) {
+        return reconciliationService.reconcileOperation(id, request);
     }
 
     @GetMapping("/classrooms/{id}/snapshot")

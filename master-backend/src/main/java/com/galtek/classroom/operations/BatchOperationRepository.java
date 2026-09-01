@@ -13,4 +13,8 @@ public interface BatchOperationRepository {
     Optional<BatchOperation> findById(String operationId);
 
     List<BatchTargetResult> findRetryableFailures(String operationId);
+
+    List<BatchOperation> findPowerOperationsWithUnknownTarget(String deviceId);
+
+    List<BatchOperation> findPowerOperationsWithPendingTargetsCreatedBefore(OffsetDateTime recoveryCutoffUtc);
 }

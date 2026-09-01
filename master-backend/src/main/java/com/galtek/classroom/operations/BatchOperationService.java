@@ -44,6 +44,14 @@ public class BatchOperationService {
         return batchOperationRepository.findRetryableFailures(operationId);
     }
 
+    public List<BatchOperation> powerOperationsWithUnknownTarget(String deviceId) {
+        return batchOperationRepository.findPowerOperationsWithUnknownTarget(deviceId);
+    }
+
+    public List<BatchOperation> powerOperationsWithPendingTargetsCreatedBefore(OffsetDateTime recoveryCutoffUtc) {
+        return batchOperationRepository.findPowerOperationsWithPendingTargetsCreatedBefore(recoveryCutoffUtc);
+    }
+
     private OffsetDateTime nowUtc() {
         return OffsetDateTime.now(clock);
     }

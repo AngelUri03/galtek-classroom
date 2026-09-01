@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Agent.Service.Power;
 using GaltekClassroom.Agent.Service.Runtime;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
@@ -23,6 +24,7 @@ public sealed class MasterGrpcConnectionClient
     private readonly ISystemClock _clock;
     private readonly MasterConnectionStateTracker _stateTracker;
     private readonly RemoteOperationDispatcher _operationDispatcher;
+    private readonly PowerOperationReceiptStore _receiptStore;
     private readonly IReconnectJitter _jitter;
 
     public MasterGrpcConnectionClient(
@@ -35,6 +37,7 @@ public sealed class MasterGrpcConnectionClient
         ISystemClock clock,
         MasterConnectionStateTracker stateTracker,
         RemoteOperationDispatcher operationDispatcher,
+        PowerOperationReceiptStore receiptStore,
         IReconnectJitter jitter)
     {
         _logger = logger;
@@ -46,6 +49,7 @@ public sealed class MasterGrpcConnectionClient
         _clock = clock;
         _stateTracker = stateTracker;
         _operationDispatcher = operationDispatcher;
+        _receiptStore = receiptStore;
         _jitter = jitter;
     }
 
@@ -257,6 +261,16 @@ public sealed class MasterGrpcConnectionClient
                         response.OperationRequest,
                         cancellationToken);
                     break;
+                case MasterEnvelope.PayloadOneofCase.OperationStatusQuery:
+                    await HandleOperationStatusQueryAsync(
+                        requestStream,
+                        writeLock,
+                        masterNetworkIdentityId,
+                        clientNetworkIdentity,
+                        trustedMaster,
+                        response.OperationStatusQuery,
+                        cancellationToken);
+                    break;
             }
         }
     }
@@ -290,6 +304,85 @@ public sealed class MasterGrpcConnectionClient
             ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
             OperationResult = dispatch.Result
         }, writeLock, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task HandleOperationStatusQueryAsync(
+        IClientStreamWriter<ClientEnvelope> requestStream,
+        SemaphoreSlim writeLock,
+        Guid masterNetworkIdentityId,
+        NetworkIdentityMetadata clientNetworkIdentity,
+        AuthorizedMasterTrustRecord trustedMaster,
+        OperationStatusQuery query,
+        CancellationToken cancellationToken)
+    {
+        await EnsureTrustedMasterStillCurrentAsync(
+            masterNetworkIdentityId,
+            clientNetworkIdentity,
+            trustedMaster,
+            cancellationToken).ConfigureAwait(false);
+
+        OperationStatusReport report = await BuildOperationStatusReportAsync(query, cancellationToken)
+            .ConfigureAwait(false);
+
+        await WriteAsync(requestStream, new ClientEnvelope
+        {
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            OperationStatusReport = report
+        }, writeLock, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<OperationStatusReport> BuildOperationStatusReportAsync(
+        OperationStatusQuery query,
+        CancellationToken cancellationToken)
+    {
+        if (!ValidStatusQuery(query))
+        {
+            return UnknownStatusReport(query);
+        }
+
+        OperationResult? result = _operationDispatcher.TryGetCompletedResult(
+            query.OperationId,
+            query.TargetDeviceId);
+        result ??= await _receiptStore.TryGetSuccessResultAsync(
+            query.OperationId,
+            query.TargetDeviceId,
+            cancellationToken).ConfigureAwait(false);
+
+        if (result is null)
+        {
+            return UnknownStatusReport(query);
+        }
+
+        return new OperationStatusReport
+        {
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            OperationId = query.OperationId,
+            TargetDeviceId = query.TargetDeviceId,
+            Knowledge = OperationStatusKnowledge.Known,
+            Result = result
+        };
+    }
+
+    private static bool ValidStatusQuery(OperationStatusQuery query)
+    {
+        return query is not null
+            && string.Equals(
+                query.ProtocolVersion,
+                MasterConnectionConstants.ProtocolVersion,
+                StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(query.OperationId)
+            && !string.IsNullOrWhiteSpace(query.TargetDeviceId);
+    }
+
+    private static OperationStatusReport UnknownStatusReport(OperationStatusQuery? query)
+    {
+        return new OperationStatusReport
+        {
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            OperationId = query?.OperationId ?? string.Empty,
+            TargetDeviceId = query?.TargetDeviceId ?? string.Empty,
+            Knowledge = OperationStatusKnowledge.Unknown
+        };
     }
 
     private void HandleConnectionStatus(Guid masterNetworkIdentityId, ConnectionStatus status)

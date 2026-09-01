@@ -1342,3 +1342,41 @@
 ### Commit sugerido
 
 `feat(master): dispatch batch power control operations`
+
+## 2026-08-31 - Prompt 15C
+
+### Realizado
+
+- Agregado `OperationStatusQuery`/`OperationStatusReport` al Protobuf v1 sobre `NetworkConnection.Connect`, sin cambiar `protocolVersion` ni crear otro servicio gRPC.
+- Implementada consulta read-only en el Agent: valida el stream Master/trust vigente, consulta cache/receipt y responde `KNOWN` o `UNKNOWN` sin ejecutar handlers.
+- Expuesto `RemoteOperationDispatcher.TryGetCompletedResult` para leer resultados completados retenidos por dedupe/cache sin extender retencion.
+- Agregado `PowerOperationReceiptStore` durable y acotado en `power-operation-receipts.json` para receipts minimos de `SHUTDOWN`/`RESTART` aceptados por Windows.
+- Ajustados handlers de power control para persistir receipt despues de aceptacion Windows y antes de devolver `SUCCESS`; si falla el receipt, se conserva `SUCCESS` normal y se registra warning seguro.
+- Extendida correlacion Master por `(deviceId, operationId)` para status queries, con timeout corto, limpieza de mapas y validacion del tipo persistido contra el `OperationResult`.
+- Implementada reconciliacion de late `OperationResult` autentico solo sobre targets `FAILED + OPERATION_RESULT_UNKNOWN`, sin modificar `SUCCESS` ni aceptar resultados de otro Device.
+- Implementada reconciliacion ligera en reconnect del mismo Device, filtrando en SQLite solo operaciones `SHUTDOWN`/`RESTART` inciertas de ese Device.
+- Implementado recovery once de startup para convertir targets power `PENDING` huerfanos a `FAILED + OPERATION_RESULT_UNKNOWN`, sin resend ni espera de Clients online.
+- Agregado `POST /api/operations/{operationId}/reconcile` protegido por `MasterAccessGuard`, sin body arbitrario y limitado a `SHUTDOWN`/`RESTART`.
+- Reutilizadas tablas existentes `batch_operations` y `batch_target_results`; no se agrego migration.
+
+### Cambios descartados
+
+- No se implemento UI.
+- No se agregaron operaciones funcionales nuevas.
+- No se implemento retry automatico ni resend automatico de `SHUTDOWN`/`RESTART`.
+- No se infiere `SUCCESS` por `OFFLINE`, reconnect, timestamps ni evidencia indirecta.
+- No se agrego scheduler general, polling, timer de cleanup, telemetry, Local IPC nuevo, SQLite Agent ni tabla nueva Master.
+- No se ejecuto power control fisico.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 28 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,PowerOperationReconciliationServiceTest,NetworkClientControllerTest" test` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 17 pruebas Session y 136 pruebas Service superadas.
+- `mvn test` en `master-backend`: correcto, 162 pruebas superadas.
+
+### Commit sugerido
+
+`feat: reconcile uncertain remote power operations`

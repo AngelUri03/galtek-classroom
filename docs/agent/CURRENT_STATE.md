@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-31 - Prompt 15B.
+2026-08-31 - Prompt 15C.
 
 ## Estado del proyecto
 
@@ -28,13 +28,15 @@ Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `S
 
 Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con request tipada y `targetDeviceIds` explicitos. El Master hace preflight por Device, persiste una `BatchOperation` antes del envio, envia `OperationRequest` solo a conexiones gRPC/mTLS autenticadas `ONLINE` con trust `PAIRED`, Device registrado y `POWER_CONTROL_V1`, correlaciona por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Timeout o desconexion despues del envio produce `OPERATION_RESULT_UNKNOWN` no retryable.
 
+Prompt 15C implementa reconciliacion segura de `SHUTDOWN`/`RESTART` inciertos. Agrega `OperationStatusQuery`/`OperationStatusReport` al Protobuf v1 sobre `NetworkConnection.Connect`, sin cambiar `protocolVersion`. El Agent responde read-only desde el cache acotado del dispatcher o desde `power-operation-receipts.json`, un receipt durable minimo para power control aceptado. El Master acepta late `OperationResult` autentico, consulta status manualmente con `POST /api/operations/{operationId}/reconcile` y reconcilia de forma ligera en reconnect del mismo Device. No hay retry automatico, resend automatico, scheduler general ni inferencia de `SUCCESS` por `OFFLINE` o reconnect.
+
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni reconciliacion productiva de operaciones inciertas.
+El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real ni distribucion real.
 
 ## Implementado
 
@@ -62,6 +64,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `OperationAccepted` no se trata como `SUCCESS`; solo `OperationResult SUCCESS` marca target exitoso.
 - El mismo `operationId` del batch se envia a varios Agents y la correlacion Master usa `(deviceId, operationId)`.
 - `OPERATION_RESULT_UNKNOWN` queda como error operacional no retryable cuando una request enviada queda sin resultado confirmado.
+- `POST /api/operations/{operationId}/reconcile` protegido por `MasterAccessGuard` consulta solo targets power `FAILED + OPERATION_RESULT_UNKNOWN` que esten online y devuelve la operacion actualizada.
+- El Master reconcilia late `OperationResult` solo si el `operationId` existe, el target Device coincide, el tipo corresponde, el target sigue incierto y la sesion gRPC autenticada pertenece al mismo Device.
+- El reconnect autenticado de un Device registrado consulta solo operaciones `SHUTDOWN`/`RESTART` inciertas de ese Device; no recorre todo el historial ni reenvia operaciones.
+- El startup del Master transforma una vez targets power `PENDING` huerfanos a `FAILED + OPERATION_RESULT_UNKNOWN`, sin esperar Clients online.
 - Endpoints protegidos de aplicaciones y operaciones.
 - `RestControllerAdvice` uniforme para errores HTTP: validacion 400, no encontrado 404, conflicto/version 409, Master no autorizado 403, Agent/storage no disponible 503.
 - Modelos puros Java de Prompt 14.2 para `StudentAssignmentStrategy`, `StudentPreparationStage`, `StudentPreparationStatus`, `StudentPreparationState`, `ClassroomReadinessPlan`, `WorkspaceResidencyState`, `WorkspaceSyncState`, `WorkspaceCommitStage`, `WorkspaceSyncSafetyPlanner`, `ProjectionMode`, `OperationPriority` y `ManagedWindowsAccountOperatingPolicy`.
@@ -141,6 +147,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Fallos de power control se mapean a `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED` sin exponer stack traces, rutas, tokens ni codigos Win32 crudos como mensaje principal.
 - `RemoteOperationDispatcher` rechaza ejecucion de handlers si Commercial License no esta activa, preservando el bloqueo comercial tras diferir la validacion completa.
 - El cache de deduplicacion de `RemoteOperationDispatcher` queda acotado por retencion y maximo de operation IDs completados, con limpieza lazy durante dispatch y sin timers nuevos.
+- `RemoteOperationDispatcher.TryGetCompletedResult` expone una consulta read-only del resultado completado sin ejecutar handlers ni extender retencion.
+- `PowerOperationReceiptStore` persiste receipts acotados de `SHUTDOWN`/`RESTART` aceptados por Windows en `power-operation-receipts.json`, con cleanup lazy y sin timer.
+- `OperationStatusQuery` en el Agent responde `KNOWN` solo desde cache/receipt o `UNKNOWN`; no crea `OperationRequest`, no llama handlers, no modifica Windows y no depende de licencia comercial para reejecutar nada.
 - IPC saludable reduce allocations: `PING` reutiliza payload inmutable, `GET_DEVICE_STATUS` reutiliza roles/features vacios cuando aplica y `LocalIpcFraming.WriteJsonAsync` evita construir un frame duplicado completo en memoria.
 - Datos estaticos de proceso usados en rutas repetidas se resuelven una vez: hostname del sistema y version del Agent.
 - `MasterConnectionStateTracker` actualiza ACK/estado con una sola seccion critica por cambio, conservando `NETWORK_READY` y semantica de heartbeat.
@@ -187,8 +196,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Prompt 15B cerrado tecnicamente.
-- No queda desarrollo 15B a medias.
+- Prompt 15C cerrado tecnicamente.
+- No queda desarrollo 15C a medias.
 
 ## Pendiente inmediato
 
@@ -201,9 +210,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar sync real, USB real y distribucion real en fases posteriores sin romper la regla `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Implementar preview/captura/proyeccion real en fases posteriores distinguiendo modos y costos.
 - Implementar scheduler/backpressure real, medicion con profiling real y deteccion conservadora de perfil en fases posteriores solo con evidencia.
-- Implementar reconciliacion real de operaciones remotas inciertas y workflows reales de workspace/sync en fases posteriores.
+- Implementar workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
-- Implementar en Prompt 15C la reconciliacion real de operaciones remotas inciertas despues de timeout, desconexion o restart del Master.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -317,9 +325,12 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
-- `mvn -q "-Dtest=MasterNetworkTransportTest,MasterRemoteOperationGatewayTest,NetworkClientControllerTest" test` en `master-backend`: correcto, pruebas dirigidas de transporte, gateway y endpoint power-control superadas.
-- `mvn test` en `master-backend`: correcto, 149 pruebas superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 28 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,PowerOperationReconciliationServiceTest,NetworkClientControllerTest" test` en `master-backend`: correcto, pruebas dirigidas de gateway, reconciliacion y endpoint power-control superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 17 pruebas Session y 136 pruebas Service superadas.
+- `mvn test` en `master-backend`: correcto, 162 pruebas superadas.
 
 ## Proximo paso recomendado
 
-Avanzar a Prompt 15C para reconciliar operaciones remotas inciertas sin asumir exito ni reintentar automaticamente power control. No agregar UI ni otras operaciones Windows dentro de esa reconciliacion salvo alcance explicito.
+Siguiente fase recomendada: disenar el proximo bloque funcional remoto sin romper la regla de operaciones tipadas, batch-first y sin ejecucion remota arbitraria.

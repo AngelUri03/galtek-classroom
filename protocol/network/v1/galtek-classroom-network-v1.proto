@@ -18,6 +18,7 @@ message ClientEnvelope {
     Heartbeat heartbeat = 11;
     OperationAccepted operation_accepted = 12;
     OperationResult operation_result = 13;
+    OperationStatusReport operation_status_report = 14;
   }
 }
 
@@ -28,6 +29,7 @@ message MasterEnvelope {
     ConnectionStatus connection_status = 10;
     HeartbeatAck heartbeat_ack = 11;
     OperationRequest operation_request = 12;
+    OperationStatusQuery operation_status_query = 13;
   }
 }
 
@@ -102,6 +104,20 @@ message OperationResult {
   int64 completed_at_unix_ms = 9;
 }
 
+message OperationStatusQuery {
+  string protocol_version = 1;
+  string operation_id = 2;
+  string target_device_id = 3;
+}
+
+message OperationStatusReport {
+  string protocol_version = 1;
+  string operation_id = 2;
+  string target_device_id = 3;
+  OperationStatusKnowledge knowledge = 4;
+  OperationResult result = 5;
+}
+
 enum NetworkCapability {
   NETWORK_CAPABILITY_UNSPECIFIED = 0;
   NETWORK_CAPABILITY_HEARTBEAT_V1 = 1;
@@ -141,6 +157,12 @@ enum OperationExecutionStatus {
   OPERATION_EXECUTION_STATUS_SUCCESS = 1;
   OPERATION_EXECUTION_STATUS_FAILED = 2;
   OPERATION_EXECUTION_STATUS_TIMED_OUT = 3;
+}
+
+enum OperationStatusKnowledge {
+  OPERATION_STATUS_KNOWLEDGE_UNSPECIFIED = 0;
+  OPERATION_STATUS_KNOWLEDGE_KNOWN = 1;
+  OPERATION_STATUS_KNOWLEDGE_UNKNOWN = 2;
 }
 
 enum NetworkOperationErrorCode {

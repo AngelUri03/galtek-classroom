@@ -1,6 +1,6 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto.
 
 Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
@@ -251,6 +251,30 @@ Errores relevantes:
 - Target `OPERATION_REJECTED`: el Agent rechazo la operacion mediante respuesta tipada; no retryable actualmente.
 - Target `OPERATION_RESULT_UNKNOWN`: resultado incierto despues del envio.
 
+## Reconcile Power Operation
+
+`POST /api/operations/{operationId}/reconcile`
+
+Endpoint administrativo protegido por `MasterAccessGuard`. No acepta body y solo actua sobre operaciones existentes `SHUTDOWN` o `RESTART`.
+
+Semantica:
+
+- Consulta solo targets `FAILED` con `errorCode = OPERATION_RESULT_UNKNOWN`.
+- Consulta solo Devices actualmente `ONLINE` mediante el stream gRPC/mTLS autenticado existente.
+- Envia `OperationStatusQuery` read-only con el mismo `operationId` y `targetDeviceId`; no reenvia `OperationRequest`.
+- Si el Agent responde `KNOWN`, actualiza el target del `BatchOperation` existente y recalcula `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`.
+- Si el Agent responde `UNKNOWN`, no responde o el Device esta offline, conserva `OPERATION_RESULT_UNKNOWN`.
+- Nunca marca `SUCCESS` solo porque un Device quede `OFFLINE` ni por reconexion posterior.
+
+Respuesta: `OperationResponse` equivalente a `GET /api/operations/{operationId}`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body no soportado o la operacion no es `SHUTDOWN`/`RESTART`.
+- `403 <authorization.status>`: Master local no autorizado.
+- `404 OPERATION_NOT_FOUND`: operacion inexistente.
+- `503 MASTER_DATABASE_UNAVAILABLE` u otro codigo de storage: SQLite no esta disponible.
+
 ## Classrooms
 
 - `GET /api/classrooms?active=true|false`
@@ -417,6 +441,7 @@ La API solo lista catalogo existente y aplicaciones autorizadas por aula. No eje
 - `GET /api/operations`
 - `GET /api/operations/{id}`
 - `GET /api/operations/{id}/retryable-targets`
+- `POST /api/operations/{id}/reconcile`
 
 Las operaciones devuelven resultados por target y permiten consultar fallidos retryable sin repetir targets exitosos.
 

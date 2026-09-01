@@ -70,7 +70,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas y framework de operaciones tipadas. `SHUTDOWN` y `RESTART` ya tienen ejecucion productiva en el Agent; las demas operaciones continuan pendientes.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas, framework de operaciones tipadas y status query read-only para reconciliar operaciones previas. `SHUTDOWN` y `RESTART` ya tienen ejecucion productiva en el Agent; las demas operaciones continuan pendientes.
 - Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
@@ -95,7 +95,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas y framework de operaciones; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent y el Master ya puede enviarlas por batch desde `POST /api/classrooms/{classroomId}/power-control`. Todavia no existe mDNS real ni discovery real.
+- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent, el Master ya puede enviarlas por batch desde `POST /api/classrooms/{classroomId}/power-control` y reconciliar incertidumbre mediante `POST /api/operations/{operationId}/reconcile`. Todavia no existe mDNS real ni discovery real.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - Prompt 14.4 agrega resiliencia ante apagones, startup rapido, markers de ejecucion, escrituras atomicas/durables para archivos criticos y jitter de reconexion sin implementar comandos Windows reales.
@@ -122,6 +122,8 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - El Master conserva el workspace canonico; el Client conserva una working copy local durante el uso y solo puede limpiarse despues de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Si falta confirmacion de sync, no asumir exito ni perdida: conservar working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
 - Ante perdida de energia, reinicio, desconexion o falta de ACK, no asumir `SUCCESS`; una operacion remota incierta requiere reconciliacion posterior.
+- La reconciliacion de `SHUTDOWN`/`RESTART` inciertos pregunta por el resultado ORIGINAL usando el mismo `operationId`; nunca reenvia automaticamente una operacion destructiva para comprobar si funciono.
+- `SHUTDOWN + OFFLINE` y `RESTART + reconnect` son evidencia operacional, pero no prueban `SUCCESS`; solo `OperationResult` o `OperationStatusReport KNOWN` pueden reconciliar exito.
 - El plano de control tiene prioridad sobre el plano visual: Local IPC, identidad, trust, heartbeat/reconexion y acciones criticas futuras deben quedar disponibles antes que thumbnails, captura, proyeccion, inventario, transferencias grandes o sync pesado.
 - El Master no espera a que todos los Clients arranquen para quedar operativo; se considera control-plane ready con proceso vivo y almacenamiento listo, aunque el conteo de Clients online sea cero.
 - Boot, `ClientHello`, pairing, registration, reconnect y heartbeat no deben iniciar captura, proyeccion, thumbnails, filesystem sync ni inventario pesado automaticamente.

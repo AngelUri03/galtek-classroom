@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Power;
 
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
@@ -18,6 +19,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AgentVersionProvider>();
         services.AddSingleton<IReconnectJitter, RandomReconnectJitter>();
         services.AddSingleton<IWindowsPowerController, WindowsPowerController>();
+        services.AddSingleton(new PowerOperationReceiptStoreOptions(AgentDataDirectory.Resolve()));
+        services.AddSingleton<PowerOperationReceiptStore>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();

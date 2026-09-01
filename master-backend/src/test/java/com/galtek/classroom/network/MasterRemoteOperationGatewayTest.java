@@ -14,6 +14,9 @@ import com.galtek.classroom.network.v1.OperationAccepted;
 import com.galtek.classroom.network.v1.OperationExecutionStatus;
 import com.galtek.classroom.network.v1.OperationRequest;
 import com.galtek.classroom.network.v1.OperationResult;
+import com.galtek.classroom.network.v1.OperationStatusKnowledge;
+import com.galtek.classroom.network.v1.OperationStatusQuery;
+import com.galtek.classroom.network.v1.OperationStatusReport;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -209,6 +212,97 @@ class MasterRemoteOperationGatewayTest {
         assertThat(timeout.errorCode()).isEqualTo(ErrorCode.OPERATION_RESULT_UNKNOWN);
         assertThat(handle.completion()).isCompletedWithValue(timeout);
         assertThat(gateway.pendingCount()).isZero();
+    }
+
+    @Test
+    void statusQuerySendsReadOnlyOperationStatusQuery() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("PC01", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        MasterRemoteOperationGateway.StatusQueryHandle handle = gateway.queryStatus(
+                        snapshot,
+                        OperationType.SHUTDOWN,
+                        "batch-1",
+                        "PC01")
+                .orElseThrow();
+
+        assertThat(handle.completion()).isNotCompleted();
+        assertThat(observer.values()).hasSize(1);
+        OperationStatusQuery query = observer.values().getFirst().getOperationStatusQuery();
+        assertThat(query.getProtocolVersion()).isEqualTo(MasterNetworkTransportConstants.PROTOCOL_VERSION);
+        assertThat(query.getOperationId()).isEqualTo("batch-1");
+        assertThat(query.getTargetDeviceId()).isEqualTo("PC01");
+        assertThat(gateway.pendingStatusQueryCount()).isEqualTo(1);
+    }
+
+    @Test
+    void knownStatusReportCompletesStatusQueryWithoutCreatingOperationRequest() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        UUID identity = UUID.randomUUID();
+        ClientConnectionSnapshot snapshot = snapshot("PC01", identity, "connection-1");
+        gateway.registerSession(snapshot, observer);
+        MasterRemoteOperationGateway.StatusQueryHandle handle = gateway.queryStatus(
+                        snapshot,
+                        OperationType.SHUTDOWN,
+                        "batch-1",
+                        "PC01")
+                .orElseThrow();
+
+        gateway.handleStatusReport(OperationStatusReport.newBuilder()
+                        .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                        .setOperationId("batch-1")
+                        .setTargetDeviceId("PC01")
+                        .setKnowledge(OperationStatusKnowledge.OPERATION_STATUS_KNOWLEDGE_KNOWN)
+                        .setResult(success("batch-1", "PC01", NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN))
+                        .build(),
+                identity,
+                "connection-1");
+
+        assertThat(handle.completion()).isCompletedWithValueMatching(outcome ->
+                outcome.isPresent() && outcome.get().status() == TargetExecutionStatus.SUCCESS);
+        assertThat(observer.values()).hasSize(1);
+        assertThat(observer.values().getFirst().getPayloadCase())
+                .isEqualTo(MasterEnvelope.PayloadCase.OPERATION_STATUS_QUERY);
+        assertThat(gateway.pendingStatusQueryCount()).isZero();
+    }
+
+    @Test
+    void unknownStatusReportAndTimeoutPreserveUnknownAndCleanMap() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        UUID identity = UUID.randomUUID();
+        ClientConnectionSnapshot snapshot = snapshot("PC01", identity, "connection-1");
+        gateway.registerSession(snapshot, new RecordingObserver<>());
+        MasterRemoteOperationGateway.StatusQueryHandle unknown = gateway.queryStatus(
+                        snapshot,
+                        OperationType.SHUTDOWN,
+                        "unknown",
+                        "PC01")
+                .orElseThrow();
+
+        gateway.handleStatusReport(OperationStatusReport.newBuilder()
+                        .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                        .setOperationId("unknown")
+                        .setTargetDeviceId("PC01")
+                        .setKnowledge(OperationStatusKnowledge.OPERATION_STATUS_KNOWLEDGE_UNKNOWN)
+                        .build(),
+                identity,
+                "connection-1");
+
+        assertThat(unknown.completion()).isCompletedWithValue(java.util.Optional.empty());
+        assertThat(gateway.pendingStatusQueryCount()).isZero();
+
+        MasterRemoteOperationGateway.StatusQueryHandle timeout = gateway.queryStatus(
+                        snapshot,
+                        OperationType.SHUTDOWN,
+                        "timeout",
+                        "PC01")
+                .orElseThrow();
+        assertThat(gateway.timeoutStatusQuery(timeout)).isEmpty();
+        assertThat(timeout.completion()).isCompletedWithValue(java.util.Optional.empty());
+        assertThat(gateway.pendingStatusQueryCount()).isZero();
     }
 
     private static OperationResult success(

@@ -123,6 +123,12 @@
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.
+- La reconciliacion de `SHUTDOWN`/`RESTART` inciertos debe consultar el resultado ORIGINAL por `operationId` y `targetDeviceId` mediante `OperationStatusQuery`; nunca debe reenviar automaticamente la operacion destructiva.
+- `OperationStatusQuery` es read-only: no crea `OperationRequest`, no llama handlers, no modifica Windows, no aumenta attempts y no renueva indefinidamente la retencion del cache.
+- El Agent puede responder `OperationStatusReport KNOWN` desde cache acotado o desde un receipt durable minimo de power control aceptado; `UNKNOWN` conserva incertidumbre y no implica fallo fisico ni exito.
+- El Master nunca marca `SUCCESS` solo porque un Device quede `OFFLINE` despues de `SHUTDOWN` ni porque reconecte despues de `RESTART`.
+- Resultados tardios autenticos solo pueden actualizar targets `FAILED + OPERATION_RESULT_UNKNOWN` del mismo `(deviceId, operationId)` y tipo; nunca degradan un target ya `SUCCESS`.
+- El startup del Master convierte una vez targets power `PENDING` huerfanos tras restart/crash a `FAILED + OPERATION_RESULT_UNKNOWN`, sin resend automatico ni espera de Clients online.
 - `SHUTDOWN` y `RESTART` pertenecen al Agent Service, no al Session Agent.
 - Power control productivo usa API nativa Windows, actualmente `InitiateSystemShutdownExW`.
 - Antes de solicitar power control, el Agent habilita explicitamente `SeShutdownPrivilege` con APIs Windows soportadas.

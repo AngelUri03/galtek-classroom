@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con body tipado y lista explicita de `targetDeviceIds`. El Master hace preflight por Device, persiste una unica `BatchOperation`, envia `OperationRequest` por la conexion gRPC/mTLS autenticada solo a targets `READY`, correlaciona resultados por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN` no retryable; la reconciliacion real queda para una fase posterior.
+Prompt 15C cierra la primera capacidad remota end-to-end de power control con reconciliacion segura de resultados inciertos. El protocolo Protobuf v1 agrega `OperationStatusQuery`/`OperationStatusReport` sobre el stream `NetworkConnection.Connect` existente, sin cambiar `protocolVersion` ni crear otro servicio. El Agent responde read-only desde el cache acotado del dispatcher o desde un receipt durable minimo de power control aceptado; la consulta nunca ejecuta handlers ni modifica Windows. El Master acepta resultados tardios autenticos y agrega reconciliacion manual/event-driven por reconnect para targets `FAILED + OPERATION_RESULT_UNKNOWN`, sin reenviar `SHUTDOWN`/`RESTART` ni inferir exito por `OFFLINE` o reconnect.
+
+Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con body tipado y lista explicita de `targetDeviceIds`. El Master hace preflight por Device, persiste una unica `BatchOperation`, envia `OperationRequest` por la conexion gRPC/mTLS autenticada solo a targets `READY`, correlaciona resultados por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN` no retryable y Prompt 15C puede reconciliarlo sin reenviar la operacion destructiva.
 
 Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `SHUTDOWN` y `RESTART`. Se ejecutan solo cuando una `OperationRequest` valida llega por el transporte seguro existente y pasa por `RemoteOperationDispatcher`. El Service usa una abstraccion testeable `IWindowsPowerController`; la implementacion productiva habilita `SeShutdownPrivilege` y solicita apagado/reinicio mediante API nativa Windows con countdown fijo de 10 segundos, sin force-close, shell, scripts, WMI ni procesos externos. `SUCCESS` significa que Windows acepto la solicitud, no que el equipo ya este apagado.
 
@@ -292,9 +294,13 @@ IMPLEMENTADO:
 - Certificado TLS del Master emitido en memoria desde su Network Identity, ligado al fingerprint ya persistido por pairing.
 - Pruebas Java para conexion PAIRED, rechazo no paired, rechazo REVOKED, mismatch de certificado/fingerprint, peer desconocido, heartbeat, timeout offline, reconnect, multiples Clients concurrentes, capabilities incluyendo `POWER_CONTROL_V1`, registro de Devices, no writes persistentes por heartbeat y trust/binding persistente tras reinicio.
 - `MasterRemoteOperationGateway` mantiene sesiones gRPC autenticadas y pending operations en memoria por `(deviceId, operationId)`, envia `OperationRequest`, correlaciona `OperationAccepted`/`OperationResult` y limpia pending state en success, fallo, timeout o desconexion.
+- `MasterRemoteOperationGateway` tambien envia `OperationStatusQuery` read-only por `(deviceId, operationId)` y limpia pending status queries en `KNOWN`, `UNKNOWN`, timeout o desconexion.
+- `PowerOperationReconciliationService` acepta `OperationResult` tardios autenticos y consulta status de targets `OPERATION_RESULT_UNKNOWN` manualmente o tras reconnect del mismo Device, sin crear `BatchOperation` nuevo.
+- `MasterPowerOperationStartupRecovery` ejecuta una vez al arrancar y transforma targets power `PENDING` huerfanos a `FAILED + OPERATION_RESULT_UNKNOWN` sin reenviar operaciones ni esperar Clients online.
+- `POST /api/operations/{id}/reconcile` permite comprobacion administrativa protegida de `SHUTDOWN`/`RESTART` inciertos y devuelve el `OperationResponse` actualizado.
 - `PowerControlDispatchService` hace preflight por target: aula correcta, Device registrado, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` y capability `POWER_CONTROL_V1`.
 - `OperationAccepted` solo confirma reconocimiento del Agent; no marca exito. Solo `OperationResult SUCCESS` produce target `SUCCESS`.
-- Timeout o desconexion despues del envio produce `OPERATION_RESULT_UNKNOWN` no retryable y no se convierte en `DEVICE_OFFLINE`.
+- Timeout o desconexion despues del envio produce `OPERATION_RESULT_UNKNOWN` no retryable y no se convierte en `DEVICE_OFFLINE`; si luego hay `OperationResult` o `OperationStatusReport KNOWN`, el mismo batch se reconcilia.
 - Pruebas Java para endpoint power-control, preflight parcial, correlacion gRPC por target, mapeo de resultados y limpieza de pending operations.
 
 PLANIFICADO:
@@ -318,7 +324,7 @@ NO IMPLEMENTADO:
 - Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
-- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de operaciones/workflows inciertos, performance tuning y mDNS.
+- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
 
 ## Almacenamiento local del Master
 
@@ -434,10 +440,14 @@ IMPLEMENTADO:
 - Los retries repetidos de conexion gRPC se registran en `DEBUG` tras el primer warning para evitar spam de retry.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; `SHUTDOWN` y `RESTART` tienen handlers productivos y cualquier operacion sin handler sigue devolviendo `OPERATION_NOT_IMPLEMENTED`.
+- `RemoteOperationDispatcher.TryGetCompletedResult` permite consultar read-only el resultado completado retenido por dedupe/cache, sin ejecutar handlers ni renovar retencion.
+- `PowerOperationReceiptStore` persiste en `power-operation-receipts.json` receipts acotados solo para `SHUTDOWN`/`RESTART` aceptados por Windows: `operationId`, `operationType`, `targetDeviceId`, `acceptedAtUtc` y `SUCCESS`.
+- `OperationStatusQuery` en el Agent valida el stream Master/trust vigente y responde `KNOWN` desde cache/receipt o `UNKNOWN`; nunca crea un `OperationRequest`, nunca llama handlers y nunca modifica Windows.
 - `ShutdownOperationHandler` y `RestartOperationHandler` son handlers tipados explicitos y usan `IWindowsPowerController`; no existe handler generico de comandos.
 - `WindowsPowerController` usa `InitiateSystemShutdownExW` como API nativa Windows, habilita `SeShutdownPrivilege` mediante `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no ejecuta `shutdown.exe`, `cmd.exe`, PowerShell, scripts, WMI shell ni procesos externos.
 - Power control usa countdown fijo de 10 segundos, mensaje constante, `forceAppsClosed=false` y no acepta payload arbitrario, `force=true`, timeout arbitrario ni mensajes enviados por Master.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud; si Windows no la acepta se devuelve `FAILED` con `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED`.
+- Si Windows acepta `SHUTDOWN`/`RESTART` pero falla la persistencia del receipt, el Agent conserva el `OperationResult SUCCESS` normal y registra warning seguro; la falta de receipt solo limita reconciliacion futura tras reboot.
 - `RemoteOperationDispatcher` rechaza ejecucion de handlers cuando Commercial License todavia no esta activa, preservando el bloqueo comercial aunque la validacion completa se difiera fuera del startup critico.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
@@ -602,11 +612,11 @@ IMPLEMENTADO:
 - Heartbeat periodico del Client con `HeartbeatAck` del Master.
 - Heartbeat pequeno, sin polling HTTP, sin telemetria pesada, sin logs sanos y sin writes persistentes por ciclo.
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
-- Framework Protobuf compatible para `OperationRequest`, `OperationAccepted` y `OperationResult`, con `operationId`, `operationType`, `targetDeviceId`, `protocolVersion`, timeout y `ErrorCode` tipado.
+- Framework Protobuf compatible para `OperationRequest`, `OperationAccepted`, `OperationResult`, `OperationStatusQuery` y `OperationStatusReport`, con `operationId`, `targetDeviceId`, `protocolVersion` y resultados tipados.
 - El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN` y `RESTART` usan handlers reales de power control y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master despacha `SHUTDOWN`/`RESTART` batch con el mismo `operationId` para todos los Devices objetivo y correlaciona por `(deviceId, operationId)`.
 - `OperationAccepted` no equivale a exito; `OperationResult SUCCESS` es la unica confirmacion exitosa del target.
-- El resultado incierto posterior al envio se registra como `OPERATION_RESULT_UNKNOWN`, `FAILED`, no retryable, pendiente de reconciliacion futura.
+- El resultado incierto posterior al envio se registra como `OPERATION_RESULT_UNKNOWN`, `FAILED`, no retryable; reconciliacion pregunta por el resultado original y conserva `UNKNOWN` si no hay evidencia.
 - Timeout de heartbeat default 45 segundos en el Master.
 - Reconexión del Client con backoff acotado.
 

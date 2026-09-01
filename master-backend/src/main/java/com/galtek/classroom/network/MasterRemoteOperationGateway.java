@@ -8,6 +8,9 @@ import com.galtek.classroom.network.v1.OperationAccepted;
 import com.galtek.classroom.network.v1.OperationExecutionStatus;
 import com.galtek.classroom.network.v1.OperationRequest;
 import com.galtek.classroom.network.v1.OperationResult;
+import com.galtek.classroom.network.v1.OperationStatusKnowledge;
+import com.galtek.classroom.network.v1.OperationStatusQuery;
+import com.galtek.classroom.network.v1.OperationStatusReport;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -32,11 +35,13 @@ import org.springframework.stereotype.Service;
 public class MasterRemoteOperationGateway {
 
     private static final Duration DEFAULT_RESULT_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration STATUS_QUERY_TIMEOUT = Duration.ofSeconds(2);
 
     private final Clock clock;
     private final Duration resultTimeout;
     private final ConcurrentMap<UUID, RemoteClientSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<RemoteOperationKey, PendingOperation> pendingOperations = new ConcurrentHashMap<>();
+    private final ConcurrentMap<RemoteOperationKey, PendingStatusQuery> pendingStatusQueries = new ConcurrentHashMap<>();
 
     @Autowired
     public MasterRemoteOperationGateway(Clock clock) {
@@ -52,6 +57,10 @@ public class MasterRemoteOperationGateway {
 
     public Duration resultTimeout() {
         return resultTimeout;
+    }
+
+    public Duration statusQueryTimeout() {
+        return STATUS_QUERY_TIMEOUT;
     }
 
     public void registerSession(
@@ -116,6 +125,50 @@ public class MasterRemoteOperationGateway {
         return Optional.of(new DispatchHandle(key, pending.completion()));
     }
 
+    public Optional<StatusQueryHandle> queryStatus(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId) {
+        if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null
+                || !isPowerOperation(operationType)
+                || operationId == null || operationId.isBlank()
+                || targetDeviceId == null || targetDeviceId.isBlank()) {
+            return Optional.empty();
+        }
+
+        RemoteClientSession session = sessions.get(snapshot.clientNetworkIdentityId());
+        if (session == null || !session.connectionId().equals(snapshot.connectionId())) {
+            return Optional.empty();
+        }
+
+        RemoteOperationKey key = new RemoteOperationKey(targetDeviceId, operationId);
+        PendingStatusQuery pending = new PendingStatusQuery(
+                key,
+                snapshot.clientNetworkIdentityId(),
+                snapshot.connectionId(),
+                operationType);
+        PendingStatusQuery previous = pendingStatusQueries.putIfAbsent(key, pending);
+        if (previous != null) {
+            return Optional.of(new StatusQueryHandle(key, previous.completion()));
+        }
+
+        try {
+            session.send(MasterEnvelope.newBuilder()
+                    .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                    .setOperationStatusQuery(OperationStatusQuery.newBuilder()
+                            .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                            .setOperationId(operationId)
+                            .setTargetDeviceId(targetDeviceId)
+                            .build())
+                    .build());
+        } catch (RuntimeException exception) {
+            completeAndRemoveStatusQuery(pending, Optional.empty());
+        }
+
+        return Optional.of(new StatusQueryHandle(key, pending.completion()));
+    }
+
     public void handleAccepted(
             OperationAccepted accepted,
             UUID clientNetworkIdentityId,
@@ -137,7 +190,7 @@ public class MasterRemoteOperationGateway {
         }
     }
 
-    public void handleResult(
+    public boolean handleResult(
             OperationResult result,
             UUID clientNetworkIdentityId,
             String connectionId) {
@@ -145,10 +198,33 @@ public class MasterRemoteOperationGateway {
         PendingOperation pending = pendingOperations.get(key);
         if (pending == null || !pending.matches(clientNetworkIdentityId, connectionId)
                 || !sameOperationType(pending.operationType(), result.getOperationType())) {
+            return false;
+        }
+
+        completeAndRemove(pending, outcomeFromResult(result));
+        return true;
+    }
+
+    public void handleStatusReport(
+            OperationStatusReport report,
+            UUID clientNetworkIdentityId,
+            String connectionId) {
+        RemoteOperationKey key = new RemoteOperationKey(report.getTargetDeviceId(), report.getOperationId());
+        PendingStatusQuery pending = pendingStatusQueries.get(key);
+        if (pending == null || !pending.matches(clientNetworkIdentityId, connectionId)) {
             return;
         }
 
-        completeAndRemove(pending, outcomeFrom(result));
+        Optional<RemoteOperationOutcome> outcome = Optional.empty();
+        if (report.getKnowledge() == OperationStatusKnowledge.OPERATION_STATUS_KNOWLEDGE_KNOWN
+                && report.hasResult()
+                && report.getResult().getOperationId().equals(report.getOperationId())
+                && report.getResult().getTargetDeviceId().equals(report.getTargetDeviceId())
+                && sameOperationType(pending.operationType(), report.getResult().getOperationType())) {
+            outcome = Optional.of(outcomeFromResult(report.getResult()));
+        }
+
+        completeAndRemoveStatusQuery(pending, outcome);
     }
 
     public RemoteOperationOutcome timeout(DispatchHandle handle) {
@@ -175,10 +251,19 @@ public class MasterRemoteOperationGateway {
                         RemoteOperationOutcome.unknown("Operation result is unknown after disconnect."));
             }
         }
+        for (PendingStatusQuery pending : pendingStatusQueries.values()) {
+            if (pending.matches(clientNetworkIdentityId, connectionId)) {
+                completeAndRemoveStatusQuery(pending, Optional.empty());
+            }
+        }
     }
 
     int pendingCount() {
         return pendingOperations.size();
+    }
+
+    int pendingStatusQueryCount() {
+        return pendingStatusQueries.size();
     }
 
     private void completeAndRemove(PendingOperation pending, RemoteOperationOutcome outcome) {
@@ -187,7 +272,23 @@ public class MasterRemoteOperationGateway {
         }
     }
 
-    private RemoteOperationOutcome outcomeFrom(OperationResult result) {
+    public Optional<RemoteOperationOutcome> timeoutStatusQuery(StatusQueryHandle handle) {
+        PendingStatusQuery pending = pendingStatusQueries.remove(handle.key());
+        if (pending != null) {
+            pending.completion().complete(Optional.empty());
+        }
+        return Optional.empty();
+    }
+
+    private void completeAndRemoveStatusQuery(
+            PendingStatusQuery pending,
+            Optional<RemoteOperationOutcome> outcome) {
+        if (pendingStatusQueries.remove(pending.key(), pending)) {
+            pending.completion().complete(outcome);
+        }
+    }
+
+    public static RemoteOperationOutcome outcomeFromResult(OperationResult result) {
         if (result.getStatus() == OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS) {
             return RemoteOperationOutcome.success("Agent reported operation success.");
         }
@@ -197,7 +298,7 @@ public class MasterRemoteOperationGateway {
                 messageFor(result.getErrorCode(), result.getStatus()));
     }
 
-    private ErrorCode errorCodeFrom(NetworkOperationErrorCode errorCode) {
+    private static ErrorCode errorCodeFrom(NetworkOperationErrorCode errorCode) {
         return switch (errorCode) {
             case NETWORK_OPERATION_ERROR_CODE_POWER_CONTROL_UNAVAILABLE -> ErrorCode.POWER_CONTROL_UNAVAILABLE;
             case NETWORK_OPERATION_ERROR_CODE_POWER_CONTROL_FAILED -> ErrorCode.POWER_CONTROL_FAILED;
@@ -211,7 +312,7 @@ public class MasterRemoteOperationGateway {
         };
     }
 
-    private String messageFor(
+    private static String messageFor(
             NetworkOperationErrorCode errorCode,
             OperationExecutionStatus executionStatus) {
         return switch (errorCode) {
@@ -248,9 +349,18 @@ public class MasterRemoteOperationGateway {
         return toNetworkOperationType(operationType) == networkOperationType;
     }
 
+    private boolean isPowerOperation(OperationType operationType) {
+        return operationType == OperationType.SHUTDOWN || operationType == OperationType.RESTART;
+    }
+
     public record DispatchHandle(
             RemoteOperationKey key,
             CompletableFuture<RemoteOperationOutcome> completion) {
+    }
+
+    public record StatusQueryHandle(
+            RemoteOperationKey key,
+            CompletableFuture<Optional<RemoteOperationOutcome>> completion) {
     }
 
     public record RemoteOperationOutcome(
@@ -292,6 +402,27 @@ public class MasterRemoteOperationGateway {
             CompletableFuture<RemoteOperationOutcome> completion) {
 
         PendingOperation(
+                RemoteOperationKey key,
+                UUID clientNetworkIdentityId,
+                String connectionId,
+                OperationType operationType) {
+            this(key, clientNetworkIdentityId, connectionId, operationType, new CompletableFuture<>());
+        }
+
+        boolean matches(UUID clientNetworkIdentityId, String connectionId) {
+            return this.clientNetworkIdentityId.equals(clientNetworkIdentityId)
+                    && this.connectionId.equals(connectionId);
+        }
+    }
+
+    private record PendingStatusQuery(
+            RemoteOperationKey key,
+            UUID clientNetworkIdentityId,
+            String connectionId,
+            OperationType operationType,
+            CompletableFuture<Optional<RemoteOperationOutcome>> completion) {
+
+        PendingStatusQuery(
                 RemoteOperationKey key,
                 UUID clientNetworkIdentityId,
                 String connectionId,

@@ -1,5 +1,6 @@
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Protocol.Network.V1;
+using GaltekClassroom.Agent.Service.Identity;
 
 namespace GaltekClassroom.Agent.Service.Power;
 
@@ -7,13 +8,19 @@ public sealed class ShutdownOperationHandler : IRemoteOperationHandler
 {
     private readonly IWindowsPowerController _powerController;
     private readonly ILogger<ShutdownOperationHandler> _logger;
+    private readonly PowerOperationReceiptStore? _receiptStore;
+    private readonly ISystemClock? _clock;
 
     public ShutdownOperationHandler(
         IWindowsPowerController powerController,
-        ILogger<ShutdownOperationHandler> logger)
+        ILogger<ShutdownOperationHandler> logger,
+        PowerOperationReceiptStore? receiptStore = null,
+        ISystemClock? clock = null)
     {
         _powerController = powerController;
         _logger = logger;
+        _receiptStore = receiptStore;
+        _clock = clock;
     }
 
     public NetworkOperationType OperationType => NetworkOperationType.Shutdown;
@@ -45,6 +52,7 @@ public sealed class ShutdownOperationHandler : IRemoteOperationHandler
 
             if (powerResult.Accepted)
             {
+                await TryPersistReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                 return RemoteOperationHandlerResult.Success(powerResult.Message);
             }
 
@@ -75,19 +83,48 @@ public sealed class ShutdownOperationHandler : IRemoteOperationHandler
                 "Power control request failed.");
         }
     }
+
+    private async Task TryPersistReceiptAsync(OperationRequest request, CancellationToken cancellationToken)
+    {
+        if (_receiptStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _receiptStore.SaveAcceptedAsync(
+                request,
+                _clock?.UtcNow ?? DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Remote shutdown operation was accepted by Windows but durable receipt could not be persisted. OperationId: {OperationId}",
+                request.OperationId);
+        }
+    }
 }
 
 public sealed class RestartOperationHandler : IRemoteOperationHandler
 {
     private readonly IWindowsPowerController _powerController;
     private readonly ILogger<RestartOperationHandler> _logger;
+    private readonly PowerOperationReceiptStore? _receiptStore;
+    private readonly ISystemClock? _clock;
 
     public RestartOperationHandler(
         IWindowsPowerController powerController,
-        ILogger<RestartOperationHandler> logger)
+        ILogger<RestartOperationHandler> logger,
+        PowerOperationReceiptStore? receiptStore = null,
+        ISystemClock? clock = null)
     {
         _powerController = powerController;
         _logger = logger;
+        _receiptStore = receiptStore;
+        _clock = clock;
     }
 
     public NetworkOperationType OperationType => NetworkOperationType.Restart;
@@ -119,6 +156,7 @@ public sealed class RestartOperationHandler : IRemoteOperationHandler
 
             if (powerResult.Accepted)
             {
+                await TryPersistReceiptAsync(request, cancellationToken).ConfigureAwait(false);
                 return RemoteOperationHandlerResult.Success(powerResult.Message);
             }
 
@@ -147,6 +185,29 @@ public sealed class RestartOperationHandler : IRemoteOperationHandler
                 OperationExecutionStatus.Failed,
                 NetworkOperationErrorCode.PowerControlFailed,
                 "Power control request failed.");
+        }
+    }
+
+    private async Task TryPersistReceiptAsync(OperationRequest request, CancellationToken cancellationToken)
+    {
+        if (_receiptStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _receiptStore.SaveAcceptedAsync(
+                request,
+                _clock?.UtcNow ?? DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Remote restart operation was accepted by Windows but durable receipt could not be persisted. OperationId: {OperationId}",
+                request.OperationId);
         }
     }
 }

@@ -168,6 +168,53 @@ public class SqliteBatchOperationRepository implements BatchOperationRepository 
                 .toList();
     }
 
+    @Override
+    public List<BatchOperation> findPowerOperationsWithUnknownTarget(String deviceId) {
+        return jdbcTemplate.query("""
+                SELECT DISTINCT bo.*
+                FROM batch_operations bo
+                INNER JOIN batch_target_results btr ON btr.operation_id = bo.operation_id
+                WHERE bo.operation_type IN ('SHUTDOWN', 'RESTART')
+                  AND btr.target_type = 'DEVICE'
+                  AND btr.target_id = ?
+                  AND btr.status = 'FAILED'
+                  AND btr.error_code = 'OPERATION_RESULT_UNKNOWN'
+                ORDER BY bo.created_at_utc DESC
+                """,
+                (rs, rowNum) -> new BatchOperation(
+                        rs.getString("operation_id"),
+                        OperationType.valueOf(rs.getString("operation_type")),
+                        rs.getString("requested_by"),
+                        UtcTimestamps.fromText(rs.getString("created_at_utc")),
+                        rs.getInt("target_count"),
+                        BatchOperationStatus.valueOf(rs.getString("status")),
+                        targetsFor(rs.getString("operation_id"))),
+                deviceId);
+    }
+
+    @Override
+    public List<BatchOperation> findPowerOperationsWithPendingTargetsCreatedBefore(OffsetDateTime recoveryCutoffUtc) {
+        return jdbcTemplate.query("""
+                SELECT DISTINCT bo.*
+                FROM batch_operations bo
+                INNER JOIN batch_target_results btr ON btr.operation_id = bo.operation_id
+                WHERE bo.operation_type IN ('SHUTDOWN', 'RESTART')
+                  AND bo.created_at_utc < ?
+                  AND btr.target_type = 'DEVICE'
+                  AND btr.status = 'PENDING'
+                ORDER BY bo.created_at_utc
+                """,
+                (rs, rowNum) -> new BatchOperation(
+                        rs.getString("operation_id"),
+                        OperationType.valueOf(rs.getString("operation_type")),
+                        rs.getString("requested_by"),
+                        UtcTimestamps.fromText(rs.getString("created_at_utc")),
+                        rs.getInt("target_count"),
+                        BatchOperationStatus.valueOf(rs.getString("status")),
+                        targetsFor(rs.getString("operation_id"))),
+                UtcTimestamps.toText(recoveryCutoffUtc));
+    }
+
     private List<BatchTargetResult> targetsFor(String operationId) {
         return jdbcTemplate.query(
                 "SELECT * FROM batch_target_results WHERE operation_id = ? ORDER BY target_display_name",

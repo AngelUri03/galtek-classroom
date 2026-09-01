@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones, sin UI ni nuevas operaciones Windows.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows.
 
 ## Principio de producto
 
@@ -803,6 +803,8 @@ Desde Prompt 14 existe un framework Protobuf v1 para operaciones remotas futuras
 OperationRequest
 OperationAccepted
 OperationResult
+OperationStatusQuery
+OperationStatusReport
 ```
 
 Campos base:
@@ -824,7 +826,18 @@ El Master persiste primero una unica `BatchOperation` con el `operationId` del b
 
 `OPERATION_REJECTED` puede producirse cuando el Agent responde `OperationAccepted` con estado `REJECTED` o `UNSPECIFIED`, o cuando un `OperationResult` trae el error tipado `OPERATION_REJECTED`. Actualmente no es retryable. No equivale a `OPERATION_RESULT_UNKNOWN`: rechazo significa respuesta tipada del Agent, mientras resultado desconocido significa que no hubo resultado confirmado despues del envio. La decision se toma por enums/codigos tipados, no por comparar texto del mensaje.
 
-Si el Device estaba offline antes de enviar, el target usa `DEVICE_OFFLINE` retryable. Si la request fue enviada pero falta `OperationResult` por timeout, stream cerrado o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN`, no retryable, porque Windows pudo haber aceptado la accion. La reconciliacion formal queda fuera de 15B.
+Si el Device estaba offline antes de enviar, el target usa `DEVICE_OFFLINE` retryable. Si la request fue enviada pero falta `OperationResult` por timeout, stream cerrado o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN`, no retryable, porque Windows pudo haber aceptado la accion.
+
+Desde Prompt 15C, la reconciliacion de `OPERATION_RESULT_UNKNOWN` para `SHUTDOWN`/`RESTART` consulta read-only el resultado original mediante `OperationStatusQuery(protocolVersion, operationId, targetDeviceId)` sobre el mismo stream autenticado. El Agent responde `OperationStatusReport KNOWN` solo si conserva el `OperationResult` original en cache o un receipt durable minimo de power control aceptado; responde `UNKNOWN` cuando no tiene evidencia. La query nunca llama al handler, nunca modifica Windows, nunca crea un `OperationRequest` nuevo y no renueva indefinidamente la retencion del cache.
+
+El Master puede reconciliar manualmente con `POST /api/operations/{operationId}/reconcile` o de forma ligera al reconnect autenticado del mismo Device. Solo targets `FAILED + OPERATION_RESULT_UNKNOWN` de operaciones `SHUTDOWN`/`RESTART` pueden cambiar. `KNOWN SUCCESS` cambia el target a `SUCCESS`; `KNOWN FAILED` conserva `FAILED` pero reemplaza el error desconocido por el error real. `UNKNOWN`, timeout de query u offline conservan `OPERATION_RESULT_UNKNOWN`.
+
+Reglas permanentes:
+
+- Nunca reenviar automaticamente `SHUTDOWN` o `RESTART` para comprobar si funciono.
+- Nunca inferir `SUCCESS` porque un Device quedo `OFFLINE`.
+- Nunca inferir `SUCCESS` porque un Device reconecto despues de `RESTART`.
+- No existe `LIKELY_SUCCESS`; la evidencia valida es `OperationResult` o `OperationStatusReport KNOWN`.
 
 Para aceptar una operacion real futura deben cumplirse todas las condiciones: mTLS valido, Master correcto, trust `PAIRED`, no `REVOKED`, Device registrado y `operationType` conocido. Las capabilities informan lo que el Agent soporta; no autorizan la ejecucion.
 
@@ -1235,7 +1248,7 @@ Condiciones normales desde ahora:
 
 Los workflows futuros deben ser idempotentes cuando aplique, reconciliar estado, no asumir `SUCCESS` sin confirmacion, conservar origen antes de commit, permitir partial success y permitir retry solo donde corresponde.
 
-Prompt 14.4 agrega base tecnica de recovery/startup y modelos de semantica incierta. Los workflows reales de filesystem, sync, transferencias y reconciliacion productiva siguen pendientes para fases posteriores.
+Prompt 14.4 agrega base tecnica de recovery/startup y modelos de semantica incierta. Prompt 15C implementa reconciliacion productiva para power control incierto; los workflows reales de filesystem, sync y transferencias siguen pendientes para fases posteriores.
 
 ## Operaciones destructivas
 

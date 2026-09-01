@@ -10,6 +10,7 @@ import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkConnectionGrpc;
 import com.galtek.classroom.network.v1.OperationAccepted;
 import com.galtek.classroom.network.v1.OperationResult;
+import com.galtek.classroom.network.v1.OperationStatusReport;
 import io.grpc.stub.StreamObserver;
 import java.time.Clock;
 import java.util.UUID;
@@ -20,6 +21,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
     private final ClientConnectionRegistry connectionRegistry;
     private final NetworkClientConnectionService networkClientConnectionService;
     private final MasterRemoteOperationGateway remoteOperationGateway;
+    private final PowerOperationReconciliationService reconciliationService;
     private final Clock clock;
     private final Runnable heartbeatMonitorActivation;
 
@@ -33,6 +35,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                 connectionRegistry,
                 networkClientConnectionService,
                 new MasterRemoteOperationGateway(clock),
+                null,
                 clock,
                 () -> {
                 });
@@ -45,10 +48,29 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
             MasterRemoteOperationGateway remoteOperationGateway,
             Clock clock,
             Runnable heartbeatMonitorActivation) {
+        this(
+                authenticator,
+                connectionRegistry,
+                networkClientConnectionService,
+                remoteOperationGateway,
+                null,
+                clock,
+                heartbeatMonitorActivation);
+    }
+
+    public MasterNetworkGrpcService(
+            MasterNetworkConnectionAuthenticator authenticator,
+            ClientConnectionRegistry connectionRegistry,
+            NetworkClientConnectionService networkClientConnectionService,
+            MasterRemoteOperationGateway remoteOperationGateway,
+            PowerOperationReconciliationService reconciliationService,
+            Clock clock,
+            Runnable heartbeatMonitorActivation) {
         this.authenticator = authenticator;
         this.connectionRegistry = connectionRegistry;
         this.networkClientConnectionService = networkClientConnectionService;
         this.remoteOperationGateway = remoteOperationGateway;
+        this.reconciliationService = reconciliationService;
         this.clock = clock;
         this.heartbeatMonitorActivation = heartbeatMonitorActivation == null ? () -> {
         } : heartbeatMonitorActivation;
@@ -84,6 +106,7 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                     case HEARTBEAT -> handleHeartbeat(envelope.getHeartbeat());
                     case OPERATION_ACCEPTED -> handleOperationAccepted(envelope.getOperationAccepted());
                     case OPERATION_RESULT -> handleOperationResult(envelope.getOperationResult());
+                    case OPERATION_STATUS_REPORT -> handleOperationStatusReport(envelope.getOperationStatusReport());
                     default -> reject(
                             clientNetworkIdentityId == null ? "" : clientNetworkIdentityId.toString(),
                             MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
@@ -146,6 +169,9 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                         ConnectionState.CONNECTION_STATE_ONLINE,
                         "",
                         "");
+                if (reconciliationService != null) {
+                    reconciliationService.reconcileUnknownTargetsForReconnectedDevice(snapshot);
+                }
             }
 
             private void handleHeartbeat(Heartbeat heartbeat) {
@@ -210,7 +236,31 @@ public class MasterNetworkGrpcService extends NetworkConnectionGrpc.NetworkConne
                     return;
                 }
 
-                remoteOperationGateway.handleResult(operationResult, clientNetworkIdentityId, connectionId);
+                boolean completedPending = remoteOperationGateway.handleResult(
+                        operationResult,
+                        clientNetworkIdentityId,
+                        connectionId);
+                if (!completedPending && reconciliationService != null) {
+                    reconciliationService.handleLateOperationResult(
+                            operationResult,
+                            clientNetworkIdentityId,
+                            connectionId);
+                }
+            }
+
+            private void handleOperationStatusReport(OperationStatusReport statusReport) {
+                if (!operationResponseAuthorized("OperationStatusReport")) {
+                    return;
+                }
+                if (!MasterNetworkTransportConstants.PROTOCOL_VERSION.equals(statusReport.getProtocolVersion())) {
+                    reject(
+                            clientNetworkIdentityId.toString(),
+                            MasterNetworkTransportConstants.PROTOCOL_VIOLATION,
+                            "OperationStatusReport uses an unsupported operation protocol version.");
+                    return;
+                }
+
+                remoteOperationGateway.handleStatusReport(statusReport, clientNetworkIdentityId, connectionId);
             }
 
             private boolean operationResponseAuthorized(String messageName) {

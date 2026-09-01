@@ -65,6 +65,40 @@ public sealed class RemoteOperationDispatcher
             duplicate);
     }
 
+    public OperationResult? TryGetCompletedResult(string operationId, string targetDeviceId)
+    {
+        if (string.IsNullOrWhiteSpace(operationId) || string.IsNullOrWhiteSpace(targetDeviceId))
+        {
+            return null;
+        }
+
+        if (!_operations.TryGetValue(operationId, out var state)
+            || !string.Equals(state.Request.TargetDeviceId, targetDeviceId, StringComparison.Ordinal)
+            || !state.Result.IsValueCreated
+            || !state.Result.Value.IsCompletedSuccessfully)
+        {
+            return null;
+        }
+
+        OperationResult result = state.Result.Value.Result;
+        if (!string.Equals(result.TargetDeviceId, targetDeviceId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var completedAtUtc = state.CompletedAtUtc
+            ?? (result.CompletedAtUnixMs > 0
+                ? DateTimeOffset.FromUnixTimeMilliseconds(result.CompletedAtUnixMs)
+                : (DateTimeOffset?)null);
+        if (completedAtUtc is not null && IsBeyondRetention(completedAtUtc.Value, _clock.UtcNow))
+        {
+            TryRemove(operationId, state);
+            return null;
+        }
+
+        return result.Clone();
+    }
+
     private async Task<OperationResult> ExecuteOnceAsync(
         OperationRequest request,
         CancellationToken cancellationToken)
@@ -264,6 +298,15 @@ public sealed class RemoteOperationDispatcher
     {
         return ((ICollection<KeyValuePair<string, OperationState>>)_operations).Remove(
             new KeyValuePair<string, OperationState>(operationId, state));
+    }
+
+    private bool IsBeyondRetention(DateTimeOffset completedAtUtc, DateTimeOffset nowUtc)
+    {
+        var retention = _options.DedupeRetention;
+        var cutoffUtc = retention <= TimeSpan.Zero
+            ? nowUtc.ToUniversalTime()
+            : nowUtc.ToUniversalTime().Subtract(retention);
+        return completedAtUtc <= cutoffUtc;
     }
 
     private sealed class OperationState

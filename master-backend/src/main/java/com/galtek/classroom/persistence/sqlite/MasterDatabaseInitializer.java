@@ -11,11 +11,13 @@ import org.flywaydb.core.api.FlywayException;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
+@Order(0)
 @ConditionalOnProperty(
         prefix = "galtek.classroom.master.storage",
         name = "enabled",
