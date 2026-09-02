@@ -67,6 +67,7 @@ public enum ErrorCode {
     BROWSER_POLICY_APPLY_FAILED(ErrorCategory.BROWSER, true),
     BROWSER_POLICY_ROLLBACK_FAILED(ErrorCategory.BROWSER, false),
     BROWSER_POLICY_RECOVERY_REQUIRED(ErrorCategory.BROWSER, false),
+    BROWSER_DOWNLOAD_POLICY_INVALID(ErrorCategory.BROWSER, false),
     URL_BLOCKED_BY_POLICY(ErrorCategory.BROWSER, false),
     URL_LAUNCH_FAILED(ErrorCategory.BROWSER, true),
 

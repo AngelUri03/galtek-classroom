@@ -19,6 +19,7 @@ public static class ClassroomOperationTypes
     public const string LogoffWindowsSession = "LOGOFF_WINDOWS_SESSION";
     public const string SwitchManagedAccount = "SWITCH_MANAGED_ACCOUNT";
     public const string ApplyBrowserNavigationPolicy = "APPLY_BROWSER_NAVIGATION_POLICY";
+    public const string ApplyBrowserDownloadPolicy = "APPLY_BROWSER_DOWNLOAD_POLICY";
     public const string AssignStudent = "ASSIGN_STUDENT";
     public const string MoveStudent = "MOVE_STUDENT";
     public const string SwapStudents = "SWAP_STUDENTS";
@@ -261,5 +262,26 @@ public static class ClassroomOperationErrorCodes
     public const string BrowserPolicyApplyFailed = "BROWSER_POLICY_APPLY_FAILED";
     public const string BrowserPolicyRollbackFailed = "BROWSER_POLICY_ROLLBACK_FAILED";
     public const string BrowserPolicyRecoveryRequired = "BROWSER_POLICY_RECOVERY_REQUIRED";
+    public const string BrowserDownloadPolicyInvalid = "BROWSER_DOWNLOAD_POLICY_INVALID";
     public const string UrlBlockedByPolicy = "URL_BLOCKED_BY_POLICY";
+}
+
+public static class ClassroomBrowserDownloadRestrictionModes
+{
+    public const string NoSpecialRestrictions = "NO_SPECIAL_RESTRICTIONS";
+    public const string BlockDangerous = "BLOCK_DANGEROUS";
+    public const string BlockPotentiallyDangerous = "BLOCK_POTENTIALLY_DANGEROUS";
+    public const string BlockAll = "BLOCK_ALL";
+    public const string BlockMalicious = "BLOCK_MALICIOUS";
+}
+
+public static class ClassroomCapabilities
+{
+    public const string HeartbeatV1 = "HEARTBEAT_V1";
+    public const string OperationFrameworkV1 = "OPERATION_FRAMEWORK_V1";
+    public const string SessionAgentAvailable = "SESSION_AGENT_AVAILABLE";
+    public const string PowerControlV1 = "POWER_CONTROL_V1";
+    public const string OpenUrlV1 = "OPEN_URL_V1";
+    public const string BrowserNavigationPolicyV1 = "BROWSER_NAVIGATION_POLICY_V1";
+    public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";
 }

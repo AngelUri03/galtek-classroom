@@ -155,6 +155,20 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void operationResultMapsBrowserDownloadPolicyInvalidError() {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "download-policy",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY,
+                        NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(ErrorCode.BROWSER_DOWNLOAD_POLICY_INVALID);
+        assertThat(outcome.errorCode().retryable()).isFalse();
+    }
+
+    @Test
     void pendingMapIsCleanedAfterResultTimeoutRejectAndDisconnect() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         UUID identity = UUID.randomUUID();

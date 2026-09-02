@@ -157,6 +157,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.PowerControlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.OpenUrlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.BrowserNavigationPolicyV1, hello.Hello.Capabilities);
+        Assert.DoesNotContain(NetworkCapability.BrowserDownloadPolicyV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
     }
@@ -207,6 +208,33 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.True(second.Duplicate);
         Assert.Equal(1, handler.Calls);
         Assert.Equal(first.Result.CompletedAtUnixMs, second.Result.CompletedAtUnixMs);
+    }
+
+    [Fact]
+    public async Task DuplicateDownloadPolicyOperationComparesTypedParameters()
+    {
+        var dispatcher = new RemoteOperationDispatcher(
+            [],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+        OperationRequest request = DownloadPolicyRequest(
+            "operation-download-policy",
+            BrowserDownloadRestrictionMode.BlockDangerous);
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(request, CancellationToken.None);
+        RemoteOperationDispatchResult same = await dispatcher.DispatchAsync(
+            DownloadPolicyRequest("operation-download-policy", BrowserDownloadRestrictionMode.BlockDangerous),
+            CancellationToken.None);
+        RemoteOperationDispatchResult different = await dispatcher.DispatchAsync(
+            DownloadPolicyRequest("operation-download-policy", BrowserDownloadRestrictionMode.BlockAll),
+            CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.True(same.Duplicate);
+        Assert.True(different.Duplicate);
+        Assert.Equal(NetworkOperationErrorCode.OperationNotImplemented, same.Result.ErrorCode);
+        Assert.Equal(first.Result.CompletedAtUnixMs, same.Result.CompletedAtUnixMs);
+        Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, different.Result.ErrorCode);
     }
 
     [Fact]
@@ -400,6 +428,27 @@ public sealed class MasterNetworkTransportTests : IDisposable
             TargetDeviceId = "device-1",
             ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
             SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static OperationRequest DownloadPolicyRequest(
+        string operationId,
+        BrowserDownloadRestrictionMode restrictionMode)
+    {
+        return new OperationRequest
+        {
+            OperationId = operationId,
+            OperationType = NetworkOperationType.ApplyBrowserDownloadPolicy,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds(),
+            ApplyBrowserDownloadPolicy = new ApplyBrowserDownloadPolicyOperationParameters
+            {
+                PolicyId = "download-policy-1",
+                PolicyVersion = 1,
+                RestrictionMode = restrictionMode,
+                AccountScope = BrowserPolicyAccountScope.Any
+            }
         };
     }
 

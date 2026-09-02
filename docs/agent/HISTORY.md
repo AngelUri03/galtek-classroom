@@ -1559,3 +1559,34 @@
 ### Commit sugerido
 
 `feat(master): add browser download policies`
+
+## 2026-09-02 - Prompt 16E2A
+
+### Realizado
+
+- Extendido Protobuf v1 sin cambiar `protocolVersion`: operacion tipada `APPLY_BROWSER_DOWNLOAD_POLICY`, parametros `ApplyBrowserDownloadPolicyOperationParameters`, enum `BrowserDownloadRestrictionMode`, error minimo `BROWSER_DOWNLOAD_POLICY_INVALID` y capability reservada `BROWSER_DOWNLOAD_POLICY_V1`.
+- Agregado `ChromiumDownloadPolicyCompiler` puro en C# para traducir `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS` a valores nativos `DownloadRestrictions` 0-4.
+- Diferenciado `NO_SPECIAL_RESTRICTIONS` implicito (`RemoveGaltekPolicy = true`, valor nativo nulo) de `NO_SPECIAL_RESTRICTIONS` explicito (`RemoveGaltekPolicy = false`, valor nativo `0`) y reflejado en content hash determinista.
+- Validacion del compilador: enum de modo requerido, `accountScope` requerido, `policyId`/`policyVersion` obligatorios para policies explicitas y rechazo de combinacion implicita con modo distinto de `NO_SPECIAL_RESTRICTIONS`.
+- Actualizada la deduplicacion del `RemoteOperationDispatcher` para comparar los parametros tipados de la nueva operacion.
+- Actualizados mapeos Java minimos para `OperationType`, `ErrorCode`, `DeviceCapability`, `ClientCapabilityMapper`, prioridad default y mapping de error de transporte.
+- Reservada `BROWSER_DOWNLOAD_POLICY_V1` sin anunciarla en `ClientHello`.
+
+### Cambios descartados
+
+- No se modifico Registry, HKU, HKLM, ACL, ownership, journal, durable state ni recovery de descargas.
+- No se implemento ni registro `ApplyBrowserDownloadPolicyOperationHandler`.
+- No se anuncio capability productiva falsa.
+- No se agrego endpoint Master, batch dispatch, API, UI, Session Command, extension denylist, MIME denylist, temporary unlock, browser restart, browser scan, process scan ni `DISTRIBUTE_FILE`.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 59 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(agent): add browser download policy contract`

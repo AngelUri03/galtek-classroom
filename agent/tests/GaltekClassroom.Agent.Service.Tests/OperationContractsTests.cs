@@ -22,6 +22,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
         Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
+        Assert.Contains(ClassroomOperationTypes.ApplyBrowserDownloadPolicy, operations);
     }
 
     [Fact]
@@ -133,7 +134,24 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.PowerControlUnavailable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.PowerControlFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.BrowserPolicyNotNativeEnforceable, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyInvalid, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.UrlBlockedByPolicy, errorCodes);
+    }
+
+    [Fact]
+    public void BrowserDownloadPolicyContracts_ExposeGaltekModesAndReservedCapabilityName()
+    {
+        var modes = ConstantValues(typeof(ClassroomBrowserDownloadRestrictionModes));
+        var capabilities = ConstantValues(typeof(ClassroomCapabilities));
+
+        Assert.Contains(ClassroomBrowserDownloadRestrictionModes.NoSpecialRestrictions, modes);
+        Assert.Contains(ClassroomBrowserDownloadRestrictionModes.BlockDangerous, modes);
+        Assert.Contains(ClassroomBrowserDownloadRestrictionModes.BlockPotentiallyDangerous, modes);
+        Assert.Contains(ClassroomBrowserDownloadRestrictionModes.BlockAll, modes);
+        Assert.Contains(ClassroomBrowserDownloadRestrictionModes.BlockMalicious, modes);
+        Assert.Contains(ClassroomCapabilities.BrowserDownloadPolicyV1, capabilities);
+        Assert.DoesNotContain("0", modes);
+        Assert.DoesNotContain("DownloadRestrictions", modes);
     }
 
     private static HashSet<string> ConstantValues(Type type)

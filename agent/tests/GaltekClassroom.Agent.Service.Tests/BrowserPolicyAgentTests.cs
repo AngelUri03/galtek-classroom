@@ -121,6 +121,158 @@ public sealed class BrowserPolicyAgentTests
         Assert.Equal(NetworkOperationErrorCode.BrowserPolicyTooLarge, result.ErrorCode);
     }
 
+    [Theory]
+    [InlineData(BrowserDownloadRestrictionMode.NoSpecialRestrictions, 0)]
+    [InlineData(BrowserDownloadRestrictionMode.BlockDangerous, 1)]
+    [InlineData(BrowserDownloadRestrictionMode.BlockPotentiallyDangerous, 2)]
+    [InlineData(BrowserDownloadRestrictionMode.BlockAll, 3)]
+    [InlineData(BrowserDownloadRestrictionMode.BlockMalicious, 4)]
+    public void DownloadCompiler_MapsRestrictionModeToNativeValue(
+        BrowserDownloadRestrictionMode restrictionMode,
+        int expectedNativeValue)
+    {
+        CompiledBrowserDownloadPolicy policy = CompileDownload(DownloadPolicy(restrictionMode));
+
+        Assert.False(policy.RemoveGaltekPolicy);
+        Assert.Equal(expectedNativeValue, policy.NativeDownloadRestrictionsValue);
+    }
+
+    [Fact]
+    public void DownloadCompiler_ImplicitNoSpecialRestrictionsRemovesGaltekPolicy()
+    {
+        CompiledBrowserDownloadPolicy policy = CompileDownload(new ApplyBrowserDownloadPolicyOperationParameters
+        {
+            ImplicitNoSpecialRestrictions = true,
+            RestrictionMode = BrowserDownloadRestrictionMode.NoSpecialRestrictions,
+            AccountScope = BrowserPolicyAccountScope.Any
+        });
+
+        Assert.True(policy.RemoveGaltekPolicy);
+        Assert.Null(policy.NativeDownloadRestrictionsValue);
+    }
+
+    [Fact]
+    public void DownloadCompiler_ExplicitZeroAndImplicitRemovalHaveDifferentHashes()
+    {
+        CompiledBrowserDownloadPolicy explicitZero = CompileDownload(DownloadPolicy(
+            BrowserDownloadRestrictionMode.NoSpecialRestrictions));
+        CompiledBrowserDownloadPolicy implicitRemoval = CompileDownload(new ApplyBrowserDownloadPolicyOperationParameters
+        {
+            ImplicitNoSpecialRestrictions = true,
+            RestrictionMode = BrowserDownloadRestrictionMode.NoSpecialRestrictions,
+            AccountScope = BrowserPolicyAccountScope.Any
+        });
+
+        Assert.Equal(0, explicitZero.NativeDownloadRestrictionsValue);
+        Assert.Null(implicitRemoval.NativeDownloadRestrictionsValue);
+        Assert.NotEqual(explicitZero.ContentHash, implicitRemoval.ContentHash);
+    }
+
+    [Fact]
+    public void DownloadCompiler_HashIsDeterministicAndChangesByMode()
+    {
+        CompiledBrowserDownloadPolicy first = CompileDownload(DownloadPolicy(BrowserDownloadRestrictionMode.BlockDangerous));
+        CompiledBrowserDownloadPolicy second = CompileDownload(DownloadPolicy(BrowserDownloadRestrictionMode.BlockDangerous));
+        CompiledBrowserDownloadPolicy different = CompileDownload(DownloadPolicy(BrowserDownloadRestrictionMode.BlockAll));
+
+        Assert.Equal(first.ContentHash, second.ContentHash);
+        Assert.NotEqual(first.ContentHash, different.ContentHash);
+    }
+
+    [Fact]
+    public void DownloadCompiler_RejectsUnspecifiedRestrictionMode()
+    {
+        ChromiumDownloadPolicyCompilerResult result = new ChromiumDownloadPolicyCompiler().Compile(DownloadPolicy(
+            BrowserDownloadRestrictionMode.Unspecified));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NetworkOperationErrorCode.BrowserDownloadPolicyInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void DownloadCompiler_RejectsUnspecifiedAccountScope()
+    {
+        var parameters = DownloadPolicy(BrowserDownloadRestrictionMode.BlockDangerous);
+        parameters.AccountScope = BrowserPolicyAccountScope.Unspecified;
+
+        ChromiumDownloadPolicyCompilerResult result = new ChromiumDownloadPolicyCompiler().Compile(parameters);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NetworkOperationErrorCode.BrowserDownloadPolicyInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void DownloadCompiler_RejectsEmptyPolicyIdForExplicitPolicy()
+    {
+        var parameters = DownloadPolicy(BrowserDownloadRestrictionMode.BlockDangerous);
+        parameters.PolicyId = " ";
+
+        ChromiumDownloadPolicyCompilerResult result = new ChromiumDownloadPolicyCompiler().Compile(parameters);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NetworkOperationErrorCode.BrowserDownloadPolicyInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void DownloadCompiler_RejectsInvalidVersionForExplicitPolicy()
+    {
+        var parameters = DownloadPolicy(BrowserDownloadRestrictionMode.BlockDangerous);
+        parameters.PolicyVersion = 0;
+
+        ChromiumDownloadPolicyCompilerResult result = new ChromiumDownloadPolicyCompiler().Compile(parameters);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NetworkOperationErrorCode.BrowserDownloadPolicyInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void DownloadPolicyRequest_DoesNotExposeNativeOrWindowsTargetingFields()
+    {
+        var fieldNames = ApplyBrowserDownloadPolicyOperationParameters.Descriptor.Fields
+            .InFieldNumberOrder()
+            .Select(field => field.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        string[] expectedFields =
+        [
+            "policy_id",
+            "policy_version",
+            "implicit_no_special_restrictions",
+            "restriction_mode",
+            "account_scope"
+        ];
+
+        Assert.True(fieldNames.SetEquals(expectedFields));
+        Assert.DoesNotContain("windows_sid", fieldNames);
+        Assert.DoesNotContain("username", fieldNames);
+        Assert.DoesNotContain("registry_path", fieldNames);
+        Assert.DoesNotContain("registry_key", fieldNames);
+        Assert.DoesNotContain("registry_value", fieldNames);
+        Assert.DoesNotContain("native_value", fieldNames);
+        Assert.DoesNotContain("browser_executable", fieldNames);
+        Assert.DoesNotContain("command", fieldNames);
+        Assert.DoesNotContain("arguments", fieldNames);
+        Assert.DoesNotContain("script", fieldNames);
+    }
+
+    [Fact]
+    public void DownloadPolicyOperationRequest_IsTypedOneof()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = "operation-download-policy",
+            OperationType = NetworkOperationType.ApplyBrowserDownloadPolicy,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            ApplyBrowserDownloadPolicy = DownloadPolicy(BrowserDownloadRestrictionMode.BlockAll)
+        };
+
+        Assert.Equal(NetworkOperationType.ApplyBrowserDownloadPolicy, request.OperationType);
+        Assert.Equal(
+            OperationRequest.OperationParametersOneofCase.ApplyBrowserDownloadPolicy,
+            request.OperationParametersCase);
+        Assert.Equal(BrowserDownloadRestrictionMode.BlockAll, request.ApplyBrowserDownloadPolicy.RestrictionMode);
+    }
+
     [Fact]
     public void Evaluator_UsesMostSpecificMatchBeforeAllowTieBreak()
     {
@@ -255,6 +407,7 @@ public sealed class BrowserPolicyAgentTests
         Assert.False(typeof(IHostedService).IsAssignableFrom(typeof(ApplyBrowserPolicyOperationHandler)));
         Assert.False(typeof(IHostedService).IsAssignableFrom(typeof(BrowserNavigationPolicyApplyService)));
         Assert.False(typeof(IHostedService).IsAssignableFrom(typeof(ChromiumBrowserPolicyCompiler)));
+        Assert.False(typeof(IHostedService).IsAssignableFrom(typeof(ChromiumDownloadPolicyCompiler)));
     }
 
     private static BrowserNavigationPolicyApplyService CreateApplyService(InMemoryRegistry registry, string dataDirectory)
@@ -272,6 +425,13 @@ public sealed class BrowserPolicyAgentTests
         return result.Policy!;
     }
 
+    private static CompiledBrowserDownloadPolicy CompileDownload(ApplyBrowserDownloadPolicyOperationParameters parameters)
+    {
+        ChromiumDownloadPolicyCompilerResult result = new ChromiumDownloadPolicyCompiler().Compile(parameters);
+        Assert.True(result.Succeeded, result.Message);
+        return result.Policy!;
+    }
+
     private static ApplyBrowserPolicyOperationParameters Policy(
         BrowserPolicyMode mode,
         params BrowserPolicyRuleParameters[] rules)
@@ -285,6 +445,19 @@ public sealed class BrowserPolicyAgentTests
         };
         policy.Rules.AddRange(rules);
         return policy;
+    }
+
+    private static ApplyBrowserDownloadPolicyOperationParameters DownloadPolicy(
+        BrowserDownloadRestrictionMode restrictionMode)
+    {
+        return new ApplyBrowserDownloadPolicyOperationParameters
+        {
+            PolicyId = "download-policy-1",
+            PolicyVersion = 1,
+            ImplicitNoSpecialRestrictions = false,
+            RestrictionMode = restrictionMode,
+            AccountScope = BrowserPolicyAccountScope.Any
+        };
     }
 
     private static BrowserPolicyRuleParameters Rule(

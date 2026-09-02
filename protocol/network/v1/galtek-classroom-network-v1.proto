@@ -85,6 +85,7 @@ message OperationRequest {
   oneof operation_parameters {
     OpenUrlOperationParameters open_url = 20;
     ApplyBrowserPolicyOperationParameters apply_browser_policy = 21;
+    ApplyBrowserDownloadPolicyOperationParameters apply_browser_download_policy = 22;
   }
 }
 
@@ -99,6 +100,14 @@ message ApplyBrowserPolicyOperationParameters {
   BrowserPolicyMode mode = 4;
   BrowserPolicyAccountScope account_scope = 5;
   repeated BrowserPolicyRuleParameters rules = 6;
+}
+
+message ApplyBrowserDownloadPolicyOperationParameters {
+  string policy_id = 1;
+  int64 policy_version = 2;
+  bool implicit_no_special_restrictions = 3;
+  BrowserDownloadRestrictionMode restriction_mode = 4;
+  BrowserPolicyAccountScope account_scope = 5;
 }
 
 message BrowserPolicyRuleParameters {
@@ -152,6 +161,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_POWER_CONTROL_V1 = 4;
   NETWORK_CAPABILITY_OPEN_URL_V1 = 5;
   NETWORK_CAPABILITY_BROWSER_NAVIGATION_POLICY_V1 = 6;
+  NETWORK_CAPABILITY_BROWSER_DOWNLOAD_POLICY_V1 = 7;
 }
 
 enum NetworkOperationType {
@@ -173,6 +183,7 @@ enum NetworkOperationType {
   NETWORK_OPERATION_TYPE_LOGOFF_WINDOWS_SESSION = 15;
   NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT = 16;
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY = 17;
+  NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY = 18;
 }
 
 enum BrowserPolicyMode {
@@ -187,6 +198,15 @@ enum BrowserPolicyAccountScope {
   BROWSER_POLICY_ACCOUNT_SCOPE_ANY = 1;
   BROWSER_POLICY_ACCOUNT_SCOPE_PRIMARY = 2;
   BROWSER_POLICY_ACCOUNT_SCOPE_SECONDARY = 3;
+}
+
+enum BrowserDownloadRestrictionMode {
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_UNSPECIFIED = 0;
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_NO_SPECIAL_RESTRICTIONS = 1;
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_BLOCK_DANGEROUS = 2;
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_BLOCK_POTENTIALLY_DANGEROUS = 3;
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_BLOCK_ALL = 4;
+  BROWSER_DOWNLOAD_RESTRICTION_MODE_BLOCK_MALICIOUS = 5;
 }
 
 enum BrowserPolicyRuleAction {
@@ -249,4 +269,5 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_ROLLBACK_FAILED = 23;
   NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_RECOVERY_REQUIRED = 24;
   NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY = 25;
+  NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID = 26;
 }

@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-02 - Prompt 16E1.
+2026-09-02 - Prompt 16E2A.
 
 ## Estado del proyecto
 
@@ -37,6 +37,8 @@ Prompt 16C agrega en el Master Backend la fuente de verdad persistente y determi
 Prompt 16D agrega enforcement Agent-side de politicas de navegacion para Chrome y Edge usando `URLBlocklist`/`URLAllowlist` de Chromium en `HKEY_USERS\<SID>` del usuario interactivo real. Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C#, resolver de usuario interactivo por APIs Windows, registry store con ACL, state durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, descargas, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, polling, browser automation ni matar/reiniciar navegadores.
 
 Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador. Se agregan `BrowserDownloadPolicy`, enum `BrowserDownloadRestrictionMode`, resolver puro con la misma precedencia de navegacion, migracion SQLite `V4__add_browser_download_policies.sql`, repositorio Spring JDBC explicito y API administrativa protegida. No se modifica Agent .NET, Protobuf/gRPC, Registry, C# ni enforcement; no se modelan listas arbitrarias de extensiones/MIME y no se implementan descargas autorizadas por maestra.
+
+Prompt 16E2A prepara Agent/Protobuf para politicas de descarga de navegador. Agrega operacion remota tipada `APPLY_BROWSER_DOWNLOAD_POLICY`, parametros Protobuf explicitos, enum `BrowserDownloadRestrictionMode`, error `BROWSER_DOWNLOAD_POLICY_INVALID`, capability reservada `BROWSER_DOWNLOAD_POLICY_V1` y compilador C# puro `ChromiumDownloadPolicyCompiler`. El compilador traduce `NO_SPECIAL_RESTRICTIONS`/`BLOCK_DANGEROUS`/`BLOCK_POTENTIALLY_DANGEROUS`/`BLOCK_ALL`/`BLOCK_MALICIOUS` a `DownloadRestrictions` 0-4, diferencia removal implicito de policy explicita valor 0 mediante content hash determinista y valida enums/policy id/version/account scope. No registra handler productivo, no anuncia la capability en `ClientHello`, no escribe Registry, no toca HKU/HKLM, no aplica policies reales y no modifica el registry ownership de navegacion; 16E2B hara enforcement.
 
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
@@ -76,6 +78,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `BrowserDownloadPolicy` persiste `restrictionMode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
 - `BrowserDownloadPolicyPrecedenceResolver` selecciona una sola policy efectiva con la misma precedencia de navegacion, o `NO_SPECIAL_RESTRICTIONS` implicito.
 - Restriction modes de descarga implementados en Master: `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`.
+- Protobuf v1 agrega `APPLY_BROWSER_DOWNLOAD_POLICY` como operacion remota distinta de `APPLY_BROWSER_NAVIGATION_POLICY`, con parametros tipados `ApplyBrowserDownloadPolicyOperationParameters`.
+- Protobuf v1 agrega enum tipado de descarga equivalente a `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`, conservando valor `UNSPECIFIED`.
+- `ChromiumDownloadPolicyCompiler` es puro y mapea `NO_SPECIAL_RESTRICTIONS -> 0`, `BLOCK_DANGEROUS -> 1`, `BLOCK_POTENTIALLY_DANGEROUS -> 2`, `BLOCK_ALL -> 3` y `BLOCK_MALICIOUS -> 4`.
+- `ChromiumDownloadPolicyCompiler` distingue `NO_SPECIAL_RESTRICTIONS` implicito (`RemoveGaltekPolicy = true`, sin valor nativo) de policy explicita `NO_SPECIAL_RESTRICTIONS` (`RemoveGaltekPolicy = false`, valor nativo `0`).
+- `ChromiumDownloadPolicyCompiler` genera content hash determinista sin timestamps, nombres visibles, SID ni rutas Registry, y diferencia removal implicito de valor explicito 0.
+- `BROWSER_DOWNLOAD_POLICY_V1` queda reservada, pero `ClientCapabilityProvider` no la anuncia todavia en `ClientHello`.
+- No existe `ApplyBrowserDownloadPolicyOperationHandler` registrado; la operacion conserva `OPERATION_NOT_IMPLEMENTED` hasta 16E2B.
 - SQLite V4 crea `browser_download_policies` con checks de enum/scope, indices unicos parciales por target/account activo y triggers para impedir `GROUP`/`DEVICE` de otro classroom.
 - No existen `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` en el modelo persistente de descargas.
 - `BrowserNavigationPolicyEvaluator` aplica safety estructural primero; gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`; conserva defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
@@ -181,7 +190,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; `BROWSER_DOWNLOAD_POLICY_V1` esta reservada pero no anunciada; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
 - `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
@@ -239,8 +248,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## En progreso
 
-- Prompt 16E1 cerrado tecnicamente.
-- No queda desarrollo 16E1 a medias.
+- Prompt 16E2A cerrado tecnicamente.
+- No queda desarrollo 16E2A a medias.
 
 ## Pendiente inmediato
 
@@ -257,7 +266,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
 - Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
-- Implementar enforcement Agent-side de descargas en fase posterior mediante mapping nativo de `DownloadRestrictions`.
+- Implementar enforcement Agent-side de descargas en 16E2B mediante `DownloadRestrictions`, usando el contrato tipado y compilador puro ya preparados.
 - Implementar posteriormente entrega autorizada por maestra mediante canal Galtek tipado/controlado hacia destinos logicos de `StudentWorkspace`, no desbloqueando temporalmente el browser.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -381,6 +390,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 59 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=BrowserDownloadPolicyPrecedenceResolverTest,BrowserDownloadPolicyPersistenceIntegrationTest,BrowserDownloadPolicyControllerTest" test` en `master-backend`: correcto, pruebas dirigidas de resolver, V4/repository y API 16E1 superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto, pruebas dirigidas de evaluador, resolver, API y persistencia SQLite superadas.
@@ -401,4 +414,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 16E/16F para terminar el cierre de browser policy y agregar dispatch batch Master de policies sin redisenar el enforcement Agent-side.
+Siguiente fase recomendada: Prompt 16E2B para implementar enforcement Agent-side real de `DownloadRestrictions` usando el contrato tipado preparado, sin anunciar `BROWSER_DOWNLOAD_POLICY_V1` hasta registrar handler productivo con apply/verificacion Registry.

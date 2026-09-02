@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador, separada de las politicas de navegacion. El dominio `browserpolicy` modela `BrowserDownloadPolicy` con scopes `CLASSROOM`/`GROUP`/`DEVICE`, account scopes `ANY`/`PRIMARY`/`SECONDARY`, restriction modes `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`, resolver determinista, migracion SQLite V4, repositorio Spring JDBC explicito y API administrativa protegida. No aplica nada al Agent, no modifica Protobuf/gRPC, no escribe registry, no modela extensiones/MIME arbitrarios y no implementa descargas autorizadas por maestra.
+Prompt 16E2A prepara el contrato Agent/Protobuf para aplicar politicas de descarga de navegador mediante `APPLY_BROWSER_DOWNLOAD_POLICY`, parametros tipados y enum `BrowserDownloadRestrictionMode`, sin cambiar `protocolVersion`. Agrega `ChromiumDownloadPolicyCompiler` puro en C# para traducir modos Galtek a `DownloadRestrictions` nativo 0-4, con hash determinista que diferencia `NO_SPECIAL_RESTRICTIONS` implicito de policy explicita con valor 0. Reserva `BROWSER_DOWNLOAD_POLICY_V1` pero el Agent todavia no la anuncia en `ClientHello`, no registra handler productivo, no escribe Registry y no aplica ninguna policy real; 16E2B hara enforcement.
+
+Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador, separada de las politicas de navegacion. El dominio `browserpolicy` modela `BrowserDownloadPolicy` con scopes `CLASSROOM`/`GROUP`/`DEVICE`, account scopes `ANY`/`PRIMARY`/`SECONDARY`, restriction modes `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`, resolver determinista, migracion SQLite V4, repositorio Spring JDBC explicito y API administrativa protegida. No aplica nada al Agent, no escribe registry, no modela extensiones/MIME arbitrarios y no implementa descargas autorizadas por maestra.
 
 Prompt 16D implementa enforcement real Agent-side de politicas de navegacion para Google Chrome y Microsoft Edge en Windows usando las policies empresariales `URLBlocklist`/`URLAllowlist` en el hive del usuario interactivo real (`HKEY_USERS\<SID>`). Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C# de subset Chromium, resolver local de usuario interactivo por token Windows, estado durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, browser automation, polling ni kill/restart de navegador.
 
@@ -30,7 +32,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult` y dispatch batch Master para power control. El Agent ya ejecuta `SHUTDOWN` y `RESTART` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL` y `APPLY_BROWSER_NAVIGATION_POLICY` cuando llegan por ese framework seguro. `APPLY_BROWSER_DOWNLOAD_POLICY` existe como contrato tipado sin handler productivo, por lo que conserva `OPERATION_NOT_IMPLEMENTED`. No hay mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -48,7 +50,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16B implementa `OPEN_URL` solo del lado Agent y no agrega dispatch batch Master. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16B implementa `OPEN_URL` solo del lado Agent y no agrega dispatch batch Master. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo de input.
 
 ## Modelo operativo Master/Client
 
@@ -310,7 +312,8 @@ IMPLEMENTADO:
 - `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
 - `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
 - `ClientConnectionRegistry` mantiene presencia viva por Client autenticado y distingue Client paired sin Device de Device registrado (`CONNECTING`, `ONLINE`, `OFFLINE`).
-- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
+- `ClientHello` reporta capabilities tipadas productivas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
+- `BROWSER_DOWNLOAD_POLICY_V1` queda reservada desde 16E2A, pero no se anuncia hasta que 16E2B registre enforcement real de `DownloadRestrictions`.
 - Las capabilities son informacion operativa y no autorizacion.
 - `NetworkClientAdminService` lista Clients known/paired con estado seguro y registra Devices solo tras verificar trust `PAIRED`, no `REVOKED` y ausencia de doble registro.
 - `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin escribir SQLite en cada heartbeat.
@@ -458,7 +461,7 @@ IMPLEMENTADO:
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
 - `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
-- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
+- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; no anuncia `BROWSER_DOWNLOAD_POLICY_V1` en 16E2A.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
@@ -642,7 +645,7 @@ IMPLEMENTADO:
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
 - `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
-- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
+- Capabilities tipadas productivas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; `BROWSER_DOWNLOAD_POLICY_V1` esta reservada pero no anunciada.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.

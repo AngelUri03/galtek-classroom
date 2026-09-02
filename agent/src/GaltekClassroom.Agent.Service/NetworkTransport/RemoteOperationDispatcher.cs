@@ -249,6 +249,9 @@ public sealed class RemoteOperationDispatcher
             OperationRequest.OperationParametersOneofCase.ApplyBrowserPolicy => SameBrowserPolicyParameters(
                 left.ApplyBrowserPolicy,
                 right.ApplyBrowserPolicy),
+            OperationRequest.OperationParametersOneofCase.ApplyBrowserDownloadPolicy => SameBrowserDownloadPolicyParameters(
+                left.ApplyBrowserDownloadPolicy,
+                right.ApplyBrowserDownloadPolicy),
             OperationRequest.OperationParametersOneofCase.None => true,
             _ => false
         };
@@ -288,6 +291,22 @@ public sealed class RemoteOperationDispatcher
         }
 
         return true;
+    }
+
+    private static bool SameBrowserDownloadPolicyParameters(
+        ApplyBrowserDownloadPolicyOperationParameters? left,
+        ApplyBrowserDownloadPolicyOperationParameters? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return string.Equals(left.PolicyId, right.PolicyId, StringComparison.Ordinal)
+            && left.PolicyVersion == right.PolicyVersion
+            && left.ImplicitNoSpecialRestrictions == right.ImplicitNoSpecialRestrictions
+            && left.RestrictionMode == right.RestrictionMode
+            && left.AccountScope == right.AccountScope;
     }
 
     private void MaybeCleanupCompletedOperations()
