@@ -18,6 +18,7 @@ public static class ClassroomOperationTypes
     public const string LogonManagedAccount = "LOGON_MANAGED_ACCOUNT";
     public const string LogoffWindowsSession = "LOGOFF_WINDOWS_SESSION";
     public const string SwitchManagedAccount = "SWITCH_MANAGED_ACCOUNT";
+    public const string ApplyBrowserNavigationPolicy = "APPLY_BROWSER_NAVIGATION_POLICY";
     public const string AssignStudent = "ASSIGN_STUDENT";
     public const string MoveStudent = "MOVE_STUDENT";
     public const string SwapStudents = "SWAP_STUDENTS";
@@ -250,4 +251,15 @@ public static class ClassroomOperationErrorCodes
     public const string SessionCommandResultUnknown = "SESSION_COMMAND_RESULT_UNKNOWN";
     public const string PowerControlUnavailable = "POWER_CONTROL_UNAVAILABLE";
     public const string PowerControlFailed = "POWER_CONTROL_FAILED";
+    public const string BrowserPolicyInvalid = "BROWSER_POLICY_INVALID";
+    public const string BrowserPolicyNotNativeEnforceable = "BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE";
+    public const string BrowserPolicyTooLarge = "BROWSER_POLICY_TOO_LARGE";
+    public const string BrowserPolicyUserUnavailable = "BROWSER_POLICY_USER_UNAVAILABLE";
+    public const string BrowserAccountScopeUnresolved = "BROWSER_ACCOUNT_SCOPE_UNRESOLVED";
+    public const string BrowserPolicyUserHiveUnavailable = "BROWSER_POLICY_USER_HIVE_UNAVAILABLE";
+    public const string BrowserPolicyExternalConflict = "BROWSER_POLICY_EXTERNAL_CONFLICT";
+    public const string BrowserPolicyApplyFailed = "BROWSER_POLICY_APPLY_FAILED";
+    public const string BrowserPolicyRollbackFailed = "BROWSER_POLICY_ROLLBACK_FAILED";
+    public const string BrowserPolicyRecoveryRequired = "BROWSER_POLICY_RECOVERY_REQUIRED";
+    public const string UrlBlockedByPolicy = "URL_BLOCKED_BY_POLICY";
 }

@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-01 - Prompt 16C.
+2026-09-02 - Prompt 16D.
 
 ## Estado del proyecto
 
@@ -34,6 +34,8 @@ Prompt 16B implementa `OPEN_URL` productivo Agent-side. El contrato Protobuf v1 
 
 Prompt 16C agrega en el Master Backend la fuente de verdad persistente y determinista para politicas administrativas de navegacion web. Se agregan dominio `browserpolicy`, normalizador URL, evaluador puro, resolver de policy efectiva, migracion SQLite `V3`, repositorio JDBC explicito y API administrativa protegida. No se modifican Agent .NET, Protobuf/gRPC, Session Command, Local IPC ni UI; no se aplica bloqueo real en navegadores y no se modelan descargas.
 
+Prompt 16D agrega enforcement Agent-side de politicas de navegacion para Chrome y Edge usando `URLBlocklist`/`URLAllowlist` de Chromium en `HKEY_USERS\<SID>` del usuario interactivo real. Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C#, resolver de usuario interactivo por APIs Windows, registry store con ACL, state durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, descargas, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, polling, browser automation ni matar/reiniciar navegadores.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -42,7 +44,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real ni distribucion real.
+El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real ni distribucion real.
 
 ## Implementado
 
@@ -68,7 +70,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `BrowserAccessPolicy` persiste `mode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
 - `BrowserUrlRule` persiste `ALLOW`/`BLOCK`, `HOST_EXACT`/`HOST_SUFFIX`/`URL_PREFIX`/`EXACT_URL`, pattern canonico, enabled, descripcion opcional y timestamps UTC.
 - `BrowserPolicyPrecedenceResolver` selecciona una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
-- `BrowserNavigationPolicyEvaluator` aplica safety primero, `ALLOW` explicito sobre `BLOCK` explicito dentro de una policy, defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
+- `BrowserNavigationPolicyEvaluator` aplica safety estructural primero; gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`; conserva defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
 - `BrowserUrlNormalizer` acepta solo URL absoluta segura `http`/`https`, host obligatorio, sin userinfo/control chars, host lowercase, trailing dot removido, puertos default normalizados, path vacio como `/` y fragment eliminado.
 - Migracion SQLite `V3__add_browser_navigation_policies.sql` crea `browser_access_policies` y `browser_url_rules` con checks e indices unicos parciales para una policy activa por target/account.
 - Request de power control acepta solo `type` (`SHUTDOWN`/`RESTART`) y `targetDeviceIds` obligatorio, no vacio y sin duplicados; rechaza comandos, rutas, args, timeout, force, mensaje, shell y payload libre.
@@ -129,7 +131,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `SessionCommandClient.OpenUrlAsync(operationId, url)` crea un `requestId` nuevo, envia `OPEN_URL` tipado, valida `requestId` de response y no hace retry automatico.
 - Si `OPEN_URL` no llega a enviarse al Session Agent, el Service mapea a `SESSION_AGENT_UNAVAILABLE`; si ya se envio y se pierde/expira la respuesta, mapea a `SESSION_COMMAND_RESULT_UNKNOWN`.
 - `OpenUrlSafetyPolicy` C# compartida por Service y Session Agent acepta solo URL absoluta `http://`/`https://`, con host no vacio, sin caracteres de control/CR/LF, sin userinfo y longitud maxima 4096; rechaza rutas locales/UNC, URLs relativas y esquemas no permitidos.
-- `OpenUrlOperationHandler` es handler remoto explicito para `OPEN_URL`; no abre navegador, no usa `Process.Start`, `cmd`, PowerShell, scripts, WMI shell ni `CreateProcessAsUser`.
+- `OpenUrlOperationHandler` es handler remoto explicito para `OPEN_URL`; no abre navegador, no usa `Process.Start`, `cmd`, PowerShell, scripts, WMI shell ni `CreateProcessAsUser`. Desde 16D valida safety estructural primero y despues la policy Galtek aplicada localmente al usuario interactivo; si la policy bloquea devuelve `URL_BLOCKED_BY_POLICY` sin enviar Session Command.
 - `WindowsUrlLauncher` en Session Agent llama Windows Shell API `ShellExecuteExW` con verbo `open`, URL validada y sin parametros; no acepta browser/executable path desde Master.
 - `OPEN_URL SUCCESS` significa solo que Windows acepto la solicitud para abrir la URL con el handler registrado, no que la pagina cargo ni que hubo HTTP 200.
 - `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del proceso real `GaltekClassroom.Agent.Service`: working set aproximado, private memory aproximada, CPU acumulado, thread count, uptime y GC managed memory aproximada.
@@ -171,9 +173,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
-- `ShutdownOperationHandler`, `RestartOperationHandler` y `OpenUrlOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
+- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
 - `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
 - `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
@@ -229,8 +231,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Prompt 16C cerrado tecnicamente.
-- No queda desarrollo 16C a medias.
+- Prompt 16D cerrado tecnicamente.
+- No queda desarrollo 16D a medias.
 
 ## Pendiente inmediato
 
@@ -246,7 +248,6 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
-- Prompt 16D pendiente: aplicar policies de navegacion a navegadores soportados sin redisenar dominio ni persistencia.
 - Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
 - Implementar bloqueo de descargas en fase posterior.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
@@ -277,7 +278,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler` y `OpenUrlOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -308,6 +309,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `REMOVABLE_STORAGE` es destino logico futuro autorizado.
 - `OPEN_URL`/`OPEN_WEB_CONTENT` se diferencian de `SCREEN_SHARE`; YouTube debe preferir abrirse localmente en Chrome del Client.
 - Browser policy administrativa queda separada de safety estructural de `OPEN_URL`; una rule `ALLOW` nunca autoriza `file:`, `javascript:`, `data:` ni otros esquemas inseguros.
+- La semantica vigente de browser policy ya no es "`ALLOW` siempre gana": gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`.
+- `EXACT_URL` se persiste en Master, pero 16D lo rechaza como `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` al aplicar porque Chromium native policy no ofrece equivalencia byte-for-byte general segura.
+- `accountScope = ANY` aplica al usuario interactivo actual; `PRIMARY`/`SECONDARY` devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta existir binding seguro a Windows SID.
 - `PRIMARY` y `SECONDARY` no implican restriccion automatica; una policy por cuenta existe solo si el administrador la crea explicitamente.
 - Si el contexto no conoce cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
 - Las prioridades operacionales deben impedir que transferencias grandes, thumbnails o inventario bloqueen operaciones `CRITICAL`.
@@ -365,6 +369,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 ## Pruebas ejecutadas
 
 - `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto, pruebas dirigidas de evaluador, resolver, API y persistencia SQLite superadas.
+- `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest" test` en `master-backend`: correcto, pruebas dirigidas browserpolicy 16D superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OpenUrlOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests|FullyQualifiedName~OperationContractsTests"` en `agent`: correcto, 55 pruebas Service superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~OpenUrlSafetyPolicyTests|FullyQualifiedName~SessionCommand|FullyQualifiedName~WindowsUrlLauncherTests|FullyQualifiedName~OpenUrlOperationHandlerTests"` en `agent`: correcto, 19 pruebas Session y 48 pruebas Service superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
@@ -379,4 +386,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 16D para aplicar las policies de navegacion a navegadores soportados usando el dominio/persistencia de 16C, sin redisenar safety, Protobuf ni Agent transport.
+Siguiente fase recomendada: Prompt 16E/16F para terminar el cierre de browser policy y agregar dispatch batch Master de policies sin redisenar el enforcement Agent-side.

@@ -34,17 +34,46 @@ class BrowserNavigationPolicyEvaluatorTest {
     }
 
     @Test
-    void explicitAllowWinsOverBlockInsideSamePolicy() {
+    void blockBroadAndAllowMoreSpecificAllows() {
         BrowserNavigationDecision decision = evaluator.evaluate(
                 policy(BrowserPolicyMode.BLOCKLIST),
                 List.of(
                         rule("block-youtube", BrowserUrlRuleAction.BLOCK, BrowserUrlMatchType.HOST_SUFFIX, "youtube.com"),
-                        rule("allow-video", BrowserUrlRuleAction.ALLOW, BrowserUrlMatchType.EXACT_URL,
-                                "https://youtube.com/watch?v=ABC123")),
-                "https://youtube.com/watch?v=ABC123");
+                        rule("allow-video", BrowserUrlRuleAction.ALLOW, BrowserUrlMatchType.URL_PREFIX,
+                                "https://www.youtube.com/watch")),
+                "https://www.youtube.com/watch?v=ABC123");
 
         assertThat(decision.outcome()).isEqualTo(BrowserNavigationOutcome.ALLOW);
         assertThat(decision.matchedRuleId()).isEqualTo("allow-video");
+        assertThat(decision.reasonCode()).isEqualTo(BrowserNavigationReasonCode.EXPLICIT_ALLOW);
+    }
+
+    @Test
+    void allowBroadAndBlockMoreSpecificBlocks() {
+        BrowserNavigationDecision decision = evaluator.evaluate(
+                policy(BrowserPolicyMode.BLOCKLIST),
+                List.of(
+                        rule("allow-youtube", BrowserUrlRuleAction.ALLOW, BrowserUrlMatchType.HOST_SUFFIX, "youtube.com"),
+                        rule("block-video", BrowserUrlRuleAction.BLOCK, BrowserUrlMatchType.URL_PREFIX,
+                                "https://www.youtube.com/watch")),
+                "https://www.youtube.com/watch?v=ABC123");
+
+        assertThat(decision.outcome()).isEqualTo(BrowserNavigationOutcome.BLOCK);
+        assertThat(decision.matchedRuleId()).isEqualTo("block-video");
+        assertThat(decision.reasonCode()).isEqualTo(BrowserNavigationReasonCode.EXPLICIT_BLOCK);
+    }
+
+    @Test
+    void sameFilterAllowWinsOverBlockOnlyOnTie() {
+        BrowserNavigationDecision decision = evaluator.evaluate(
+                policy(BrowserPolicyMode.BLOCKLIST),
+                List.of(
+                        rule("block-school", BrowserUrlRuleAction.BLOCK, BrowserUrlMatchType.HOST_SUFFIX, "school.test"),
+                        rule("allow-school", BrowserUrlRuleAction.ALLOW, BrowserUrlMatchType.HOST_SUFFIX, "school.test")),
+                "https://www.school.test/");
+
+        assertThat(decision.outcome()).isEqualTo(BrowserNavigationOutcome.ALLOW);
+        assertThat(decision.matchedRuleId()).isEqualTo("allow-school");
         assertThat(decision.reasonCode()).isEqualTo(BrowserNavigationReasonCode.EXPLICIT_ALLOW);
     }
 

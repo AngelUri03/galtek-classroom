@@ -246,9 +246,48 @@ public sealed class RemoteOperationDispatcher
                 left.OpenUrl?.Url,
                 right.OpenUrl?.Url,
                 StringComparison.Ordinal),
+            OperationRequest.OperationParametersOneofCase.ApplyBrowserPolicy => SameBrowserPolicyParameters(
+                left.ApplyBrowserPolicy,
+                right.ApplyBrowserPolicy),
             OperationRequest.OperationParametersOneofCase.None => true,
             _ => false
         };
+    }
+
+    private static bool SameBrowserPolicyParameters(
+        ApplyBrowserPolicyOperationParameters? left,
+        ApplyBrowserPolicyOperationParameters? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        if (!string.Equals(left.PolicyId, right.PolicyId, StringComparison.Ordinal)
+            || left.PolicyVersion != right.PolicyVersion
+            || left.ImplicitUnrestricted != right.ImplicitUnrestricted
+            || left.Mode != right.Mode
+            || left.AccountScope != right.AccountScope
+            || left.Rules.Count != right.Rules.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < left.Rules.Count; i++)
+        {
+            BrowserPolicyRuleParameters leftRule = left.Rules[i];
+            BrowserPolicyRuleParameters rightRule = right.Rules[i];
+            if (!string.Equals(leftRule.RuleId, rightRule.RuleId, StringComparison.Ordinal)
+                || leftRule.Action != rightRule.Action
+                || leftRule.MatchType != rightRule.MatchType
+                || !string.Equals(leftRule.Pattern, rightRule.Pattern, StringComparison.Ordinal)
+                || leftRule.Enabled != rightRule.Enabled)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void MaybeCleanupCompletedOperations()

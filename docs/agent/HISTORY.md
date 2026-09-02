@@ -1488,3 +1488,38 @@
 ### Commit sugerido
 
 `feat(master): add browser navigation policies`
+
+## 2026-09-02 - Prompt 16D
+
+### Realizado
+
+- Corregida la semantica Java de `BrowserNavigationPolicyEvaluator`: gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`.
+- Extendido Protobuf v1 sin cambiar `protocolVersion`: operacion tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros `ApplyBrowserPolicyOperationParameters`, rules tipadas, enums de browser policy, capability `BROWSER_NAVIGATION_POLICY_V1` y codigos estructurados de browser policy.
+- Agregado enforcement Agent-side para Chrome/Edge mediante `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real, sin HKLM para escritura Galtek.
+- Agregado `ChromiumBrowserPolicyCompiler`: compila `HOST_EXACT`, `HOST_SUFFIX` y `URL_PREFIX`, canonicaliza/dedupe/sort, genera content hash, limita 1000 filtros por lista y rechaza `EXACT_URL` como `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- Agregado evaluator C# de subset Chromium para defensa en profundidad de `OPEN_URL`.
+- Agregado `WindowsInteractiveUserIdentityResolver` con `WTSGetActiveConsoleSessionId`, `WTSQueryUserToken` y `GetTokenInformation(TokenUser)`, sin `whoami`, shell, PowerShell ni WMI shell.
+- Agregado registry store productivo para las cuatro subkeys Chrome/Edge, con deteccion de HKLM conflictivo, user hive unavailable, valores secuenciales `REG_SZ` y ACL LocalSystem/Admin full + usuario ReadKey.
+- Agregado estado durable `browser-navigation-policy-state.json` y journal lazy `browser-navigation-policy-apply.json`; no hay timer, polling, scan de procesos, scan de browsers ni writes periodicos.
+- Agregado `ApplyBrowserPolicyOperationHandler` explicito con flujo license-gated via dispatcher, account scope check, user resolution, native compile, recovery/preflight/ownership/apply/verify/state.
+- `OPEN_URL` ahora aplica safety estructural primero y despues evalua la policy Galtek local aplicada; si bloquea devuelve `URL_BLOCKED_BY_POLICY` y no envia Session Command.
+- Agregado documento `docs/browser/BROWSER_POLICY_ENFORCEMENT.md`.
+
+### Cambios descartados
+
+- No se agrego endpoint batch Master para policies ni `OPEN_URL`.
+- No se agrego UI, Session Command nuevo, browser profile selection, descargas, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, traffic monitoring, history/tab monitoring, browser automation, polling ni kill/restart de navegador.
+- No se implemento binding `PRIMARY`/`SECONDARY -> Windows SID`; esos scopes devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED`.
+- No se hizo prueba manual contra Chrome/Edge personales del desarrollador.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OpenUrlOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests|FullyQualifiedName~OperationContractsTests"` en `agent`: correcto, 55 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): enforce browser navigation policies`

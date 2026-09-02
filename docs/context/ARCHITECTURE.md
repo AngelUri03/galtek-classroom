@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 16D implementa enforcement real Agent-side de politicas de navegacion para Google Chrome y Microsoft Edge en Windows usando las policies empresariales `URLBlocklist`/`URLAllowlist` en el hive del usuario interactivo real (`HKEY_USERS\<SID>`). Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C# de subset Chromium, resolver local de usuario interactivo por token Windows, estado durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, browser automation, polling ni kill/restart de navegador.
+
 Prompt 16C agrega en el Master la fuente de verdad persistente para politicas administrativas de navegacion web. El dominio `browserpolicy` modela policies por aula/grupo/device y por account scope `ANY`/`PRIMARY`/`SECONDARY`, reglas URL sin regex arbitraria, normalizacion/evaluacion pura y resolucion determinista de una sola politica efectiva. No aplica bloqueo real en Chrome/Edge/Windows, no agrega transporte Agent, no modifica Protobuf/gRPC y no implementa politicas de descargas.
 
 Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. No hay bloqueo real de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
@@ -257,7 +259,7 @@ IMPLEMENTADO:
 - `POST /api/classrooms/{classroomId}/power-control` registra una `BatchOperation` `SHUTDOWN` o `RESTART` antes de enviar requests y actualiza targets al terminar el fanout.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
 - `BrowserUrlNormalizer` normaliza solo URLs absolutas seguras `http`/`https`, exige host, quita fragment, rechaza userinfo/control chars, baja host a minusculas, elimina trailing dot y normaliza puertos default.
-- `BrowserNavigationPolicyEvaluator` aplica primero safety estructural y despues politica administrativa: explicit `ALLOW` gana a explicit `BLOCK` dentro de una policy, `BLOCKLIST` permite por default y `ALLOWLIST` bloquea por default.
+- `BrowserNavigationPolicyEvaluator` aplica primero safety estructural y despues politica administrativa. Dentro de una policy gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`. `BLOCKLIST` permite por default y `ALLOWLIST` bloquea por default.
 - `BrowserPolicyPrecedenceResolver` selecciona como maximo una policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
 - `DistributeFileRequest` modela apertura opcional posterior mediante `openAfterDistribution` sin transferencia real.
 - `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, no como ruta arbitraria.
@@ -306,7 +308,7 @@ IMPLEMENTADO:
 - `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
 - `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
 - `ClientConnectionRegistry` mantiene presencia viva por Client autenticado y distingue Client paired sin Device de Device registrado (`CONNECTING`, `ONLINE`, `OFFLINE`).
-- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
+- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
 - Las capabilities son informacion operativa y no autorizacion.
 - `NetworkClientAdminService` lista Clients known/paired con estado seguro y registra Devices solo tras verificar trust `PAIRED`, no `REVOKED` y ausencia de doble registro.
 - `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin escribir SQLite en cada heartbeat.
@@ -454,7 +456,7 @@ IMPLEMENTADO:
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
 - `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
-- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
+- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
@@ -638,7 +640,7 @@ IMPLEMENTADO:
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
 - `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
-- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
+- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.

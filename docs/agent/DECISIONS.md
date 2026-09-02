@@ -42,7 +42,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART` y `OPEN_URL`; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL` todavia no tiene endpoint/batch funcional del Master.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL` y `APPLY_BROWSER_NAVIGATION_POLICY`; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL`/browser policies todavia no tienen endpoint/batch funcional del Master.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -81,7 +81,14 @@
 - La politica administrativa de navegacion del Master queda separada de la safety estructural de `OPEN_URL`; ninguna policy puede permitir esquemas inseguros como `file:`, `javascript:` o `data:`.
 - Las policies de navegacion se resuelven como maximo a una policy efectiva por contexto con precedencia: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
 - Las rules URL admiten solo `HOST_EXACT`, `HOST_SUFFIX`, `URL_PREFIX` y `EXACT_URL`; no se aceptan regex arbitrarias ni wildcards libres.
-- Prompt 16C no aplica bloqueo real en Chrome, Edge, Windows, DNS, proxy, firewall, extension ni Agent transport; eso queda para fases posteriores.
+- Desde Prompt 16D, el Agent aplica bloqueo real de navegacion en Chrome/Edge solo mediante `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real. No usa HKLM para esta funcionalidad.
+- `EXACT_URL` no se compila a native Chromium policy en 16D; si una policy activa lo contiene, el Agent devuelve `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- La semantica vigente de matching es "most specific wins": host, luego scheme/port, luego path, luego query; solo ante igual especificidad `ALLOW` gana a `BLOCK`.
+- `accountScope = ANY` aplica al usuario interactivo real; `PRIMARY` y `SECONDARY` devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta que exista binding productivo a Windows SID.
+- Galtek solo actualiza registry policy que puede demostrar como propia mediante `browser-navigation-policy-state.json`; desconocidos en HKU o policies relevantes en HKLM producen `BROWSER_POLICY_EXTERNAL_CONFLICT`.
+- `browser-navigation-policy-apply.json` es journal lazy para recovery en el siguiente apply; no hay timer, polling, scan de procesos, scan de browsers ni polling de registry.
+- `APPLY_BROWSER_NAVIGATION_POLICY SUCCESS` significa registry escrito, releido/verificado y state durable confirmado; no significa que Chrome/Edge exista, se reinicie, cierre tabs o refresque cada pagina ya cargada.
+- Prompt 16D no agrega extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, tab/history monitoring, browser automation, descargas, UI ni batch Master.
 - `Session Command v1` no admite payload generico, `command`, `arguments`, shell, PowerShell, `cmd`, rutas ejecutables arbitrarias ni comandos `RUN_*`/`EXECUTE_*`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.
@@ -132,11 +139,11 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; `SHUTDOWN`, `RESTART` y `OPEN_URL` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica operaciones por `operationId`; `SHUTDOWN`, `RESTART`, `OPEN_URL` y `APPLY_BROWSER_NAVIGATION_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.

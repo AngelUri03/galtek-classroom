@@ -1,3 +1,4 @@
+using GaltekClassroom.Agent.Service.BrowserPolicy;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Shared;
@@ -9,6 +10,7 @@ public sealed class OpenUrlOperationHandler : IRemoteOperationHandler
 {
     private readonly ISessionCommandClient _sessionCommandClient;
     private readonly OpenUrlSafetyPolicy _openUrlSafetyPolicy;
+    private readonly AppliedBrowserPolicyEvaluator? _appliedBrowserPolicyEvaluator;
     private readonly ILogger<OpenUrlOperationHandler> _logger;
 
     public OpenUrlOperationHandler(
@@ -20,11 +22,21 @@ public sealed class OpenUrlOperationHandler : IRemoteOperationHandler
 
     public OpenUrlOperationHandler(
         ISessionCommandClient sessionCommandClient,
-        OpenUrlSafetyPolicy openUrlSafetyPolicy,
+        AppliedBrowserPolicyEvaluator appliedBrowserPolicyEvaluator,
         ILogger<OpenUrlOperationHandler> logger)
+        : this(sessionCommandClient, new OpenUrlSafetyPolicy(), logger, appliedBrowserPolicyEvaluator)
+    {
+    }
+
+    public OpenUrlOperationHandler(
+        ISessionCommandClient sessionCommandClient,
+        OpenUrlSafetyPolicy openUrlSafetyPolicy,
+        ILogger<OpenUrlOperationHandler> logger,
+        AppliedBrowserPolicyEvaluator? appliedBrowserPolicyEvaluator = null)
     {
         _sessionCommandClient = sessionCommandClient;
         _openUrlSafetyPolicy = openUrlSafetyPolicy;
+        _appliedBrowserPolicyEvaluator = appliedBrowserPolicyEvaluator;
         _logger = logger;
     }
 
@@ -48,6 +60,18 @@ public sealed class OpenUrlOperationHandler : IRemoteOperationHandler
             return Failed(
                 NetworkOperationErrorCode.ProtocolViolation,
                 "OPEN_URL operationId is malformed.");
+        }
+
+        if (_appliedBrowserPolicyEvaluator is not null)
+        {
+            BrowserPolicyNavigationDecision? policyDecision =
+                await _appliedBrowserPolicyEvaluator.EvaluateCurrentUserAsync(url!, cancellationToken).ConfigureAwait(false);
+            if (policyDecision?.Outcome == BrowserPolicyNavigationOutcome.Block)
+            {
+                return Failed(
+                    NetworkOperationErrorCode.UrlBlockedByPolicy,
+                    "OPEN_URL is blocked by the applied browser navigation policy.");
+            }
         }
 
         _logger.LogInformation(

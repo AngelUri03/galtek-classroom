@@ -156,6 +156,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.SessionAgentAvailable, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.PowerControlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.OpenUrlV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.BrowserNavigationPolicyV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
     }

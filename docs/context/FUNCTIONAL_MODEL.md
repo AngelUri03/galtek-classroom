@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, y Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion sin aplicarlas todavia a navegadores.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, y Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real.
 
 ## Principio de producto
 
@@ -233,7 +233,7 @@ Desde Prompt 14:
 - El Master genera y controla `deviceId`; no se acepta `deviceId` declarado por el Client como identidad.
 - El vinculo vigente entre Device y Network Identity se persiste en `device_network_bindings`.
 - `paired-clients.json` sigue siendo la autoridad de trust; SQLite no reemplaza pairing.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
 
@@ -860,9 +860,9 @@ La accion visible la ejecuta el Session Agent mediante el handler registrado de 
 
 `OPEN_URL SUCCESS` significa que Windows acepto la solicitud de abrir la URL. No significa que Internet funciona, DNS resolvio, la pagina cargo, HTTP devolvio 200 ni que Chrome/Edge mostro contenido correctamente.
 
-Si el Service no puede enviar el comando al Session Agent, el resultado usa `SESSION_AGENT_UNAVAILABLE`. Si el Service ya envio `OPEN_URL` y pierde/expira la respuesta, usa `SESSION_COMMAND_RESULT_UNKNOWN` y no reintenta automaticamente para evitar duplicar pestanas.
+Si el Service no puede enviar el comando al Session Agent, el resultado usa `SESSION_AGENT_UNAVAILABLE`. Si el Service ya envio `OPEN_URL` y pierde/expira la respuesta, usa `SESSION_COMMAND_RESULT_UNKNOWN` y no reintenta automaticamente para evitar duplicar pestanas. Desde 16D, despues de la safety estructural y antes del Session Command, el Agent evalua la policy Galtek aplicada al usuario interactivo actual; si bloquea la URL devuelve `URL_BLOCKED_BY_POLICY` y no llama al Session Agent.
 
-Desde Prompt 16C existe fuente de verdad persistente de politicas administrativas de navegacion en el Master, pero no se aplica todavia al Agent ni a navegadores. No existe todavia endpoint batch Master para `OPEN_URL`, bloqueo real de URLs, bloqueo de descargas ni seleccion de browser/profile.
+Desde Prompt 16D existe enforcement Agent-side para Chrome/Edge mediante registry policy de usuario. No existe todavia endpoint batch Master para `OPEN_URL`, endpoint batch Master para policies, bloqueo de descargas ni seleccion de browser/profile.
 
 ## Browser Access Policy
 
@@ -955,7 +955,11 @@ BLOCKLIST sin match -> ALLOW / DEFAULT_ALLOW
 ALLOWLIST sin match -> BLOCK / DEFAULT_BLOCK
 ```
 
-Dentro de una sola policy, `ALLOW` explicito gana a `BLOCK` explicito. Esto permite bloquear un host y autorizar una URL exacta concreta sin prioridades arbitrarias.
+Dentro de una sola policy, gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` explicito gana a `BLOCK` explicito. Esto permite bloquear `youtube.com` y autorizar una URL/prefix mas especifica, pero tambien permite bloquear una URL/prefix mas especifica aunque exista un allow broad del host.
+
+`EXACT_URL` permanece persistible en Master, pero no es enforceable por Chrome/Edge nativo en 16D porque no existe equivalencia general byte-for-byte segura en `URLBlocklist`/`URLAllowlist`. Un apply activo que incluya `EXACT_URL` devuelve `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+
+`accountScope = ANY` aplica al usuario Windows interactivo actual. `PRIMARY` y `SECONDARY` siguen modelados, pero en 16D devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` porque aun no existe binding productivo `PRIMARY/SECONDARY -> Windows SID`.
 
 No confundir con `START_PROJECTION`, donde el Master reproduce y transmite su pantalla.
 

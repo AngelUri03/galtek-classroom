@@ -49,7 +49,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
-- Resolucion determinista futura de una sola politica efectiva para validar `OPEN_URL` y restringir navegacion manual en navegadores administrados, sin aplicar bloqueo real todavia.
+- Resolucion determinista de una sola politica efectiva para validar `OPEN_URL` y restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist`; el endpoint batch Master de dispatch de policies queda pendiente.
 - Distribucion batch de archivos a destinos logicos de workspace con apertura opcional posterior.
 - Creacion masiva de carpetas de trabajo.
 - Cambio y restauracion futura de wallpaper.

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using GaltekClassroom.Agent.Service.BrowserPolicy;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Power;
@@ -22,9 +23,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWindowsPowerController, WindowsPowerController>();
         services.AddSingleton(new PowerOperationReceiptStoreOptions(AgentDataDirectory.Resolve()));
         services.AddSingleton<PowerOperationReceiptStore>();
+        services.AddSingleton<ChromiumBrowserPolicyCompiler>();
+        services.AddSingleton<ChromiumBrowserPolicyEvaluator>();
+        services.AddSingleton<IInteractiveUserIdentityResolver, WindowsInteractiveUserIdentityResolver>();
+        services.AddSingleton<IBrowserPolicyRegistryStore, WindowsBrowserPolicyRegistryStore>();
+        services.AddSingleton(new BrowserNavigationPolicyStateStore(AgentDataDirectory.Resolve()));
+        services.AddSingleton<BrowserNavigationPolicyApplyService>();
+        services.AddSingleton<AppliedBrowserPolicyEvaluator>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, OpenUrlOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, ApplyBrowserPolicyOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();

@@ -21,6 +21,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.LogonManagedAccount, operations);
         Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
         Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
+        Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
     }
 
     [Fact]
@@ -131,6 +132,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.OperationNotImplemented, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.PowerControlUnavailable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.PowerControlFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserPolicyNotNativeEnforceable, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.UrlBlockedByPolicy, errorCodes);
     }
 
     private static HashSet<string> ConstantValues(Type type)

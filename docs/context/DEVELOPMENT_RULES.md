@@ -111,6 +111,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Las politicas administrativas de navegacion viven en el Master como fuente de verdad persistente separada de la safety estructural de URL. Una allowlist nunca autoriza esquemas inseguros rechazados por safety.
 - Para navegacion web, resolver como maximo una policy efectiva por contexto usando precedencia determinista; no mezclar reglas de policies de scopes distintos.
 - No usar regex arbitraria, JavaScript regex ni wildcards libres para reglas URL de administracion escolar.
+- El enforcement productivo de navegacion Chrome/Edge debe usar operaciones tipadas Galtek y `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real; no usar HKLM, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, shell, polling, browser automation ni matar/reiniciar navegadores para esta funcionalidad.
 - Projection debe distinguir `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
 - Chrome passwords, cookies y cache no se copian directamente como estrategia de portabilidad.
 - Un Master se autoriza por Windows SID ligado, no solo por username ni por pertenecer a Administrators.

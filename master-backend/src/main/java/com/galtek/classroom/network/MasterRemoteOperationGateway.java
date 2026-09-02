@@ -311,6 +311,24 @@ public class MasterRemoteOperationGateway {
                     ErrorCode.SESSION_CHANNEL_INVALID_RESPONSE;
             case NETWORK_OPERATION_ERROR_CODE_SESSION_COMMAND_RESULT_UNKNOWN -> ErrorCode.SESSION_COMMAND_RESULT_UNKNOWN;
             case NETWORK_OPERATION_ERROR_CODE_URL_LAUNCH_FAILED -> ErrorCode.URL_LAUNCH_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_INVALID -> ErrorCode.BROWSER_POLICY_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE ->
+                    ErrorCode.BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_TOO_LARGE -> ErrorCode.BROWSER_POLICY_TOO_LARGE;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_USER_UNAVAILABLE ->
+                    ErrorCode.BROWSER_POLICY_USER_UNAVAILABLE;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_ACCOUNT_SCOPE_UNRESOLVED ->
+                    ErrorCode.BROWSER_ACCOUNT_SCOPE_UNRESOLVED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_USER_HIVE_UNAVAILABLE ->
+                    ErrorCode.BROWSER_POLICY_USER_HIVE_UNAVAILABLE;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_EXTERNAL_CONFLICT ->
+                    ErrorCode.BROWSER_POLICY_EXTERNAL_CONFLICT;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_APPLY_FAILED -> ErrorCode.BROWSER_POLICY_APPLY_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_ROLLBACK_FAILED ->
+                    ErrorCode.BROWSER_POLICY_ROLLBACK_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_RECOVERY_REQUIRED ->
+                    ErrorCode.BROWSER_POLICY_RECOVERY_REQUIRED;
+            case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY -> ErrorCode.URL_BLOCKED_BY_POLICY;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -343,6 +361,28 @@ public class MasterRemoteOperationGateway {
                     "Session command result is unknown after dispatch.";
             case NETWORK_OPERATION_ERROR_CODE_URL_LAUNCH_FAILED ->
                     "Windows did not accept the URL launch request.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_INVALID ->
+                    "Agent rejected an invalid browser navigation policy.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE ->
+                    "Browser navigation policy cannot be safely enforced by native browser policy.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_TOO_LARGE ->
+                    "Browser navigation policy exceeds native browser policy limits.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_USER_UNAVAILABLE ->
+                    "Interactive Windows user is unavailable on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_ACCOUNT_SCOPE_UNRESOLVED ->
+                    "Browser account scope is not resolved on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_USER_HIVE_UNAVAILABLE ->
+                    "Interactive user policy hive is unavailable on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_EXTERNAL_CONFLICT ->
+                    "Existing browser policy conflicts with Galtek enforcement.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_APPLY_FAILED ->
+                    "Browser navigation policy apply failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_ROLLBACK_FAILED ->
+                    "Browser navigation policy rollback failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_POLICY_RECOVERY_REQUIRED ->
+                    "Browser navigation policy requires local recovery.";
+            case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY ->
+                    "URL is blocked by applied browser navigation policy.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->
@@ -364,6 +404,8 @@ public class MasterRemoteOperationGateway {
         return switch (operationType) {
             case SHUTDOWN -> NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN;
             case RESTART -> NetworkOperationType.NETWORK_OPERATION_TYPE_RESTART;
+            case APPLY_BROWSER_NAVIGATION_POLICY ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             default -> NetworkOperationType.NETWORK_OPERATION_TYPE_UNSPECIFIED;
         };
     }
