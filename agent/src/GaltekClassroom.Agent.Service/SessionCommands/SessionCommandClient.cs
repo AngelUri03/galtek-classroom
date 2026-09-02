@@ -25,9 +25,18 @@ public sealed record SessionCommandClientResult(
     }
 }
 
-public sealed class SessionCommandClient
+public interface ISessionCommandClient
+{
+    Task<SessionCommandClientResult> OpenUrlAsync(
+        string operationId,
+        string url,
+        CancellationToken cancellationToken);
+}
+
+public sealed class SessionCommandClient : ISessionCommandClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly OpenUrlSafetyPolicy _openUrlSafetyPolicy = new();
 
     private readonly IInteractiveSessionResolver _sessionResolver;
     private readonly ISessionAgentServerVerifier _serverVerifier;
@@ -54,9 +63,51 @@ public sealed class SessionCommandClient
             cancellationToken);
     }
 
+    public Task<SessionCommandClientResult> OpenUrlAsync(
+        string operationId,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(operationId, out _))
+        {
+            return Task.FromResult(SessionCommandClientResult.Failure(
+                SessionCommandErrorCodes.SessionChannelMalformedRequest));
+        }
+
+        var validation = _openUrlSafetyPolicy.Validate(url);
+        if (!validation.IsValid)
+        {
+            return Task.FromResult(SessionCommandClientResult.Failure(
+                SessionCommandErrorCodes.InvalidUrl));
+        }
+
+        return SendAsync(
+            new SessionCommandRequest
+            {
+                RequestId = Guid.NewGuid().ToString("D"),
+                CommandType = SessionCommandTypes.OpenUrl,
+                OpenUrl = new SessionOpenUrlCommand
+                {
+                    OperationId = operationId,
+                    Url = url
+                }
+            },
+            cancellationToken,
+            unknownIfRequestWasSent: true);
+    }
+
     public async Task<SessionCommandClientResult> SendAsync(
         SessionCommandRequest request,
         CancellationToken cancellationToken)
+    {
+        return await SendAsync(request, cancellationToken, unknownIfRequestWasSent: false)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<SessionCommandClientResult> SendAsync(
+        SessionCommandRequest request,
+        CancellationToken cancellationToken,
+        bool unknownIfRequestWasSent)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -74,6 +125,7 @@ public sealed class SessionCommandClient
             PipeDirection.InOut,
             PipeOptions.Asynchronous | PipeOptions.WriteThrough);
 
+        var requestWasSent = false;
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -91,6 +143,7 @@ public sealed class SessionCommandClient
             var requestJson = JsonSerializer.Serialize(request, JsonOptions);
             await SessionCommandFraming.WriteJsonAsync(pipe, requestJson, timeout.Token)
                 .ConfigureAwait(false);
+            requestWasSent = true;
 
             var responseJson = await SessionCommandFraming.ReadJsonAsync(pipe, timeout.Token)
                 .ConfigureAwait(false);
@@ -101,12 +154,23 @@ public sealed class SessionCommandClient
         catch (TimeoutException)
         {
             return SessionCommandClientResult.Failure(
-                SessionCommandErrorCodes.SessionChannelTimeout);
+                unknownIfRequestWasSent && requestWasSent
+                    ? SessionCommandErrorCodes.SessionCommandResultUnknown
+                    : unknownIfRequestWasSent
+                        ? SessionCommandErrorCodes.SessionAgentUnavailable
+                        : SessionCommandErrorCodes.SessionChannelTimeout);
+        }
+        catch (OperationCanceledException) when (unknownIfRequestWasSent && requestWasSent)
+        {
+            return SessionCommandClientResult.Failure(
+                SessionCommandErrorCodes.SessionCommandResultUnknown);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return SessionCommandClientResult.Failure(
-                SessionCommandErrorCodes.SessionChannelTimeout);
+                unknownIfRequestWasSent
+                    ? SessionCommandErrorCodes.SessionAgentUnavailable
+                    : SessionCommandErrorCodes.SessionChannelTimeout);
         }
         catch (UnauthorizedAccessException)
         {
@@ -116,7 +180,9 @@ public sealed class SessionCommandClient
         catch (IOException)
         {
             return SessionCommandClientResult.Failure(
-                SessionCommandErrorCodes.SessionAgentUnavailable);
+                unknownIfRequestWasSent && requestWasSent
+                    ? SessionCommandErrorCodes.SessionCommandResultUnknown
+                    : SessionCommandErrorCodes.SessionAgentUnavailable);
         }
         catch (JsonException)
         {

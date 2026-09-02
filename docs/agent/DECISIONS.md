@@ -42,7 +42,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat, framework tipado de operaciones y dispatch productivo solo para `SHUTDOWN` y `RESTART`; las demas operaciones siguen pendientes.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART` y `OPEN_URL`; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL` todavia no tiene endpoint/batch funcional del Master.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -73,7 +73,11 @@
 - `Session Command v1` permite como cliente solo LocalSystem (`S-1-5-18`) y el Session Agent valida el SID real del caller Named Pipe mediante impersonation.
 - El Agent Service debe autenticar tambien al Session Agent antes de enviar comandos, validando PID real del servidor, `Process.SessionId` esperado y ruta productiva normalizada del ejecutable.
 - `Session Command v1` usa JSON UTF-8 con prefijo de longitud BIG ENDIAN de 4 bytes y limite de 16 KiB.
-- Prompt 16A solo implementa `CHANNEL_PING`; `OPEN_URL` y demas acciones interactivas requieren extension tipada explicita posterior.
+- Prompt 16A implementa `CHANNEL_PING`; Prompt 16B implementa `OPEN_URL` como extension tipada explicita sobre Session Command v1.
+- `OPEN_URL` remoto usa `OpenUrlOperationParameters.url`; no usa JSON payload generico, maps, `Struct`, `Any`, `command`, `arguments`, `executablePath` ni shell.
+- `OPEN_URL` visible se ejecuta solo en el Session Agent mediante Windows Shell API con verbo `open`, URL validada y sin parametros; el Agent Service en Session 0 nunca abre directamente el navegador.
+- `OPEN_URL SUCCESS` significa que Windows acepto la solicitud de launch, no que Internet, DNS, HTTP o render del navegador funcionaron.
+- Si `OPEN_URL` ya fue enviado al Session Agent y se pierde la respuesta, el resultado es `SESSION_COMMAND_RESULT_UNKNOWN` y no hay retry automatico local para evitar duplicar pestanas.
 - `Session Command v1` no admite payload generico, `command`, `arguments`, shell, PowerShell, `cmd`, rutas ejecutables arbitrarias ni comandos `RUN_*`/`EXECUTE_*`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.
@@ -124,11 +128,11 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; `SHUTDOWN` y `RESTART` tienen handlers reales en el Agent y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica operaciones por `operationId`; `SHUTDOWN`, `RESTART` y `OPEN_URL` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.

@@ -1416,3 +1416,39 @@
 ### Commit sugerido
 
 `feat(agent): add trusted session command channel`
+
+## 2026-09-01 - Prompt 16B
+
+### Realizado
+
+- Extendido Protobuf v1 sin cambiar `protocolVersion`: `OperationRequest` agrega parametros tipados `OpenUrlOperationParameters.url`, capability `OPEN_URL_V1` y codigos operacionales de URL/sesion.
+- Extendida Session Command v1 con comando tipado `OPEN_URL` y campo `openUrl.operationId/url`, conservando framing BIG ENDIAN de 4 bytes + JSON UTF-8, limite 16 KiB, pipe por sesion, ACL LocalSystem, autenticacion bilateral y timeout existente.
+- Agregada `OpenUrlSafetyPolicy` C# compartida por Service y Session Agent: solo URL absoluta `http://`/`https://`, host no vacio, maximo 4096, sin caracteres de control/CR/LF ni username/password embebidos.
+- Agregado `OpenUrlOperationHandler` explicito en Agent Service: extrae parametros tipados, valida URL, usa `SessionCommandClient.OpenUrlAsync`, mapea errores estructurados y no abre navegador desde Session 0.
+- `SessionCommandClient.OpenUrlAsync` crea `requestId` nuevo, valida `requestId` de respuesta, no usa Local IPC v1, no hace retry automatico y diferencia `SESSION_AGENT_UNAVAILABLE` de `SESSION_COMMAND_RESULT_UNKNOWN` despues de enviar.
+- Session Agent maneja `CHANNEL_PING` y `OPEN_URL`; valida protocolo, `requestId`, `operationId`, URL y caller LocalSystem antes de llamar al launcher.
+- Agregados `IUrlLauncher`, `WindowsUrlLauncher` y wrapper `IWindowsShellExecutor`; produccion usa `ShellExecuteExW` con verbo `open`, URL validada y sin parametros.
+- `OPEN_URL SUCCESS` queda definido como Windows acepto la solicitud de launch; no comprueba DNS, Internet, HTTP status, carga ni render del navegador.
+- `RemoteOperationDispatcher` conserva dedupe por `operationId` y ahora compara parametros tipados para detectar conflicto si el mismo operationId llega con otra URL.
+- El Agent anuncia `OPEN_URL_V1`; Java agrega mapeo minimo de capability/errores para compatibilidad de generacion sin endpoint batch ni servicio funcional Master.
+- Documentacion actualizada en protocolo local, README de red, contexto, arquitectura, modelo funcional, decisiones, estado e historial.
+
+### Cambios descartados
+
+- No se implemento endpoint batch Master para `OPEN_URL`.
+- No se implemento UI.
+- No se implemento bloqueo de URLs, allowlist/blocklist ni bloqueo de descargas.
+- No se implemento `OPEN_APPLICATION`, browser profile selection, Chrome/Edge forzado, extension de navegador, policies, DNS/proxy/intercepcion HTTP ni monitoreo de historial/tabs.
+- No se uso `cmd`, PowerShell, `explorer.exe` con argumentos arbitrarios, browser path remoto, scripts, WMI shell, `Process.Start` desde el Service ni `CreateProcessAsUser`.
+- No se hizo prueba manual que abra navegador real.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~OpenUrlSafetyPolicyTests|FullyQualifiedName~SessionCommand|FullyQualifiedName~WindowsUrlLauncherTests|FullyQualifiedName~OpenUrlOperationHandlerTests"` en `agent`: correcto, 19 pruebas Session y 48 pruebas Service superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): open trusted urls in interactive session`

@@ -50,6 +50,7 @@ public enum ErrorCode {
     BROWSER_PROFILE_REAUTH_REQUIRED(ErrorCategory.BROWSER, false),
     BROWSER_REAUTH_REQUIRED(ErrorCategory.BROWSER, false),
     INVALID_URL(ErrorCategory.BROWSER, false),
+    URL_LAUNCH_FAILED(ErrorCategory.BROWSER, true),
 
     APPLICATION_NOT_INSTALLED(ErrorCategory.APPLICATION, false),
     APPLICATION_NOT_ALLOWED(ErrorCategory.APPLICATION, false),
@@ -82,6 +83,11 @@ public enum ErrorCode {
     OPERATION_NOT_IMPLEMENTED(ErrorCategory.OPERATION, false),
     OPERATION_REJECTED(ErrorCategory.OPERATION, false),
     OPERATION_RESULT_UNKNOWN(ErrorCategory.OPERATION, false),
+    SESSION_AGENT_UNAVAILABLE(ErrorCategory.DEVICE, true),
+    SESSION_CHANNEL_UNAUTHORIZED(ErrorCategory.AUTHORIZATION, false),
+    SESSION_CHANNEL_PROTOCOL_MISMATCH(ErrorCategory.OPERATION, false),
+    SESSION_CHANNEL_INVALID_RESPONSE(ErrorCategory.OPERATION, false),
+    SESSION_COMMAND_RESULT_UNKNOWN(ErrorCategory.OPERATION, false),
     POWER_CONTROL_UNAVAILABLE(ErrorCategory.OPERATION, false),
     POWER_CONTROL_FAILED(ErrorCategory.OPERATION, true),
 

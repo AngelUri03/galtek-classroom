@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 16A agrega el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. Es un Named Pipe separado por sesion interactiva, servido por el Session Agent y consumido por el Service como LocalSystem, con ACL solo para LocalSystem, autenticacion del caller real mediante token de Named Pipe, verificacion del servidor por PID/sesion/ruta productiva y framing JSON UTF-8 con longitud BIG ENDIAN de 4 bytes. La unica operacion implementada es `CHANNEL_PING`; no abre navegador, no lanza procesos, no bloquea URLs/descargas, no toca UI y no modifica Local IPC v1.
+Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. No hay bloqueo de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
+
+Prompt 16A agrega el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. Es un Named Pipe separado por sesion interactiva, servido por el Session Agent y consumido por el Service como LocalSystem, con ACL solo para LocalSystem, autenticacion del caller real mediante token de Named Pipe, verificacion del servidor por PID/sesion/ruta productiva y framing JSON UTF-8 con longitud BIG ENDIAN de 4 bytes.
 
 Prompt 15C cierra la primera capacidad remota end-to-end de power control con reconciliacion segura de resultados inciertos. El protocolo Protobuf v1 agrega `OperationStatusQuery`/`OperationStatusReport` sobre el stream `NetworkConnection.Connect` existente, sin cambiar `protocolVersion` ni crear otro servicio. El Agent responde read-only desde el cache acotado del dispatcher o desde un receipt durable minimo de power control aceptado; la consulta nunca ejecuta handlers ni modifica Windows. El Master acepta resultados tardios autenticos y agrega reconciliacion manual/event-driven por reconnect para targets `FAILED + OPERATION_RESULT_UNKNOWN`, sin reenviar `SHUTDOWN`/`RESTART` ni inferir exito por `OFFLINE` o reconnect.
 
@@ -40,7 +42,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16B implementa `OPEN_URL` solo del lado Agent y no agrega dispatch batch Master. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
 
 ## Modelo operativo Master/Client
 
@@ -288,7 +290,7 @@ IMPLEMENTADO:
 - `MasterTlsPeerTrustManager` rechaza certificados de Client que no correspondan a un trust `PAIRED` vigente en `paired-clients.json`.
 - `MasterNetworkGrpcServer` usa Netty gRPC con TLS/mTLS obligatorio, sin reflection ni fallback plaintext, y queda deshabilitado por defecto hasta configurar `galtek.classroom.master.network.grpc.enabled=true`.
 - `ClientConnectionRegistry` mantiene presencia viva por Client autenticado y distingue Client paired sin Device de Device registrado (`CONNECTING`, `ONLINE`, `OFFLINE`).
-- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
+- `ClientHello` reporta capabilities tipadas conocidas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
 - Las capabilities son informacion operativa y no autorizacion.
 - `NetworkClientAdminService` lista Clients known/paired con estado seguro y registra Devices solo tras verificar trust `PAIRED`, no `REVOKED` y ausencia de doble registro.
 - `GET /api/classrooms/{id}/snapshot` superpone presencia viva para Devices registrados sin escribir SQLite en cada heartbeat.
@@ -323,7 +325,8 @@ NO IMPLEMENTADO:
 - mDNS real.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
-- Ejecucion real de `OPEN_APPLICATION`, `OPEN_URL`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
+- Endpoint batch Master o servicio funcional Master para `OPEN_URL`.
+- Ejecucion real de `OPEN_APPLICATION`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
 - Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
@@ -435,7 +438,7 @@ IMPLEMENTADO:
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
 - `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
-- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
+- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
@@ -518,7 +521,7 @@ NO IMPLEMENTADO:
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Endpoints/IPC de pairing reales expuestos a UI/transporte.
 - Comandos MASTER protegidos por autorizacion de red.
-- Comandos remotos distintos de `SHUTDOWN` y `RESTART`.
+- Endpoint batch Master para `OPEN_URL` o comandos remotos funcionales distintos de `SHUTDOWN`/`RESTART` en Master.
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
@@ -541,7 +544,9 @@ IMPLEMENTADO:
 - Servidor `Session Command v1` por sesion en `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, derivado del `Process.SessionId` real.
 - ACL del pipe de comandos restringida a LocalSystem (`S-1-5-18`) como cliente; no concede `Users`, `Authenticated Users` ni `Everyone`.
 - Autenticacion del caller real del Named Pipe mediante impersonation y rechazo de cualquier SID distinto de LocalSystem.
-- `CHANNEL_PING` como unica operacion de comando de sesion implementada; devuelve `SUCCESS` sin ejecutar acciones externas ni generar UI.
+- `CHANNEL_PING` como prueba de canal; devuelve `SUCCESS` sin ejecutar acciones externas ni generar UI.
+- `OPEN_URL` como comando tipado de sesion; valida solo URL absoluta `http://`/`https://`, rechaza userinfo, controles, CR/LF, rutas locales/UNC y esquemas peligrosos, y llama a Windows Shell API con verbo `open`, URL validada y sin parametros.
+- `OPEN_URL SUCCESS` significa solo que Windows acepto la solicitud de abrir la URL con el handler registrado; no comprueba Internet, DNS, HTTP status ni carga de pagina.
 - Supervisor IPC local con estados internos `STARTING`, `WAITING_FOR_SERVICE`, `CONNECTED`, `READY` y `STOPPING`.
 - Reconexion automatica al Agent Service con backoff acotado `2s`, `5s`, `10s`, `30s`.
 - Polling saludable por `PING` cada 15 segundos.
@@ -617,7 +622,7 @@ IMPLEMENTADO:
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
 - `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
-- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
+- Capabilities tipadas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.
@@ -642,7 +647,7 @@ NO IMPLEMENTADO:
 
 - Descubrimiento real.
 - APIs reales de discovery/pairing sobre red.
-- Comandos remotos distintos de `SHUTDOWN` y `RESTART`.
+- Endpoint batch Master para comandos remotos distintos de `SHUTDOWN` y `RESTART`.
 
 Nota de seguridad: descubrir un equipo no significa confiar en el. Network Identity tampoco equivale a trust; el trust aparece solo tras pairing explicito y puede revocarse.
 
@@ -668,13 +673,13 @@ IMPLEMENTADO:
 - Pipe por sesion `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, servido por el Session Agent de esa sesion.
 - Framing Session Command v1: longitud BIG ENDIAN de 4 bytes mas JSON UTF-8, con limite de 16 KiB.
 - ACL de Session Command v1 solo para LocalSystem como cliente y autenticacion bilateral: Session Agent valida SID real del caller, Service valida PID/sesion/ruta del servidor.
-- Unica operacion Session Command v1 implementada: `CHANNEL_PING`.
+- Operaciones Session Command v1 implementadas: `CHANNEL_PING` y `OPEN_URL`.
 
 NO IMPLEMENTADO:
 
 - Activacion de licencia por IPC.
 - Operaciones write por IPC.
-- `OPEN_URL`, bloqueo de URLs, bloqueo de descargas, lanzamiento de aplicaciones u otras acciones interactivas sobre Session Command v1.
+- Bloqueo de URLs, bloqueo de descargas, lanzamiento de aplicaciones u otras acciones interactivas sobre Session Command v1.
 
 ## Identidades
 
@@ -899,7 +904,7 @@ VIGENTE DESDE AHORA:
 - Nunca limpiar la working copy local antes de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Si red o energia fallan antes de confirmar, conservar la working copy local y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`, sin asumir `SUCCESS`.
 - Una distribucion grande no debe impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
-- `OPEN_URL`/`OPEN_WEB_CONTENT` deben preferir abrir Chrome localmente en el Client; no convertir YouTube en captura 30 FPS hacia 26 PCs.
+- `OPEN_URL`/`OPEN_WEB_CONTENT` deben preferir abrir contenido web localmente en el Client; Prompt 16B usa el navegador predeterminado registrado de la sesion interactiva y no convierte YouTube en captura 30 FPS hacia 26 PCs.
 - Preview de PCs futuro debe ser opt-in operacional: thumbnails pequenos, baja frecuencia, solo devices visibles y concurrencia limitada; no iniciar captura al boot ni por `ClientHello`.
 - Batch-first es obligatorio: targets pueden ser classroom, group, students, devices o items individuales cuando la accion tenga sentido.
 - `PARTIAL_SUCCESS` y retry solo de fallidos deben formar parte del modelo de cualquier operacion masiva.

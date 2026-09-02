@@ -118,6 +118,134 @@ public sealed class SessionCommandClientTests
     }
 
     [Fact]
+    public async Task OpenUrlAsync_WhenServerIsValid_SendsTypedRequestAndReturnsSuccess()
+    {
+        var sessionId = Random.Shared.Next(520_001, 570_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var operationId = Guid.NewGuid().ToString("D");
+        var serverTask = ObserveOpenUrlAndEchoSuccessAsync(
+            sessionId,
+            operationId,
+            "https://example.test/activity",
+            cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenUrlAsync(
+            operationId,
+            "https://example.test/activity",
+            cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OpenUrlAsync_WhenUrlIsInvalid_DoesNotConnect()
+    {
+        var verifier = new RecordingServerVerifier(verified: true);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(Random.Shared.Next(570_001, 620_000)),
+            verifier);
+
+        var result = await client.OpenUrlAsync(
+            Guid.NewGuid().ToString("D"),
+            "file:///C:/Windows/notepad.exe",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.InvalidUrl, result.ErrorCode);
+        Assert.Equal(0, verifier.Calls);
+    }
+
+    [Fact]
+    public async Task OpenUrlAsync_WhenNoInteractiveSession_ReturnsUnavailable()
+    {
+        var verifier = new RecordingServerVerifier(verified: true);
+        var client = CreateClient(
+            InteractiveSessionResolution.Unavailable(SessionCommandErrorCodes.SessionAgentUnavailable),
+            verifier);
+
+        var result = await client.OpenUrlAsync(
+            Guid.NewGuid().ToString("D"),
+            "https://example.test/activity",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionAgentUnavailable, result.ErrorCode);
+        Assert.Equal(0, verifier.Calls);
+    }
+
+    [Fact]
+    public async Task OpenUrlAsync_WhenResponseRequestIdDiffers_ReturnsInvalidResponse()
+    {
+        var sessionId = Random.Shared.Next(620_001, 670_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = RespondWithWrongRequestIdAsync(sessionId, cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenUrlAsync(
+            Guid.NewGuid().ToString("D"),
+            "https://example.test/activity",
+            cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionChannelInvalidResponse, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OpenUrlAsync_WhenResponseTimesOutAfterSend_ReturnsResultUnknownAndDoesNotRetry()
+    {
+        var sessionId = Random.Shared.Next(670_001, 720_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = AcceptWithoutRespondingAsync(sessionId, cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenUrlAsync(
+            Guid.NewGuid().ToString("D"),
+            "https://example.test/activity",
+            cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionCommandResultUnknown, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OpenUrlAsync_DoesNotFallbackToLocalIpcV1()
+    {
+        var sessionId = Random.Shared.Next(720_001, 770_000);
+        await using var localIpcServer = new NamedPipeServerStream(
+            LocalIpcProtocol.PipeName + "." + Guid.NewGuid().ToString("N"),
+            PipeDirection.InOut,
+            maxNumberOfServerInstances: 1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenUrlAsync(
+            Guid.NewGuid().ToString("D"),
+            "https://example.test/activity",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.ErrorCode, new[]
+        {
+            SessionCommandErrorCodes.SessionAgentUnavailable,
+            SessionCommandErrorCodes.SessionChannelTimeout
+        });
+    }
+
+    [Fact]
     public async Task PingAsync_WhenResponseTimesOut_ReturnsTimeout()
     {
         var sessionId = Random.Shared.Next(420_001, 470_000);
@@ -173,6 +301,24 @@ public sealed class SessionCommandClientTests
         await using var server = CreateServer(sessionId);
         await server.WaitForConnectionAsync(cancellationToken);
         var request = await ReadRequestAsync(server, cancellationToken);
+        await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
+    }
+
+    private static async Task ObserveOpenUrlAndEchoSuccessAsync(
+        int sessionId,
+        string operationId,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        await using var server = CreateServer(sessionId);
+        await server.WaitForConnectionAsync(cancellationToken);
+        var request = await ReadRequestAsync(server, cancellationToken);
+        Assert.Equal(SessionCommandTypes.OpenUrl, request.CommandType);
+        Assert.NotNull(request.OpenUrl);
+        Assert.Equal(operationId, request.OpenUrl.OperationId);
+        Assert.Equal(url, request.OpenUrl.Url);
+        Assert.DoesNotContain("payload", JsonSerializer.Serialize(request, JsonOptions), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", JsonSerializer.Serialize(request, JsonOptions), StringComparison.OrdinalIgnoreCase);
         await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
     }
 

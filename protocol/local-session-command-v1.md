@@ -4,7 +4,7 @@
 
 Local Session Command v1 is the dedicated local channel used by `GaltekClassroom.Agent.Service` to send explicit interactive-session commands to `GaltekClassroom.Agent.Session`.
 
-Prompt 16A implements only the authenticated channel and `CHANNEL_PING`. It does not execute visible actions.
+Prompt 16B implements `OPEN_URL` as the first visible interactive-session action. The Agent Service never opens the browser from Session 0; it sends a typed command to the Session Agent, and the Session Agent asks Windows to open the URL with the registered HTTP/HTTPS handler in that interactive session.
 
 ## Separation from Local IPC v1
 
@@ -93,6 +93,22 @@ Messages above the limit are rejected. Newline delimiters, `BinaryFormatter` and
 
 There is no generic payload, command string or arguments field.
 
+For `OPEN_URL`, the request uses an explicit typed field:
+
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "uuid",
+  "commandType": "OPEN_URL",
+  "openUrl": {
+    "operationId": "uuid",
+    "url": "https://example.test/activity"
+  }
+}
+```
+
+`operationId` is copied from the remote `OperationRequest`. The URL is validated by the Agent Service before sending and validated again by the Session Agent before launching.
+
 ## Response
 
 ```json
@@ -111,11 +127,18 @@ If the response `requestId` differs from the request, the Service rejects the re
 
 ## Commands
 
-Implemented in Prompt 16A:
+Implemented:
 
 - `CHANNEL_PING`
+- `OPEN_URL`
 
 `CHANNEL_PING` proves the authenticated channel works. It does not open windows, launch processes, open a browser, read files, write registry, change browser policy, switch sessions or show UI.
+
+`OPEN_URL` accepts only absolute `http://` or `https://` URLs with non-empty host, no control characters, no CR/LF, no embedded username/password and a maximum length of 4096 characters. It rejects `file:`, `javascript:`, `data:`, `ftp:`, `shell:`, `ms-*` handlers, UNC/local paths, drive paths such as `C:\...` and relative URLs. It does not block `localhost`, private IP addresses or LAN hostnames.
+
+`OPEN_URL` launches through the Windows Shell API with verb `open`, file set to the validated URL and no parameters. It does not execute `cmd.exe`, PowerShell, `explorer.exe` with arbitrary arguments, a browser path from Master or any command line constructed from remote input.
+
+`OPEN_URL SUCCESS` means Windows accepted the launch request for the registered HTTP/HTTPS handler. It does not mean DNS resolved, Internet works, a page loaded, HTTP returned 200 or a browser rendered content correctly.
 
 Unknown commands are rejected. They are never interpreted as executable strings.
 
@@ -144,8 +167,13 @@ Initial internal error codes:
 - `SESSION_CHANNEL_INVALID_RESPONSE`
 - `SESSION_COMMAND_NOT_SUPPORTED`
 - `SESSION_CHANNEL_MALFORMED_REQUEST`
+- `SESSION_COMMAND_RESULT_UNKNOWN`
+- `INVALID_URL`
+- `URL_LAUNCH_FAILED`
 
 User-facing or remotely surfaced messages must not expose stack traces, SIDs, PIDs, full binary paths, ACLs or token details.
+
+If the Service cannot reach a Session Agent before sending `OPEN_URL`, the remote operation maps to `SESSION_AGENT_UNAVAILABLE`. If the Service already sent `OPEN_URL` and then loses or times out waiting for the response, the remote operation maps to `SESSION_COMMAND_RESULT_UNKNOWN` because the URL may already have opened. The client must not retry automatically.
 
 ## Performance
 

@@ -229,7 +229,26 @@ public sealed class RemoteOperationDispatcher
         return string.Equals(left.OperationId, right.OperationId, StringComparison.Ordinal)
             && left.OperationType == right.OperationType
             && string.Equals(left.TargetDeviceId, right.TargetDeviceId, StringComparison.Ordinal)
-            && string.Equals(left.ProtocolVersion, right.ProtocolVersion, StringComparison.Ordinal);
+            && string.Equals(left.ProtocolVersion, right.ProtocolVersion, StringComparison.Ordinal)
+            && SameParameters(left, right);
+    }
+
+    private static bool SameParameters(OperationRequest left, OperationRequest right)
+    {
+        if (left.OperationParametersCase != right.OperationParametersCase)
+        {
+            return false;
+        }
+
+        return left.OperationParametersCase switch
+        {
+            OperationRequest.OperationParametersOneofCase.OpenUrl => string.Equals(
+                left.OpenUrl?.Url,
+                right.OpenUrl?.Url,
+                StringComparison.Ordinal),
+            OperationRequest.OperationParametersOneofCase.None => true,
+            _ => false
+        };
     }
 
     private void MaybeCleanupCompletedOperations()

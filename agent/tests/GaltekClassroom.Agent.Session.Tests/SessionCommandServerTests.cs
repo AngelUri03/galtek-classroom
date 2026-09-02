@@ -63,14 +63,14 @@ public sealed class SessionCommandServerTests
         var response = SessionCommandServer.Handle(new SessionCommandRequest
         {
             RequestId = Guid.NewGuid().ToString("D"),
-            CommandType = "OPEN_URL"
+            CommandType = "RUN_PROCESS"
         });
 
         Assert.Equal(SessionCommandErrorCodes.SessionCommandNotSupported, response.ErrorCode);
     }
 
     [Fact]
-    public void Handle_ChannelPingIsOnlyRecognizedCommand()
+    public void Handle_ChannelPingStillWorks()
     {
         Assert.Equal(SessionCommandStatuses.Success, SessionCommandServer.Handle(new SessionCommandRequest
         {
@@ -83,6 +83,89 @@ public sealed class SessionCommandServerTests
             RequestId = Guid.NewGuid().ToString("D"),
             CommandType = "RUN_PROCESS"
         }).ErrorCode);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenOpenUrlIsValid_CallsLauncherExactlyOnce()
+    {
+        var launcher = RecordingUrlLauncher.Success();
+        var request = CreateOpenUrlRequest("https://example.test/activity");
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            request,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Success, response.Status);
+        Assert.Null(response.ErrorCode);
+        Assert.Equal(new[] { "https://example.test/activity" }, launcher.Urls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenOpenUrlIsInvalid_DoesNotCallLauncher()
+    {
+        var launcher = RecordingUrlLauncher.Success();
+        var request = CreateOpenUrlRequest("javascript:alert(1)");
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            request,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Failed, response.Status);
+        Assert.Equal(SessionCommandErrorCodes.InvalidUrl, response.ErrorCode);
+        Assert.Empty(launcher.Urls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenProtocolVersionIsWrong_DoesNotCallLauncher()
+    {
+        var launcher = RecordingUrlLauncher.Success();
+        var request = CreateOpenUrlRequest("https://example.test/activity") with
+        {
+            ProtocolVersion = 99
+        };
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            request,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandErrorCodes.SessionChannelProtocolMismatch, response.ErrorCode);
+        Assert.Empty(launcher.Urls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenCommandIsUnknown_DoesNotCallLauncher()
+    {
+        var launcher = RecordingUrlLauncher.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            new SessionCommandRequest
+            {
+                RequestId = Guid.NewGuid().ToString("D"),
+                CommandType = "RUN_PROCESS"
+            },
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandErrorCodes.SessionCommandNotSupported, response.ErrorCode);
+        Assert.Empty(launcher.Urls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenLauncherFails_ReturnsStructuredFailure()
+    {
+        var launcher = RecordingUrlLauncher.Failed();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateOpenUrlRequest("https://example.test/activity"),
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Failed, response.Status);
+        Assert.Equal(SessionCommandErrorCodes.UrlLaunchFailed, response.ErrorCode);
+        Assert.Single(launcher.Urls);
     }
 
     [Fact]
@@ -103,6 +186,29 @@ public sealed class SessionCommandServerTests
         await IgnoreCancellationAsync(serverTask);
 
         Assert.Equal(SessionCommandErrorCodes.SessionChannelUnauthorized, response.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenCallerIsUnauthorized_DoesNotCallLauncher()
+    {
+        var sessionId = Random.Shared.Next(220_001, 270_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var launcher = RecordingUrlLauncher.Success();
+        var server = new SessionCommandServer(
+            new TestPipeStreamFactory(),
+            new StaticCallerVerifier(authorized: false),
+            launcher);
+        var serverTask = server.RunAsync(sessionId, cancellation.Token);
+
+        await using var client = await ConnectAsync(sessionId, cancellation.Token);
+        var responseJson = await SessionCommandFraming.ReadJsonAsync(client, cancellation.Token);
+        var response = JsonSerializer.Deserialize<SessionCommandResponse>(responseJson, JsonOptions)!;
+
+        cancellation.Cancel();
+        await IgnoreCancellationAsync(serverTask);
+
+        Assert.Equal(SessionCommandErrorCodes.SessionChannelUnauthorized, response.ErrorCode);
+        Assert.Empty(launcher.Urls);
     }
 
     [Fact]
@@ -222,6 +328,20 @@ public sealed class SessionCommandServerTests
         return client;
     }
 
+    private static SessionCommandRequest CreateOpenUrlRequest(string url)
+    {
+        return new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = SessionCommandTypes.OpenUrl,
+            OpenUrl = new SessionOpenUrlCommand
+            {
+                OperationId = Guid.NewGuid().ToString("D"),
+                Url = url
+            }
+        };
+    }
+
     private static async Task IgnoreCancellationAsync(Task task)
     {
         try
@@ -259,6 +379,35 @@ public sealed class SessionCommandServerTests
         {
             ArgumentNullException.ThrowIfNull(pipe);
             return _authorized;
+        }
+    }
+
+    private sealed class RecordingUrlLauncher : IUrlLauncher
+    {
+        private readonly UrlLaunchResult _result;
+
+        private RecordingUrlLauncher(UrlLaunchResult result)
+        {
+            _result = result;
+        }
+
+        public List<string> Urls { get; } = [];
+
+        public static RecordingUrlLauncher Success()
+        {
+            return new RecordingUrlLauncher(UrlLaunchResult.Success());
+        }
+
+        public static RecordingUrlLauncher Failed()
+        {
+            return new RecordingUrlLauncher(UrlLaunchResult.Failed("Launch failed."));
+        }
+
+        public Task<UrlLaunchResult> LaunchAsync(string url, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Urls.Add(url);
+            return Task.FromResult(_result);
         }
     }
 }

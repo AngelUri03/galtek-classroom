@@ -9,7 +9,8 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.HeartbeatV1,
         NetworkCapability.OperationFrameworkV1,
         NetworkCapability.SessionAgentAvailable,
-        NetworkCapability.PowerControlV1
+        NetworkCapability.PowerControlV1,
+        NetworkCapability.OpenUrlV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

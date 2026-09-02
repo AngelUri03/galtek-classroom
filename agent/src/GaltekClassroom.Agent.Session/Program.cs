@@ -140,10 +140,12 @@ static ISessionCommandServer CreateSessionCommandServer()
     {
         return new SessionCommandServer(
             new UnsupportedSessionCommandPipeStreamFactory(),
-            new UnavailableSessionCommandCallerVerifier());
+            new UnavailableSessionCommandCallerVerifier(),
+            new UnavailableUrlLauncher());
     }
 
     return new SessionCommandServer(
         new SessionCommandPipeStreamFactory(),
-        new WindowsSessionCommandCallerVerifier());
+        new WindowsSessionCommandCallerVerifier(),
+        new WindowsUrlLauncher());
 }

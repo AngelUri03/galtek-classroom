@@ -302,6 +302,15 @@ public class MasterRemoteOperationGateway {
         return switch (errorCode) {
             case NETWORK_OPERATION_ERROR_CODE_POWER_CONTROL_UNAVAILABLE -> ErrorCode.POWER_CONTROL_UNAVAILABLE;
             case NETWORK_OPERATION_ERROR_CODE_POWER_CONTROL_FAILED -> ErrorCode.POWER_CONTROL_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_INVALID_URL -> ErrorCode.INVALID_URL;
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_AGENT_UNAVAILABLE -> ErrorCode.SESSION_AGENT_UNAVAILABLE;
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_UNAUTHORIZED -> ErrorCode.SESSION_CHANNEL_UNAUTHORIZED;
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_PROTOCOL_MISMATCH ->
+                    ErrorCode.SESSION_CHANNEL_PROTOCOL_MISMATCH;
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_INVALID_RESPONSE ->
+                    ErrorCode.SESSION_CHANNEL_INVALID_RESPONSE;
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_COMMAND_RESULT_UNKNOWN -> ErrorCode.SESSION_COMMAND_RESULT_UNKNOWN;
+            case NETWORK_OPERATION_ERROR_CODE_URL_LAUNCH_FAILED -> ErrorCode.URL_LAUNCH_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -320,6 +329,20 @@ public class MasterRemoteOperationGateway {
                     "Power control is unavailable on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_POWER_CONTROL_FAILED ->
                     "Power control failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_INVALID_URL ->
+                    "Agent rejected an invalid URL.";
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_AGENT_UNAVAILABLE ->
+                    "Session Agent is unavailable on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_UNAUTHORIZED ->
+                    "Session command channel authorization failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_PROTOCOL_MISMATCH ->
+                    "Session command protocol mismatch on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_CHANNEL_INVALID_RESPONSE ->
+                    "Session Agent returned an invalid response.";
+            case NETWORK_OPERATION_ERROR_CODE_SESSION_COMMAND_RESULT_UNKNOWN ->
+                    "Session command result is unknown after dispatch.";
+            case NETWORK_OPERATION_ERROR_CODE_URL_LAUNCH_FAILED ->
+                    "Windows did not accept the URL launch request.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->

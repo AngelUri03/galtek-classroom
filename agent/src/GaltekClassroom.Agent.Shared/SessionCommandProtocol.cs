@@ -25,6 +25,7 @@ public static class SessionCommandProtocol
 public static class SessionCommandTypes
 {
     public const string ChannelPing = "CHANNEL_PING";
+    public const string OpenUrl = "OPEN_URL";
 }
 
 public static class SessionCommandStatuses
@@ -42,6 +43,9 @@ public static class SessionCommandErrorCodes
     public const string SessionChannelInvalidResponse = "SESSION_CHANNEL_INVALID_RESPONSE";
     public const string SessionCommandNotSupported = "SESSION_COMMAND_NOT_SUPPORTED";
     public const string SessionChannelMalformedRequest = "SESSION_CHANNEL_MALFORMED_REQUEST";
+    public const string SessionCommandResultUnknown = "SESSION_COMMAND_RESULT_UNKNOWN";
+    public const string InvalidUrl = "INVALID_URL";
+    public const string UrlLaunchFailed = "URL_LAUNCH_FAILED";
 }
 
 public sealed record SessionCommandRequest
@@ -57,6 +61,22 @@ public sealed record SessionCommandRequest
     [JsonPropertyName("commandType")]
     [JsonPropertyOrder(2)]
     public string CommandType { get; init; } = string.Empty;
+
+    [JsonPropertyName("openUrl")]
+    [JsonPropertyOrder(3)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SessionOpenUrlCommand? OpenUrl { get; init; }
+}
+
+public sealed record SessionOpenUrlCommand
+{
+    [JsonPropertyName("operationId")]
+    [JsonPropertyOrder(0)]
+    public string OperationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    [JsonPropertyOrder(1)]
+    public string Url { get; init; } = string.Empty;
 }
 
 public sealed record SessionCommandResponse

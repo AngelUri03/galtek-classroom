@@ -42,13 +42,16 @@ public sealed class SessionCommandServer : ISessionCommandServer
 
     private readonly ISessionCommandPipeStreamFactory _pipeStreamFactory;
     private readonly ISessionCommandCallerVerifier _callerVerifier;
+    private readonly IUrlLauncher _urlLauncher;
 
     public SessionCommandServer(
         ISessionCommandPipeStreamFactory pipeStreamFactory,
-        ISessionCommandCallerVerifier callerVerifier)
+        ISessionCommandCallerVerifier callerVerifier,
+        IUrlLauncher? urlLauncher = null)
     {
         _pipeStreamFactory = pipeStreamFactory;
         _callerVerifier = callerVerifier;
+        _urlLauncher = urlLauncher ?? new UnavailableUrlLauncher();
     }
 
     public async Task RunAsync(int sessionId, CancellationToken cancellationToken)
@@ -101,7 +104,7 @@ public sealed class SessionCommandServer : ISessionCommandServer
             var requestJson = await SessionCommandFraming.ReadJsonAsync(pipe, cancellationToken)
                 .ConfigureAwait(false);
             var request = JsonSerializer.Deserialize<SessionCommandRequest>(requestJson, JsonOptions);
-            response = Handle(request);
+            response = await HandleAsync(request, _urlLauncher, cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException)
         {
@@ -121,6 +124,18 @@ public sealed class SessionCommandServer : ISessionCommandServer
 
     public static SessionCommandResponse Handle(SessionCommandRequest? request)
     {
+        return HandleAsync(request, new UnavailableUrlLauncher(), CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    public static async Task<SessionCommandResponse> HandleAsync(
+        SessionCommandRequest? request,
+        IUrlLauncher urlLauncher,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(urlLauncher);
+
         if (request is null)
         {
             return SessionCommandResponse.Error(
@@ -144,13 +159,49 @@ public sealed class SessionCommandServer : ISessionCommandServer
                 SessionCommandErrorCodes.SessionChannelMalformedRequest);
         }
 
-        return request.CommandType switch
+        switch (request.CommandType)
         {
-            SessionCommandTypes.ChannelPing => SessionCommandResponse.Success(requestId),
-            _ => SessionCommandResponse.Error(
+            case SessionCommandTypes.ChannelPing:
+                return SessionCommandResponse.Success(requestId);
+            case SessionCommandTypes.OpenUrl:
+                return await HandleOpenUrlAsync(requestId, request.OpenUrl, urlLauncher, cancellationToken)
+                    .ConfigureAwait(false);
+            default:
+                return SessionCommandResponse.Error(
+                    requestId,
+                    SessionCommandErrorCodes.SessionCommandNotSupported);
+        }
+    }
+
+    private static async Task<SessionCommandResponse> HandleOpenUrlAsync(
+        string requestId,
+        SessionOpenUrlCommand? command,
+        IUrlLauncher urlLauncher,
+        CancellationToken cancellationToken)
+    {
+        if (command is null || !Guid.TryParse(command.OperationId, out _))
+        {
+            return SessionCommandResponse.Error(
                 requestId,
-                SessionCommandErrorCodes.SessionCommandNotSupported)
-        };
+                SessionCommandErrorCodes.SessionChannelMalformedRequest);
+        }
+
+        var validation = new OpenUrlSafetyPolicy().Validate(command.Url);
+        if (!validation.IsValid)
+        {
+            return SessionCommandResponse.Error(
+                requestId,
+                SessionCommandErrorCodes.InvalidUrl);
+        }
+
+        var result = await urlLauncher.LaunchAsync(command.Url, cancellationToken)
+            .ConfigureAwait(false);
+        return result.Succeeded
+            ? SessionCommandResponse.Success(requestId)
+            : SessionCommandResponse.Error(
+                requestId,
+                SessionCommandErrorCodes.UrlLaunchFailed,
+                result.Message);
     }
 
     private static async Task WriteResponseAsync(

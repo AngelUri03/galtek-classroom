@@ -20,6 +20,8 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton<SessionCommandClient>();
+        services.AddSingleton<ISessionCommandClient>(provider =>
+            provider.GetRequiredService<SessionCommandClient>());
 
         return services;
     }

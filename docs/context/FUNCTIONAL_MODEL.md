@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, implementando solo `CHANNEL_PING` y sin cambiar el dominio escolar ni implementar `OPEN_URL`.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras y Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI.
 
 ## Principio de producto
 
@@ -233,7 +233,7 @@ Desde Prompt 14:
 - El Master genera y controla `deviceId`; no se acepta `deviceId` declarado por el Client como identidad.
 - El vinculo vigente entre Device y Network Identity se persiste en `device_network_bindings`.
 - `paired-clients.json` sigue siendo la autoridad de trust; SQLite no reemplaza pairing.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
 
@@ -830,7 +830,7 @@ Si el Device estaba offline antes de enviar, el target usa `DEVICE_OFFLINE` retr
 
 Desde Prompt 15C, la reconciliacion de `OPERATION_RESULT_UNKNOWN` para `SHUTDOWN`/`RESTART` consulta read-only el resultado original mediante `OperationStatusQuery(protocolVersion, operationId, targetDeviceId)` sobre el mismo stream autenticado. El Agent responde `OperationStatusReport KNOWN` solo si conserva el `OperationResult` original en cache o un receipt durable minimo de power control aceptado; responde `UNKNOWN` cuando no tiene evidencia. La query nunca llama al handler, nunca modifica Windows, nunca crea un `OperationRequest` nuevo y no renueva indefinidamente la retencion del cache.
 
-Desde Prompt 16A, las operaciones remotas futuras que requieran accion dentro de la sesion interactiva del usuario deben usar el canal local separado `Session Command v1` entre Agent Service y Session Agent. Local IPC v1 permanece read-only y no recibe comandos write. El canal de sesion queda autenticado bilateralmente y solo implementa `CHANNEL_PING`; `OPEN_URL`, `OPEN_APPLICATION`, bloqueo de URLs/descargas y demas acciones siguen pendientes.
+Desde Prompt 16A, las operaciones remotas que requieran accion dentro de la sesion interactiva del usuario deben usar el canal local separado `Session Command v1` entre Agent Service y Session Agent. Local IPC v1 permanece read-only y no recibe comandos write. Prompt 16B agrega `OPEN_URL` como comando de sesion tipado: el Service valida URL y envia el comando al Session Agent; el Session Agent valida otra vez y ejecuta la accion visible en la sesion interactiva. `OPEN_APPLICATION`, bloqueo de URLs/descargas y demas acciones siguen pendientes.
 
 El Master puede reconciliar manualmente con `POST /api/operations/{operationId}/reconcile` o de forma ligera al reconnect autenticado del mismo Device. Solo targets `FAILED + OPERATION_RESULT_UNKNOWN` de operaciones `SHUTDOWN`/`RESTART` pueden cambiar. `KNOWN SUCCESS` cambia el target a `SUCCESS`; `KNOWN FAILED` conserva `FAILED` pero reemplaza el error desconocido por el error real. `UNKNOWN`, timeout de query u offline conservan `OPERATION_RESULT_UNKNOWN`.
 
@@ -845,17 +845,24 @@ Para aceptar una operacion real futura deben cumplirse todas las condiciones: mT
 
 ## Open URL
 
-`OPEN_URL` abre una URL localmente en cada cliente.
+`OPEN_URL` abre una URL localmente en cada cliente. Desde Prompt 16B es productivo del lado Agent cuando llega como `OperationRequest` tipado sobre el transporte seguro y pasa por `RemoteOperationDispatcher` con Commercial License activa.
 
 Modelo:
 
 ```text
 url
-browserProfileId
 targets
 ```
 
-Prompt 07 valida esquemas `http` y `https`; rechaza `file`, `javascript` y `data`.
+El contrato remoto transporta `OpenUrlOperationParameters.url`. El Agent acepta solo URL absoluta `http://` o `https://`, con host no vacio, sin caracteres de control/CR/LF, sin username/password embebidos y longitud maxima inicial de 4096 caracteres. Rechaza `file:`, `javascript:`, `data:`, `ftp:`, `shell:`, handlers `ms-*`, UNC/rutas locales, rutas `C:\...` y URLs relativas. No bloquea `localhost`, IPs privadas ni dominios LAN porque el producto es LAN/offline-first.
+
+La accion visible la ejecuta el Session Agent mediante el handler registrado de HTTP/HTTPS de la sesion interactiva. El Agent Service, que corre como LocalSystem/Session 0, nunca abre el navegador directamente.
+
+`OPEN_URL SUCCESS` significa que Windows acepto la solicitud de abrir la URL. No significa que Internet funciona, DNS resolvio, la pagina cargo, HTTP devolvio 200 ni que Chrome/Edge mostro contenido correctamente.
+
+Si el Service no puede enviar el comando al Session Agent, el resultado usa `SESSION_AGENT_UNAVAILABLE`. Si el Service ya envio `OPEN_URL` y pierde/expira la respuesta, usa `SESSION_COMMAND_RESULT_UNKNOWN` y no reintenta automaticamente para evitar duplicar pestanas.
+
+No existe todavia endpoint batch Master para `OPEN_URL`, bloqueo de URLs, bloqueo de descargas, allowlist/blocklist ni seleccion de browser/profile.
 
 No confundir con `START_PROJECTION`, donde el Master reproduce y transmite su pantalla.
 

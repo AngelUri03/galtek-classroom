@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-01 - Prompt 16A.
+2026-09-01 - Prompt 16B.
 
 ## Estado del proyecto
 
@@ -30,7 +30,9 @@ Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SH
 
 Prompt 15C implementa reconciliacion segura de `SHUTDOWN`/`RESTART` inciertos. Agrega `OperationStatusQuery`/`OperationStatusReport` al Protobuf v1 sobre `NetworkConnection.Connect`, sin cambiar `protocolVersion`. El Agent responde read-only desde el cache acotado del dispatcher o desde `power-operation-receipts.json`, un receipt durable minimo para power control aceptado. El Master acepta late `OperationResult` autentico, consulta status manualmente con `POST /api/operations/{operationId}/reconcile` y reconcilia de forma ligera en reconnect del mismo Device. No hay retry automatico, resend automatico, scheduler general ni inferencia de `SUCCESS` por `OFFLINE` o reconnect.
 
-Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB. La unica operacion implementada es `CHANNEL_PING`; no se implementan `OPEN_URL`, bloqueo de URLs/descargas, lanzamiento de aplicaciones ni UI.
+Prompt 16B implementa `OPEN_URL` productivo Agent-side. El contrato Protobuf v1 mantiene `protocolVersion` y agrega parametros tipados `OpenUrlOperationParameters.url` dentro de `OperationRequest`, capability `OPEN_URL_V1` y codigos operacionales de URL/sesion. El Agent Service recibe `OperationRequest OPEN_URL`, valida la URL, exige Commercial License activa via dispatcher y envia `OPEN_URL` tipado por Session Command v1. El Session Agent valida nuevamente y pide a Windows abrir la URL con el handler HTTP/HTTPS registrado de la sesion interactiva. No hay endpoint batch Master para `OPEN_URL`, UI, bloqueo de URLs, bloqueo de descargas, seleccion de browser/profile ni `OPEN_APPLICATION`.
+
+Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
@@ -103,7 +105,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - Local IPC v1 permanece read-only; no se agregaron comandos write ni acciones interactivas a `GaltekClassroom.Agent.v1`.
 - Protocolo canonico `Session Command v1` documentado en `protocol/local-session-command-v1.md`.
-- Contratos compartidos `SessionCommandRequest`/`SessionCommandResponse`, `protocolVersion = 1`, `requestId` UUID y `commandType` tipado.
+- Contratos compartidos `SessionCommandRequest`/`SessionCommandResponse`, `protocolVersion = 1`, `requestId` UUID, `commandType` tipado y `openUrl` tipado para `OPEN_URL`.
 - Framing Session Command v1 con longitud BIG ENDIAN de 4 bytes mas JSON UTF-8 y limite de 16 KiB.
 - Nombre de pipe de sesion derivado internamente como `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`; `SessionId = 0` se rechaza.
 - Session Agent background inicia el servidor de comandos solo despues de adquirir instancia unica y validar `Process.SessionId != 0`.
@@ -115,6 +117,12 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Agent Service valida el servidor del Named Pipe con `GetNamedPipeServerProcessId`, existencia del proceso, `Process.SessionId` esperado y ruta productiva normalizada del Session Agent antes de enviar request.
 - Timeouts del canal de sesion: 2 segundos para connect y request/response.
 - `CHANNEL_PING` devuelve `SUCCESS` y no ejecuta acciones externas.
+- `SessionCommandClient.OpenUrlAsync(operationId, url)` crea un `requestId` nuevo, envia `OPEN_URL` tipado, valida `requestId` de response y no hace retry automatico.
+- Si `OPEN_URL` no llega a enviarse al Session Agent, el Service mapea a `SESSION_AGENT_UNAVAILABLE`; si ya se envio y se pierde/expira la respuesta, mapea a `SESSION_COMMAND_RESULT_UNKNOWN`.
+- `OpenUrlSafetyPolicy` C# compartida por Service y Session Agent acepta solo URL absoluta `http://`/`https://`, con host no vacio, sin caracteres de control/CR/LF, sin userinfo y longitud maxima 4096; rechaza rutas locales/UNC, URLs relativas y esquemas no permitidos.
+- `OpenUrlOperationHandler` es handler remoto explicito para `OPEN_URL`; no abre navegador, no usa `Process.Start`, `cmd`, PowerShell, scripts, WMI shell ni `CreateProcessAsUser`.
+- `WindowsUrlLauncher` en Session Agent llama Windows Shell API `ShellExecuteExW` con verbo `open`, URL validada y sin parametros; no acepta browser/executable path desde Master.
+- `OPEN_URL SUCCESS` significa solo que Windows acepto la solicitud para abrir la URL con el handler registrado, no que la pagina cargo ni que hubo HTTP 200.
 - `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del proceso real `GaltekClassroom.Agent.Service`: working set aproximado, private memory aproximada, CPU acumulado, thread count, uptime y GC managed memory aproximada.
 - El transporte IPC local del Master usa virtual threads por intercambio en vez de un cached pool de threads de plataforma.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
@@ -154,9 +162,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE` y `POWER_CONTROL_V1`; capabilities desconocidas se ignoran y no autorizan.
-- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
-- `ShutdownOperationHandler` y `RestartOperationHandler` son handlers tipados explicitos para `SHUTDOWN` y `RESTART`; no existe handler generico de comandos.
+- Capabilities conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1` y `OPEN_URL_V1`; capabilities desconocidas se ignoran y no autorizan.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
+- `ShutdownOperationHandler`, `RestartOperationHandler` y `OpenUrlOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
 - `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
 - `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
@@ -212,8 +220,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Prompt 16A cerrado tecnicamente.
-- No queda desarrollo 16A a medias.
+- Prompt 16B cerrado tecnicamente.
+- No queda desarrollo 16B a medias.
 
 ## Pendiente inmediato
 
@@ -229,7 +237,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
-- Prompt 16B pendiente: extender explicitamente Session Command v1 para `OPEN_URL` sin payload generico y sin tocar Local IPC v1.
+- Prompt 16C pendiente: disenar bloqueo/seguridad de URLs sin convertir `OPEN_URL` en ejecucion arbitraria.
+- Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
+- Implementar bloqueo de descargas en fase posterior.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
@@ -258,7 +268,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `SHUTDOWN` y `RESTART` tienen handlers reales en el Agent, y las operaciones restantes sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler` y `OpenUrlOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -342,6 +352,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~OpenUrlSafetyPolicyTests|FullyQualifiedName~SessionCommand|FullyQualifiedName~WindowsUrlLauncherTests|FullyQualifiedName~OpenUrlOperationHandlerTests"` en `agent`: correcto, 19 pruebas Session y 48 pruebas Service superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~SessionCommand|FullyQualifiedName~SessionAgentBackgroundHostTests"` en `agent`: correcto, 11 pruebas Session y 14 pruebas Service superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 28 pruebas Service superadas.
@@ -352,4 +365,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: disenar el proximo bloque funcional remoto sin romper la regla de operaciones tipadas, batch-first y sin ejecucion remota arbitraria.
+Siguiente fase recomendada: Prompt 16C para bloqueo/seguridad de URLs y politicas posteriores sin convertir `OPEN_URL` en ejecucion remota arbitraria.

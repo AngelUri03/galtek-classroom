@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Power;
 
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
@@ -23,6 +24,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PowerOperationReceiptStore>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, OpenUrlOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();

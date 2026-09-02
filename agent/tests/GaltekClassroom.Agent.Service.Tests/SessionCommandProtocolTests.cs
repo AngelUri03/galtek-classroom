@@ -52,6 +52,32 @@ public sealed class SessionCommandProtocolTests
     }
 
     [Fact]
+    public void OpenUrlRequestJson_UsesTypedOpenUrlShape()
+    {
+        var request = new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = SessionCommandTypes.OpenUrl,
+            OpenUrl = new SessionOpenUrlCommand
+            {
+                OperationId = Guid.NewGuid().ToString("D"),
+                Url = "https://example.test/activity"
+            }
+        };
+
+        var json = JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"commandType\":\"OPEN_URL\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"openUrl\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"operationId\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"url\":\"https://example.test/activity\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("payload", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("command\":", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("executablePath", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LocalIpcV1_RemainsReadOnlyOperationsOnly()
     {
         var operations = new[]

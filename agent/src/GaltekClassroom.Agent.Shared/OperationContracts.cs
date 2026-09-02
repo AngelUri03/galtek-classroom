@@ -224,6 +224,7 @@ public static class ClassroomOperationErrorCodes
     public const string BrowserProfileNotPortable = "BROWSER_PROFILE_NOT_PORTABLE";
     public const string BrowserReauthRequired = "BROWSER_REAUTH_REQUIRED";
     public const string InvalidUrl = "INVALID_URL";
+    public const string UrlLaunchFailed = "URL_LAUNCH_FAILED";
     public const string ApplicationNotInstalled = "APPLICATION_NOT_INSTALLED";
     public const string ApplicationNotAllowed = "APPLICATION_NOT_ALLOWED";
     public const string ApplicationStartFailed = "APPLICATION_START_FAILED";
@@ -242,6 +243,11 @@ public static class ClassroomOperationErrorCodes
     public const string MasterWindowsAccountNotAuthorized = "MASTER_WINDOWS_ACCOUNT_NOT_AUTHORIZED";
     public const string MasterNotPaired = "MASTER_NOT_PAIRED";
     public const string OperationNotImplemented = "OPERATION_NOT_IMPLEMENTED";
+    public const string SessionAgentUnavailable = "SESSION_AGENT_UNAVAILABLE";
+    public const string SessionChannelUnauthorized = "SESSION_CHANNEL_UNAUTHORIZED";
+    public const string SessionChannelProtocolMismatch = "SESSION_CHANNEL_PROTOCOL_MISMATCH";
+    public const string SessionChannelInvalidResponse = "SESSION_CHANNEL_INVALID_RESPONSE";
+    public const string SessionCommandResultUnknown = "SESSION_COMMAND_RESULT_UNKNOWN";
     public const string PowerControlUnavailable = "POWER_CONTROL_UNAVAILABLE";
     public const string PowerControlFailed = "POWER_CONTROL_FAILED";
 }
