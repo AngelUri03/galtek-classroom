@@ -9,7 +9,9 @@ import com.galtek.classroom.browserpolicy.BrowserPolicyDtos.CreateBrowserUrlRule
 import com.galtek.classroom.browserpolicy.BrowserPolicyDtos.EffectiveBrowserPolicyResponse;
 import com.galtek.classroom.browserpolicy.BrowserPolicyDtos.UpdateBrowserPolicyRequest;
 import com.galtek.classroom.browserpolicy.BrowserPolicyDtos.UpdateBrowserUrlRuleRequest;
+import com.galtek.classroom.operations.OperationDtos.OperationBatchResponse;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +34,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class BrowserPolicyController {
 
     private final BrowserPolicyAdminService service;
+    private final BrowserPolicyDispatchService dispatchService;
 
-    public BrowserPolicyController(BrowserPolicyAdminService service) {
+    public BrowserPolicyController(
+            BrowserPolicyAdminService service,
+            BrowserPolicyDispatchService dispatchService) {
         this.service = service;
+        this.dispatchService = dispatchService;
     }
 
     @GetMapping("/classrooms/{classroomId}/browser-policies")
@@ -98,5 +104,12 @@ public class BrowserPolicyController {
             @RequestParam(required = false) String groupId,
             @RequestParam(required = false) String accountType) {
         return service.effectivePolicy(classroomId, deviceId, groupId, accountType);
+    }
+
+    @PostMapping("/classrooms/{classroomId}/browser-policies/apply")
+    public OperationBatchResponse applyPolicy(
+            @PathVariable String classroomId,
+            @RequestBody(required = false) Map<String, Object> request) {
+        return dispatchService.applyNavigation(classroomId, request);
     }
 }

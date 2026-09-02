@@ -50,8 +50,8 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
-- Resolucion determinista de una sola politica efectiva para validar `OPEN_URL` y restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist`; el endpoint batch Master de dispatch de policies queda pendiente.
-- Resolucion determinista de una sola politica efectiva de descarga de navegador en el Master; el enforcement Agent-side mediante `DownloadRestrictions` queda pendiente.
+- Resolucion determinista de una sola politica efectiva para validar `OPEN_URL`, restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist` y aplicar policies desde Master mediante dispatch batch.
+- Resolucion determinista de una sola politica efectiva de descarga de navegador en el Master, enforcement Agent-side mediante `DownloadRestrictions` y dispatch batch Master para aplicar la policy persistida.
 - Distribucion batch de archivos a destinos logicos de workspace con apertura opcional posterior.
 - Creacion masiva de carpetas de trabajo.
 - Cambio y restauracion futura de wallpaper.
@@ -74,7 +74,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas, framework de operaciones tipadas y status query read-only para reconciliar operaciones previas. `SHUTDOWN`, `RESTART` y `OPEN_URL` ya tienen ejecucion productiva en el Agent; no existe todavia endpoint batch Master para `OPEN_URL`.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas, framework de operaciones tipadas y status query read-only para reconciliar operaciones previas. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` ya tienen ejecucion productiva en el Agent; no existe todavia endpoint batch Master para `OPEN_URL`.
 - Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
@@ -99,7 +99,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent con batch Master desde `POST /api/classrooms/{classroomId}/power-control`; `OPEN_URL` ya es productivo Agent-side y se ejecuta mediante el Session Agent en la sesion interactiva. Todavia no existe endpoint batch Master para `OPEN_URL`, mDNS real ni discovery real.
+- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent con batch Master desde `POST /api/classrooms/{classroomId}/power-control`; `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` se aplican desde Master con batch dispatch; `OPEN_URL` ya es productivo Agent-side y se ejecuta mediante el Session Agent en la sesion interactiva. Todavia no existe endpoint batch Master para `OPEN_URL`, mDNS real ni discovery real.
 - La politica administrativa de navegacion no reemplaza la validacion estructural de URL: ninguna allowlist puede autorizar esquemas inseguros como `file:`, `javascript:` o `data:`.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.

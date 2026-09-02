@@ -305,11 +305,11 @@ class MasterSqlitePersistenceIntegrationTest {
         Path dataDir = tempDir.resolve("idempotence");
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(4);
+            assertThat(flywaySuccessCount(context)).isEqualTo(5);
         }
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(4);
+            assertThat(flywaySuccessCount(context)).isEqualTo(5);
             assertThat(context.getBean(ClassroomRepository.class).findActive()).isEmpty();
         }
     }

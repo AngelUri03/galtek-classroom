@@ -1,6 +1,6 @@
 # Browser Policy Enforcement
 
-Prompt 16D implements Agent-side enforcement of Galtek browser navigation policy for Google Chrome and Microsoft Edge on Windows.
+Prompt 16D implements Agent-side enforcement of Galtek browser navigation policy for Google Chrome and Microsoft Edge on Windows. Prompt 16F1 adds Master batch dispatch for applying the persisted navigation policy to selected Devices through the existing typed operation.
 
 ## Native Mechanism
 
@@ -121,13 +121,29 @@ There is no timer, polling, process scan, browser scan or registry polling.
 
 If no Galtek policy is applied locally, `OPEN_URL` keeps the 16B behavior and relies only on structural URL safety.
 
+## Master Batch Dispatch
+
+Prompt 16F1 adds:
+
+```text
+POST /api/classrooms/{classroomId}/browser-policies/apply
+```
+
+The request accepts only explicit `targetDeviceIds`. The Master does not accept `policyId`, rules, URL, browser, account type, Registry paths, shell commands or arbitrary payloads in the apply request.
+
+For each target, the Master resolves the effective persisted policy with `classroomId`, `deviceId`, group derived from the current `Student -> Device` assignment, and `accountType = null`. That means only `ANY` policies apply in 16F1. `PRIMARY` and `SECONDARY` remain persisted/readable concepts, but Master dispatch does not infer them yet.
+
+The Master freezes typed `ApplyBrowserPolicyOperationParameters` before fanout, persists one `BatchOperation`, and uses one `operationId` for all targets. Preflight mirrors power control: target classroom membership, current binding, paired/non-revoked trust, authenticated `ONLINE` gRPC/mTLS connection and `BROWSER_NAVIGATION_POLICY_V1`.
+
+If the effective policy contains an enabled `EXACT_URL` rule, only that target fails with `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` and no request is sent to its Agent. Targets sent but left without confirmed `OperationResult` become `OPERATION_RESULT_UNKNOWN`.
+
 ## Limits
 
 URLBlocklist/URLAllowlist control browser URL navigation and URL loads. They are not a firewall, proxy, DNS filter, DLP system, HTTPS inspector or packet filter.
 
 A page already loaded may perform dynamic behavior that is not equivalent to a fresh browser navigation. Galtek does not promise complete traffic inspection.
 
-16D does not implement downloads policy, browser profiles, Chrome/Edge extensions, proxy/DNS/firewall/hosts enforcement, browser automation, tab monitoring, history monitoring, process monitoring, PRIMARY/SECONDARY SID binding, login/logoff, UI or Master batch dispatch.
+16D does not implement downloads policy, browser profiles, Chrome/Edge extensions, proxy/DNS/firewall/hosts enforcement, browser automation, tab monitoring, history monitoring, process monitoring, PRIMARY/SECONDARY SID binding, login/logoff or UI. Master batch dispatch for navigation apply exists from 16F1.
 
 `accountScope = ANY` applies to the current interactive user. `PRIMARY` and `SECONDARY` return `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` until managed Windows account SID binding exists.
 

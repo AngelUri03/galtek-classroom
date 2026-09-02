@@ -1,6 +1,8 @@
 package com.galtek.classroom.network;
 
 import com.galtek.classroom.network.v1.MasterEnvelope;
+import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParameters;
+import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
 import com.galtek.classroom.network.v1.OperationAcceptanceStatus;
@@ -84,6 +86,34 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null);
+    }
+
+    public Optional<DispatchHandle> dispatch(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            ApplyBrowserPolicyOperationParameters parameters) {
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null);
+    }
+
+    public Optional<DispatchHandle> dispatch(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            ApplyBrowserDownloadPolicyOperationParameters parameters) {
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters);
+    }
+
+    private Optional<DispatchHandle> dispatch(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            ApplyBrowserPolicyOperationParameters browserPolicyParameters,
+            ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
         }
@@ -105,16 +135,22 @@ public class MasterRemoteOperationGateway {
         }
 
         try {
+            OperationRequest.Builder request = OperationRequest.newBuilder()
+                    .setOperationId(operationId)
+                    .setOperationType(toNetworkOperationType(operationType))
+                    .setTargetDeviceId(targetDeviceId)
+                    .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                    .setSentAtUnixMs(clock.instant().toEpochMilli())
+                    .setTimeoutMs(resultTimeout.toMillis());
+            if (browserPolicyParameters != null) {
+                request.setApplyBrowserPolicy(browserPolicyParameters);
+            }
+            if (browserDownloadPolicyParameters != null) {
+                request.setApplyBrowserDownloadPolicy(browserDownloadPolicyParameters);
+            }
             session.send(MasterEnvelope.newBuilder()
                     .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
-                    .setOperationRequest(OperationRequest.newBuilder()
-                            .setOperationId(operationId)
-                            .setOperationType(toNetworkOperationType(operationType))
-                            .setTargetDeviceId(targetDeviceId)
-                            .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
-                            .setSentAtUnixMs(clock.instant().toEpochMilli())
-                            .setTimeoutMs(resultTimeout.toMillis())
-                            .build())
+                    .setOperationRequest(request.build())
                     .build());
         } catch (RuntimeException exception) {
             completeAndRemove(

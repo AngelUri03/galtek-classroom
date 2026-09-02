@@ -1,5 +1,17 @@
 # Decisiones vigentes
 
+## 2026-09-02 - Prompt 16F1
+
+- Los apply endpoints de browser policies viven en Master y aceptan solo `targetDeviceIds`; la request no puede traer `policyId`, rules, `accountType`, URLs, browser, commands, registry paths, timeout ni payload libre.
+- El Master aplica la fuente de verdad persistida: resuelve una policy efectiva por target desde SQLite y no acepta policies fabricadas en la request.
+- El contexto de dispatch 16F1 usa `accountType = null`, por lo que solo aplican policies `ANY`; `PRIMARY`/`SECONDARY` no se infieren hasta existir binding seguro hacia Windows SID.
+- El `groupId` de dispatch se deriva del assignment actual `Student -> Device` y del grupo del Student; no se acepta como input del apply endpoint.
+- Todos los parametros Protobuf tipados se congelan antes del fanout remoto; luego se persiste una sola `BatchOperation` y se usa el mismo `operationId` para todos los targets.
+- El preflight de browser policy apply replica power control: aula correcta, binding vigente, trust `PAIRED` no `REVOKED`, conexion autenticada `ONLINE` y capability especifica.
+- `EXACT_URL` sigue persistible y evaluable, pero si aparece habilitado en la policy efectiva de navegacion, el target falla antes del envio con `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- Si un target fue enviado y no entrega `OperationResult` por timeout/desconexion, se registra `OPERATION_RESULT_UNKNOWN`; 16F1 no agrega retry automatico ni reconciliacion nueva para policies.
+- 16F1 no modifica Agent, Protobuf, Registry, Session Command ni implementa endpoint batch Master para `OPEN_URL`.
+
 - Usar Java 21 + Spring Boot 3.x + Maven para el backend Master.
 - Usar package base `com.galtek.classroom`.
 - Usar C#/.NET para el Windows Agent.
@@ -42,7 +54,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL`/browser policies todavia no tienen endpoint/batch funcional del Master.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`. `OPEN_URL` sigue sin endpoint/batch funcional del Master hasta una fase posterior.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.

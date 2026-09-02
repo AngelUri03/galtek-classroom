@@ -1626,3 +1626,37 @@
 ### Commit sugerido
 
 `feat(agent): enforce browser download policies`
+
+## 2026-09-02 - Prompt 16F1
+
+### Realizado
+
+- Agregados endpoints Master `POST /api/classrooms/{classroomId}/browser-policies/apply` y `POST /api/classrooms/{classroomId}/browser-download-policies/apply`.
+- Ambos endpoints quedan protegidos por `MasterAccessGuard` y aceptan solo `targetDeviceIds` explicitos, obligatorios, no vacios, sin strings en blanco, sin duplicados y sin campos adicionales.
+- Implementado `BrowserPolicyDispatchService` para resolver policies efectivas persistidas por target desde SQLite, usando `accountType = null` (`ANY` solamente) y `groupId` derivado del assignment actual `Student -> Device`.
+- Reutilizado `MasterRemoteOperationGateway` para enviar parametros Protobuf tipados de `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` sobre el transporte gRPC/mTLS existente.
+- Congelados todos los parametros por target antes del fanout, persistiendo una sola `BatchOperation` con el mismo `operationId` para todos los targets.
+- Preflight por target alineado con power control: pertenencia al aula, binding vigente, trust `PAIRED` no `REVOKED`, conexion autenticada `ONLINE` y capability `BROWSER_NAVIGATION_POLICY_V1` o `BROWSER_DOWNLOAD_POLICY_V1`.
+- Navegacion bloquea targets con `EXACT_URL` habilitado en la policy efectiva usando `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`, sin enviar request al Agent.
+- Descargas conserva la distincion entre `NO_SPECIAL_RESTRICTIONS` implicito y policy explicita con valor nativo 0.
+- Agregada migracion SQLite V5 para permitir persistir batch operations de apply de browser policies.
+- Actualizada documentacion de API, arquitectura, modelo funcional, reglas, estado, decisiones y browser policy/download policy.
+
+### Cambios descartados
+
+- No se modifico Agent .NET.
+- No se modifico Protobuf/gRPC, Registry ni Session Command.
+- No se agrego endpoint batch Master para `OPEN_URL`.
+- No se agrego UI, browser automation, extension, proxy, DNS, firewall, hosts, traffic monitoring ni download delivery autorizada.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=BrowserPolicyDispatchControllerTest,BrowserPolicyControllerTest,BrowserDownloadPolicyControllerTest,BrowserPolicyPrecedenceResolverTest,BrowserDownloadPolicyPrecedenceResolverTest,BrowserDownloadPolicyPersistenceIntegrationTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 222 pruebas superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `git diff --check`: correcto.
+
+### Commit sugerido
+
+`feat(master): dispatch browser policy batches`

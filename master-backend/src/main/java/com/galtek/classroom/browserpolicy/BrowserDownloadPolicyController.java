@@ -5,7 +5,9 @@ import com.galtek.classroom.browserpolicy.BrowserDownloadPolicyDtos.BrowserDownl
 import com.galtek.classroom.browserpolicy.BrowserDownloadPolicyDtos.CreateBrowserDownloadPolicyRequest;
 import com.galtek.classroom.browserpolicy.BrowserDownloadPolicyDtos.EffectiveBrowserDownloadPolicyResponse;
 import com.galtek.classroom.browserpolicy.BrowserDownloadPolicyDtos.UpdateBrowserDownloadPolicyRequest;
+import com.galtek.classroom.operations.OperationDtos.OperationBatchResponse;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,9 +30,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class BrowserDownloadPolicyController {
 
     private final BrowserDownloadPolicyAdminService service;
+    private final BrowserPolicyDispatchService dispatchService;
 
-    public BrowserDownloadPolicyController(BrowserDownloadPolicyAdminService service) {
+    public BrowserDownloadPolicyController(
+            BrowserDownloadPolicyAdminService service,
+            BrowserPolicyDispatchService dispatchService) {
         this.service = service;
+        this.dispatchService = dispatchService;
     }
 
     @GetMapping("/classrooms/{classroomId}/browser-download-policies")
@@ -68,5 +74,12 @@ public class BrowserDownloadPolicyController {
             @RequestParam(required = false) String groupId,
             @RequestParam(required = false) String accountType) {
         return service.effectivePolicy(classroomId, deviceId, groupId, accountType);
+    }
+
+    @PostMapping("/classrooms/{classroomId}/browser-download-policies/apply")
+    public OperationBatchResponse applyPolicy(
+            @PathVariable String classroomId,
+            @RequestBody(required = false) Map<String, Object> request) {
+        return dispatchService.applyDownload(classroomId, request);
     }
 }

@@ -95,7 +95,7 @@ class BrowserDownloadPolicyPersistenceIntegrationTest {
     }
 
     @Test
-    void existingV3DatabaseMigratesToV4WithoutLosingNavigationPolicies() throws Exception {
+    void existingV3DatabaseMigratesThroughV5WithoutLosingNavigationPolicies() throws Exception {
         Path dataDir = tempDir.resolve("v3-to-v4");
         Files.createDirectories(dataDir);
         Path database = dataDir.resolve("classroom.db");
@@ -127,7 +127,7 @@ class BrowserDownloadPolicyPersistenceIntegrationTest {
                 nowText());
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(4);
+            assertThat(flywaySuccessCount(context)).isEqualTo(5);
             BrowserPolicyRepository navigationRepository = context.getBean(BrowserPolicyRepository.class);
             assertThat(navigationRepository.findPolicyById(navigationPolicyId))
                     .get()

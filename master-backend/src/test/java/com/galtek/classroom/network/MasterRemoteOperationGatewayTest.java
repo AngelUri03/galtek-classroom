@@ -6,6 +6,14 @@ import com.galtek.classroom.device.DeviceCapability;
 import com.galtek.classroom.device.DeviceStatus;
 import com.galtek.classroom.network.MasterRemoteOperationGateway.DispatchHandle;
 import com.galtek.classroom.network.MasterRemoteOperationGateway.RemoteOperationOutcome;
+import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParameters;
+import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
+import com.galtek.classroom.network.v1.BrowserDownloadRestrictionMode;
+import com.galtek.classroom.network.v1.BrowserPolicyAccountScope;
+import com.galtek.classroom.network.v1.BrowserPolicyMode;
+import com.galtek.classroom.network.v1.BrowserPolicyRuleAction;
+import com.galtek.classroom.network.v1.BrowserPolicyRuleMatchType;
+import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
@@ -56,6 +64,75 @@ class MasterRemoteOperationGatewayTest {
         assertThat(request.getSentAtUnixMs()).isEqualTo(NOW.toEpochMilli());
         assertThat(request.getTimeoutMs()).isEqualTo(100);
         assertThat(gateway.pendingCount()).isEqualTo(1);
+    }
+
+    @Test
+    void dispatchSendsTypedBrowserNavigationPolicyParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        ApplyBrowserPolicyOperationParameters parameters = ApplyBrowserPolicyOperationParameters.newBuilder()
+                .setPolicyId("policy-1")
+                .setPolicyVersion(7)
+                .setImplicitUnrestricted(false)
+                .setMode(BrowserPolicyMode.BROWSER_POLICY_MODE_ALLOWLIST)
+                .setAccountScope(BrowserPolicyAccountScope.BROWSER_POLICY_ACCOUNT_SCOPE_ANY)
+                .addRules(BrowserPolicyRuleParameters.newBuilder()
+                        .setRuleId("rule-1")
+                        .setAction(BrowserPolicyRuleAction.BROWSER_POLICY_RULE_ACTION_ALLOW)
+                        .setMatchType(BrowserPolicyRuleMatchType.BROWSER_POLICY_RULE_MATCH_TYPE_HOST_EXACT)
+                        .setPattern("example.edu")
+                        .setEnabled(true)
+                        .build())
+                .build();
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(
+                        snapshot,
+                        OperationType.APPLY_BROWSER_NAVIGATION_POLICY,
+                        "batch-browser",
+                        "device-1",
+                        parameters)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY);
+        assertThat(request.hasApplyBrowserPolicy()).isTrue();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+        assertThat(request.getApplyBrowserPolicy()).isEqualTo(parameters);
+    }
+
+    @Test
+    void dispatchSendsTypedBrowserDownloadPolicyParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        ApplyBrowserDownloadPolicyOperationParameters parameters =
+                ApplyBrowserDownloadPolicyOperationParameters.newBuilder()
+                        .setPolicyId("download-policy-1")
+                        .setPolicyVersion(3)
+                        .setImplicitNoSpecialRestrictions(false)
+                        .setRestrictionMode(BrowserDownloadRestrictionMode
+                                .BROWSER_DOWNLOAD_RESTRICTION_MODE_BLOCK_ALL)
+                        .setAccountScope(BrowserPolicyAccountScope.BROWSER_POLICY_ACCOUNT_SCOPE_ANY)
+                        .build();
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(
+                        snapshot,
+                        OperationType.APPLY_BROWSER_DOWNLOAD_POLICY,
+                        "batch-download",
+                        "device-1",
+                        parameters)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY);
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isTrue();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.getApplyBrowserDownloadPolicy()).isEqualTo(parameters);
     }
 
     @Test

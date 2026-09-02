@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16C solo administra policies de navegacion; Prompt 16E1 solo administra policies de descarga de navegador. No aplica bloqueo real de descargas, no escribe registry y no envia download policy al Agent. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. No agrega endpoint batch Master para `OPEN_URL`, no acepta URLs/commands en estos apply endpoints, no escribe registry desde Java y no modifica Agent/Protobuf/Registry. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -286,8 +286,9 @@ Errores relevantes:
 - `PATCH /api/browser-url-rules/{ruleId}`
 - `POST /api/browser-url-rules/{ruleId}/archive`
 - `GET /api/classrooms/{classroomId}/browser-policies/effective?deviceId=&groupId=&accountType=`
+- `POST /api/classrooms/{classroomId}/browser-policies/apply`
 
-Todos estos endpoints estan protegidos por `MasterAccessGuard`. Administran la fuente de verdad del Master para policy administrativa futura; no escriben registry, no crean extension, no modifican Chrome/Edge, no crean proxy/DNS/firewall y no envian nada al Agent.
+Todos estos endpoints estan protegidos por `MasterAccessGuard`. Los endpoints CRUD/effective administran o leen la fuente de verdad del Master; no escriben registry, no crean extension, no modifican Chrome/Edge y no crean proxy/DNS/firewall. El endpoint `apply` de 16F1 envia una operacion remota tipada al Agent usando el transporte gRPC/mTLS existente y los parametros Protobuf de `APPLY_BROWSER_NAVIGATION_POLICY`; no acepta payload libre ni registry paths.
 
 Create policy:
 
@@ -409,6 +410,39 @@ Precedencia:
 
 Si `accountType` falta, solo aplican policies `ANY`; no se infiere `PRIMARY`.
 
+Apply navigation policy:
+
+```json
+{
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados.
+- No se aceptan campos adicionales: `policyId`, `rules`, `accountType`, `url`, `browser`, comandos, registry paths, timeouts ni payload JSON libre.
+- El Master resuelve la policy efectiva desde SQLite para cada target usando `classroomId`, `deviceId`, group derivado del assignment actual `Student -> SchoolGroup` y `accountType = null`.
+- En 16F1 `accountType = null` significa `ANY` solamente; `PRIMARY`/`SECONDARY` no se infieren ni se aplican por dispatch Master.
+- Todos los parametros tipados se construyen y congelan antes del fanout; el mismo `operationId` se usa para todos los targets.
+
+Preflight y dispatch:
+
+- El Device debe pertenecer al aula solicitada.
+- El Device debe tener binding vigente con Network Identity.
+- El trust debe estar `PAIRED` y no `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `BROWSER_NAVIGATION_POLICY_V1`.
+- Si la policy efectiva contiene una rule `EXACT_URL` habilitada, ese target queda `FAILED` con `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` y no se envia nada al Agent.
+- Los targets fallidos de preflight no cancelan los targets listos.
+- El Master persiste una unica `BatchOperation` antes de enviar.
+- Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target queda `FAILED` con `OPERATION_RESULT_UNKNOWN`.
+
+Respuesta: misma forma de batch que `power-control`, con `type = APPLY_BROWSER_NAVIGATION_POLICY`.
+
 Errores relevantes:
 
 - `400 BROWSER_POLICY_SCOPE_INVALID`: scope inconsistente o group/device de otra aula.
@@ -430,8 +464,9 @@ Separacion de seguridad:
 - `PATCH /api/browser-download-policies/{policyId}`
 - `POST /api/browser-download-policies/{policyId}/archive`
 - `GET /api/classrooms/{classroomId}/browser-download-policies/effective?deviceId=&groupId=&accountType=`
+- `POST /api/classrooms/{classroomId}/browser-download-policies/apply`
 
-Todos estos endpoints estan protegidos por `MasterAccessGuard`. Administran la fuente de verdad del Master para descarga de navegador; no escriben registry, no aplican `DownloadRestrictions`, no crean extension, no monitorean descargas y no envian nada al Agent.
+Todos estos endpoints estan protegidos por `MasterAccessGuard`. Los endpoints CRUD/effective administran o leen la fuente de verdad del Master para descarga de navegador; no escriben registry, no aplican `DownloadRestrictions`, no crean extension y no monitorean descargas. El endpoint `apply` de 16F1 envia una operacion remota tipada al Agent usando el transporte gRPC/mTLS existente y los parametros Protobuf de `APPLY_BROWSER_DOWNLOAD_POLICY`; no acepta payload libre ni registry paths.
 
 Create policy:
 
@@ -456,7 +491,7 @@ BLOCK_ALL
 BLOCK_MALICIOUS
 ```
 
-La API expone el enum Galtek. El mapping nativo futuro de `DownloadRestrictions` es 0-4 y pertenece al Agent en 16E2, no a la autoridad del API.
+La API expone el enum Galtek. El mapping nativo de `DownloadRestrictions` 0-4 pertenece al Agent y es aplicado por el enforcement implementado desde 16E2B; los valores nativos no forman parte de la autoridad de la API.
 
 Scopes y account scopes son iguales a navegacion:
 
@@ -518,6 +553,41 @@ Precedencia:
 Si `accountType` falta, solo aplican policies `ANY`; no se infiere `PRIMARY`.
 
 No se aceptan campos como `registryValue`, `nativeValue`, `downloadPath`, `extension`, `mimeType`, `command`, `script`, `browserExecutable` o `windowsSid`.
+
+Apply download policy:
+
+```json
+{
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados.
+- No se aceptan campos adicionales: `policyId`, `restrictionMode`, `accountType`, `browser`, comandos, registry paths, timeouts ni payload JSON libre.
+- El Master resuelve la policy efectiva desde SQLite para cada target usando `classroomId`, `deviceId`, group derivado del assignment actual `Student -> SchoolGroup` y `accountType = null`.
+- En 16F1 `accountType = null` significa `ANY` solamente; `PRIMARY`/`SECONDARY` no se infieren ni se aplican por dispatch Master.
+- Todos los parametros tipados se construyen y congelan antes del fanout.
+- Ausencia de policy efectiva se envia como `implicit_no_special_restrictions = true` y `restriction_mode = NO_SPECIAL_RESTRICTIONS`.
+- Una policy explicita `NO_SPECIAL_RESTRICTIONS` se envia como explicita, no como removal implicito.
+
+Preflight y dispatch:
+
+- El Device debe pertenecer al aula solicitada.
+- El Device debe tener binding vigente con Network Identity.
+- El trust debe estar `PAIRED` y no `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `BROWSER_DOWNLOAD_POLICY_V1`.
+- Los targets fallidos de preflight no cancelan los targets listos.
+- El Master persiste una unica `BatchOperation` antes de enviar.
+- El mismo `operationId` se usa para todos los targets.
+- Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target queda `FAILED` con `OPERATION_RESULT_UNKNOWN`.
+
+Respuesta: misma forma de batch que `power-control`, con `type = APPLY_BROWSER_DOWNLOAD_POLICY`.
 
 Errores relevantes:
 

@@ -1,8 +1,8 @@
 # Browser Download Policy
 
-Prompt 16E1 adds the Master Backend source of truth for browser download policies. Prompt 16E2A prepares the typed Agent/Protobuf contract and the pure C# compiler that translates Galtek restriction modes to the native Chromium `DownloadRestrictions` value. Prompt 16E2B implements productive Agent-side enforcement for Google Chrome and Microsoft Edge on Windows.
+Prompt 16E1 adds the Master Backend source of truth for browser download policies. Prompt 16E2A prepares the typed Agent/Protobuf contract and the pure C# compiler that translates Galtek restriction modes to the native Chromium `DownloadRestrictions` value. Prompt 16E2B implements productive Agent-side enforcement for Google Chrome and Microsoft Edge on Windows. Prompt 16F1 adds Master batch dispatch for applying the persisted download policy to selected Devices through the existing typed operation.
 
-16E2B still does not add Master batch dispatch, UI, download monitoring, browser automation or teacher-authorized file delivery.
+16F1 still does not add UI, download monitoring, browser automation, teacher-authorized file delivery, Agent changes, Protobuf changes or Registry changes.
 
 ## Native Enforcement
 
@@ -100,6 +100,22 @@ account_scope
 ```
 
 The request does not contain JSON payloads, `Struct`, `Any`, maps, native registry values, registry paths, Windows SIDs, usernames, browser executable paths, commands, arguments or scripts.
+
+## Master Batch Dispatch
+
+Prompt 16F1 adds:
+
+```text
+POST /api/classrooms/{classroomId}/browser-download-policies/apply
+```
+
+The request accepts only explicit `targetDeviceIds`. The Master does not accept `policyId`, restriction mode, account type, browser, Registry paths, native values, shell commands or arbitrary payloads in the apply request.
+
+For each target, the Master resolves the effective persisted policy with `classroomId`, `deviceId`, group derived from the current `Student -> Device` assignment, and `accountType = null`. That means only `ANY` policies apply in 16F1. `PRIMARY` and `SECONDARY` remain persisted/readable concepts, but Master dispatch does not infer them yet.
+
+The Master freezes typed `ApplyBrowserDownloadPolicyOperationParameters` before fanout, persists one `BatchOperation`, and uses one `operationId` for all targets. Preflight mirrors power control: target classroom membership, current binding, paired/non-revoked trust, authenticated `ONLINE` gRPC/mTLS connection and `BROWSER_DOWNLOAD_POLICY_V1`.
+
+No effective policy is sent as `implicit_no_special_restrictions = true` with `NO_SPECIAL_RESTRICTIONS`, which asks the Agent to remove only Galtek-owned download policy. Explicit `NO_SPECIAL_RESTRICTIONS` is sent as explicit value `0`, preserving the 16E2A/16E2B distinction. Targets sent but left without confirmed `OperationResult` become `OPERATION_RESULT_UNKNOWN`.
 
 ## Implicit Versus Explicit Zero
 
