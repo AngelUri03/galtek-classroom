@@ -78,6 +78,10 @@
 - `OPEN_URL` visible se ejecuta solo en el Session Agent mediante Windows Shell API con verbo `open`, URL validada y sin parametros; el Agent Service en Session 0 nunca abre directamente el navegador.
 - `OPEN_URL SUCCESS` significa que Windows acepto la solicitud de launch, no que Internet, DNS, HTTP o render del navegador funcionaron.
 - Si `OPEN_URL` ya fue enviado al Session Agent y se pierde la respuesta, el resultado es `SESSION_COMMAND_RESULT_UNKNOWN` y no hay retry automatico local para evitar duplicar pestanas.
+- La politica administrativa de navegacion del Master queda separada de la safety estructural de `OPEN_URL`; ninguna policy puede permitir esquemas inseguros como `file:`, `javascript:` o `data:`.
+- Las policies de navegacion se resuelven como maximo a una policy efectiva por contexto con precedencia: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
+- Las rules URL admiten solo `HOST_EXACT`, `HOST_SUFFIX`, `URL_PREFIX` y `EXACT_URL`; no se aceptan regex arbitrarias ni wildcards libres.
+- Prompt 16C no aplica bloqueo real en Chrome, Edge, Windows, DNS, proxy, firewall, extension ni Agent transport; eso queda para fases posteriores.
 - `Session Command v1` no admite payload generico, `command`, `arguments`, shell, PowerShell, `cmd`, rutas ejecutables arbitrarias ni comandos `RUN_*`/`EXECUTE_*`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.

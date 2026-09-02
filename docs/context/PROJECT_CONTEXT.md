@@ -39,6 +39,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Student Workspaces pertenecientes al alumno.
 - Workspace canonico en Master con working copy local en Client mientras el alumno usa la PC.
 - Browser profiles de alumno y Master sin almacenar contrasenas ni cookies.
+- Politicas persistentes de navegacion web del Master con scopes `CLASSROOM`, `GROUP` y `DEVICE`, account scopes `ANY`, `PRIMARY` y `SECONDARY`, modos `UNRESTRICTED`, `BLOCKLIST` y `ALLOWLIST`, y reglas URL sin regex arbitraria.
 - Miniaturas de pantallas de clientes.
 - Vista en vivo de un cliente seleccionado.
 - Proyeccion diferenciada por modo: screen share, whiteboard, pointer, media local y apertura local de contenido web.
@@ -48,6 +49,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
+- Resolucion determinista futura de una sola politica efectiva para validar `OPEN_URL` y restringir navegacion manual en navegadores administrados, sin aplicar bloqueo real todavia.
 - Distribucion batch de archivos a destinos logicos de workspace con apertura opcional posterior.
 - Creacion masiva de carpetas de trabajo.
 - Cambio y restauracion futura de wallpaper.
@@ -96,6 +98,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
 - Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent con batch Master desde `POST /api/classrooms/{classroomId}/power-control`; `OPEN_URL` ya es productivo Agent-side y se ejecuta mediante el Session Agent en la sesion interactiva. Todavia no existe endpoint batch Master para `OPEN_URL`, mDNS real ni discovery real.
+- La politica administrativa de navegacion no reemplaza la validacion estructural de URL: ninguna allowlist puede autorizar esquemas inseguros como `file:`, `javascript:` o `data:`.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
 - Prompt 14.4 agrega resiliencia ante apagones, startup rapido, markers de ejecucion, escrituras atomicas/durables para archivos criticos y jitter de reconexion sin implementar comandos Windows reales.

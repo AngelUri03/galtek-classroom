@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-01 - Prompt 16B.
+2026-09-01 - Prompt 16C.
 
 ## Estado del proyecto
 
@@ -31,6 +31,8 @@ Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SH
 Prompt 15C implementa reconciliacion segura de `SHUTDOWN`/`RESTART` inciertos. Agrega `OperationStatusQuery`/`OperationStatusReport` al Protobuf v1 sobre `NetworkConnection.Connect`, sin cambiar `protocolVersion`. El Agent responde read-only desde el cache acotado del dispatcher o desde `power-operation-receipts.json`, un receipt durable minimo para power control aceptado. El Master acepta late `OperationResult` autentico, consulta status manualmente con `POST /api/operations/{operationId}/reconcile` y reconcilia de forma ligera en reconnect del mismo Device. No hay retry automatico, resend automatico, scheduler general ni inferencia de `SUCCESS` por `OFFLINE` o reconnect.
 
 Prompt 16B implementa `OPEN_URL` productivo Agent-side. El contrato Protobuf v1 mantiene `protocolVersion` y agrega parametros tipados `OpenUrlOperationParameters.url` dentro de `OperationRequest`, capability `OPEN_URL_V1` y codigos operacionales de URL/sesion. El Agent Service recibe `OperationRequest OPEN_URL`, valida la URL, exige Commercial License activa via dispatcher y envia `OPEN_URL` tipado por Session Command v1. El Session Agent valida nuevamente y pide a Windows abrir la URL con el handler HTTP/HTTPS registrado de la sesion interactiva. No hay endpoint batch Master para `OPEN_URL`, UI, bloqueo de URLs, bloqueo de descargas, seleccion de browser/profile ni `OPEN_APPLICATION`.
+
+Prompt 16C agrega en el Master Backend la fuente de verdad persistente y determinista para politicas administrativas de navegacion web. Se agregan dominio `browserpolicy`, normalizador URL, evaluador puro, resolver de policy efectiva, migracion SQLite `V3`, repositorio JDBC explicito y API administrativa protegida. No se modifican Agent .NET, Protobuf/gRPC, Session Command, Local IPC ni UI; no se aplica bloqueo real en navegadores y no se modelan descargas.
 
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
@@ -62,6 +64,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - `GET /api/network/clients` protegido, lista Clients conocidos/paired con `networkIdentityId`, estado de trust, estado de conexion, registro, Device/aula si existe, display name, version de Agent, capabilities y timestamps seguros.
 - `POST /api/classrooms/{classroomId}/devices/register` protegido, registra un Client `PAIRED` como Device del aula y crea binding; rechaza `REVOKED`, no paired y doble registro.
 - `POST /api/classrooms/{classroomId}/power-control` protegido, envia batch `SHUTDOWN`/`RESTART` solo a Devices explicitamente seleccionados.
+- Endpoints protegidos de browser policies: listar/crear/patch/archive policies, listar/crear/patch/archive rules y resolver read-only de policy efectiva.
+- `BrowserAccessPolicy` persiste `mode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
+- `BrowserUrlRule` persiste `ALLOW`/`BLOCK`, `HOST_EXACT`/`HOST_SUFFIX`/`URL_PREFIX`/`EXACT_URL`, pattern canonico, enabled, descripcion opcional y timestamps UTC.
+- `BrowserPolicyPrecedenceResolver` selecciona una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
+- `BrowserNavigationPolicyEvaluator` aplica safety primero, `ALLOW` explicito sobre `BLOCK` explicito dentro de una policy, defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
+- `BrowserUrlNormalizer` acepta solo URL absoluta segura `http`/`https`, host obligatorio, sin userinfo/control chars, host lowercase, trailing dot removido, puertos default normalizados, path vacio como `/` y fragment eliminado.
+- Migracion SQLite `V3__add_browser_navigation_policies.sql` crea `browser_access_policies` y `browser_url_rules` con checks e indices unicos parciales para una policy activa por target/account.
 - Request de power control acepta solo `type` (`SHUTDOWN`/`RESTART`) y `targetDeviceIds` obligatorio, no vacio y sin duplicados; rechaza comandos, rutas, args, timeout, force, mensaje, shell y payload libre.
 - `PowerControlDispatchService` hace preflight independiente por target: aula correcta, Device registrado, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` y capability `POWER_CONTROL_V1`.
 - `MasterRemoteOperationGateway` mantiene sesiones gRPC autenticadas y pending operations en memoria por `(deviceId, operationId)`, envia `OperationRequest`, procesa `OperationAccepted`/`OperationResult` y limpia pending state en success, fallo, timeout o desconexion.
@@ -220,8 +229,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Prompt 16B cerrado tecnicamente.
-- No queda desarrollo 16B a medias.
+- Prompt 16C cerrado tecnicamente.
+- No queda desarrollo 16C a medias.
 
 ## Pendiente inmediato
 
@@ -237,7 +246,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
-- Prompt 16C pendiente: disenar bloqueo/seguridad de URLs sin convertir `OPEN_URL` en ejecucion arbitraria.
+- Prompt 16D pendiente: aplicar policies de navegacion a navegadores soportados sin redisenar dominio ni persistencia.
 - Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
 - Implementar bloqueo de descargas en fase posterior.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
@@ -298,6 +307,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Si falta ACK/confirmacion, conservar datos locales y reportar `PENDING_SYNC` o `RECOVERY_REQUIRED`.
 - `REMOVABLE_STORAGE` es destino logico futuro autorizado.
 - `OPEN_URL`/`OPEN_WEB_CONTENT` se diferencian de `SCREEN_SHARE`; YouTube debe preferir abrirse localmente en Chrome del Client.
+- Browser policy administrativa queda separada de safety estructural de `OPEN_URL`; una rule `ALLOW` nunca autoriza `file:`, `javascript:`, `data:` ni otros esquemas inseguros.
+- `PRIMARY` y `SECONDARY` no implican restriccion automatica; una policy por cuenta existe solo si el administrador la crea explicitamente.
+- Si el contexto no conoce cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
 - Las prioridades operacionales deben impedir que transferencias grandes, thumbnails o inventario bloqueen operaciones `CRITICAL`.
 - Power loss, reboot abrupto, kill del proceso y boot storm son condiciones normales de diseno.
 - Startup rapido del plano de control tiene prioridad sobre licencia comercial completa, WMI costoso, inventario, thumbnails, captura, proyeccion, transferencias grandes y filesystem sync.
@@ -352,6 +364,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto, pruebas dirigidas de evaluador, resolver, API y persistencia SQLite superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~OpenUrlSafetyPolicyTests|FullyQualifiedName~SessionCommand|FullyQualifiedName~WindowsUrlLauncherTests|FullyQualifiedName~OpenUrlOperationHandlerTests"` en `agent`: correcto, 19 pruebas Session y 48 pruebas Service superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
@@ -365,4 +379,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 16C para bloqueo/seguridad de URLs y politicas posteriores sin convertir `OPEN_URL` en ejecucion remota arbitraria.
+Siguiente fase recomendada: Prompt 16D para aplicar las policies de navegacion a navegadores soportados usando el dominio/persistencia de 16C, sin redisenar safety, Protobuf ni Agent transport.

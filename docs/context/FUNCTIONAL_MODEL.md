@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras y Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, y Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion sin aplicarlas todavia a navegadores.
 
 ## Principio de producto
 
@@ -862,7 +862,100 @@ La accion visible la ejecuta el Session Agent mediante el handler registrado de 
 
 Si el Service no puede enviar el comando al Session Agent, el resultado usa `SESSION_AGENT_UNAVAILABLE`. Si el Service ya envio `OPEN_URL` y pierde/expira la respuesta, usa `SESSION_COMMAND_RESULT_UNKNOWN` y no reintenta automaticamente para evitar duplicar pestanas.
 
-No existe todavia endpoint batch Master para `OPEN_URL`, bloqueo de URLs, bloqueo de descargas, allowlist/blocklist ni seleccion de browser/profile.
+Desde Prompt 16C existe fuente de verdad persistente de politicas administrativas de navegacion en el Master, pero no se aplica todavia al Agent ni a navegadores. No existe todavia endpoint batch Master para `OPEN_URL`, bloqueo real de URLs, bloqueo de descargas ni seleccion de browser/profile.
+
+## Browser Access Policy
+
+`BrowserAccessPolicy` define que navegacion web permite administrativamente Galtek para un aula. Es distinta de la safety estructural de `OPEN_URL`: una policy nunca puede autorizar `file:`, `javascript:`, `data:` u otro esquema inseguro rechazado por la validacion base.
+
+Campos conceptuales:
+
+```text
+policyId
+classroomId
+name
+mode
+scopeType
+schoolGroupId?
+deviceId?
+accountScope
+active
+version
+createdAtUtc
+updatedAtUtc
+```
+
+Modos:
+
+```text
+UNRESTRICTED  -> Galtek no restringe por esta policy.
+BLOCKLIST     -> permite por default salvo reglas bloqueadas.
+ALLOWLIST     -> bloquea por default salvo reglas permitidas.
+```
+
+Scopes:
+
+```text
+CLASSROOM -> schoolGroupId = null, deviceId = null
+GROUP     -> schoolGroupId obligatorio, deviceId = null
+DEVICE    -> deviceId obligatorio, schoolGroupId = null
+```
+
+Cada policy pertenece siempre a un classroom. `GROUP` y `DEVICE` se validan por IDs y deben pertenecer al classroom. No existe scope `STUDENT` en 16C.
+
+Account scopes:
+
+```text
+ANY
+PRIMARY
+SECONDARY
+```
+
+`PRIMARY` y `SECONDARY` no implican modo restringido por si solos. Si el contexto no conoce una cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
+
+Precedencia determinista de una sola policy efectiva:
+
+```text
+1. DEVICE + cuenta especifica
+2. DEVICE + ANY
+3. GROUP + cuenta especifica
+4. GROUP + ANY
+5. CLASSROOM + cuenta especifica
+6. CLASSROOM + ANY
+7. ninguna policy -> UNRESTRICTED implicito
+```
+
+La policy mas especifica reemplaza a la menos especifica. No se combinan reglas entre policies distintas.
+
+`BrowserUrlRule` contiene:
+
+```text
+ruleId
+policyId
+action: ALLOW | BLOCK
+matchType: HOST_EXACT | HOST_SUFFIX | URL_PREFIX | EXACT_URL
+pattern
+enabled
+description?
+createdAtUtc
+updatedAtUtc
+```
+
+No hay regex arbitraria ni wildcards libres. `HOST_SUFFIX` respeta frontera de label DNS: `youtube.com` coincide con `www.youtube.com`, pero no con `evilyoutube.com` ni `youtube.com.evil.test`. `URL_PREFIX` y `EXACT_URL` usan URLs absolutas seguras normalizadas, sin fragment. `EXACT_URL` conserva query para permitir contenido concreto.
+
+Evaluacion pura:
+
+```text
+URL invalida        -> BLOCK / INVALID_URL
+sin policy          -> ALLOW / NO_POLICY
+UNRESTRICTED        -> ALLOW / UNRESTRICTED
+ALLOW matching      -> ALLOW / EXPLICIT_ALLOW
+BLOCK matching      -> BLOCK / EXPLICIT_BLOCK
+BLOCKLIST sin match -> ALLOW / DEFAULT_ALLOW
+ALLOWLIST sin match -> BLOCK / DEFAULT_BLOCK
+```
+
+Dentro de una sola policy, `ALLOW` explicito gana a `BLOCK` explicito. Esto permite bloquear un host y autorizar una URL exacta concreta sin prioridades arbitrarias.
 
 No confundir con `START_PROJECTION`, donde el Master reproduce y transmite su pantalla.
 

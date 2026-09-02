@@ -17,6 +17,14 @@ import com.galtek.classroom.browser.BrowserProfileStatus;
 import com.galtek.classroom.browser.BrowserProfileStrategy;
 import com.galtek.classroom.browser.BrowserType;
 import com.galtek.classroom.browser.MasterBrowserProfile;
+import com.galtek.classroom.browserpolicy.BrowserAccessPolicy;
+import com.galtek.classroom.browserpolicy.BrowserPolicyAccountScope;
+import com.galtek.classroom.browserpolicy.BrowserPolicyMode;
+import com.galtek.classroom.browserpolicy.BrowserPolicyRepository;
+import com.galtek.classroom.browserpolicy.BrowserPolicyScopeType;
+import com.galtek.classroom.browserpolicy.BrowserUrlMatchType;
+import com.galtek.classroom.browserpolicy.BrowserUrlRule;
+import com.galtek.classroom.browserpolicy.BrowserUrlRuleAction;
 import com.galtek.classroom.classroom.Classroom;
 import com.galtek.classroom.classroom.ClassroomConfiguration;
 import com.galtek.classroom.classroom.ClassroomManagementService;
@@ -98,7 +106,7 @@ class MasterSqlitePersistenceIntegrationTest {
                     .contains("classrooms", "students", "devices", "device_assignments",
                             "student_workspaces", "browser_profiles", "master_browser_profiles",
                             "application_definitions", "batch_operations", "batch_target_results",
-                            "device_network_bindings",
+                            "device_network_bindings", "browser_access_policies", "browser_url_rules",
                             "flyway_schema_history")
                     .doesNotContain("master_windows_binding");
 
@@ -110,6 +118,10 @@ class MasterSqlitePersistenceIntegrationTest {
                             "uq_device_assignments_current_device",
                             "uq_device_network_bindings_current_device",
                             "uq_device_network_bindings_current_network_identity",
+                            "uq_browser_policy_active_classroom_account",
+                            "uq_browser_policy_active_group_account",
+                            "uq_browser_policy_active_device_account",
+                            "ix_browser_url_rules_policy",
                             "ix_batch_target_results_operation_status");
 
             List<String> bindingColumns = jdbcTemplate.queryForList(
@@ -123,6 +135,19 @@ class MasterSqlitePersistenceIntegrationTest {
                     .noneMatch(column -> column.equalsIgnoreCase("password"))
                     .noneMatch(column -> column.equalsIgnoreCase("jwt"))
                     .noneMatch(column -> column.equalsIgnoreCase("secret"));
+
+            List<String> policyColumns = jdbcTemplate.queryForList(
+                    "SELECT name FROM pragma_table_info('browser_access_policies')",
+                    String.class);
+            assertThat(policyColumns)
+                    .contains("policy_id", "classroom_id", "name", "mode", "scope_type",
+                            "school_group_id", "device_id", "account_scope", "active", "version")
+                    .noneMatch(column -> column.equalsIgnoreCase("script"))
+                    .noneMatch(column -> column.equalsIgnoreCase("command"))
+                    .noneMatch(column -> column.equalsIgnoreCase("arguments"))
+                    .noneMatch(column -> column.equalsIgnoreCase("proxy"))
+                    .noneMatch(column -> column.equalsIgnoreCase("executable"))
+                    .noneMatch(column -> column.equalsIgnoreCase("path"));
         }
     }
 
@@ -208,15 +233,68 @@ class MasterSqlitePersistenceIntegrationTest {
     }
 
     @Test
+    void reopensPersistedBrowserPoliciesAndRules() {
+        Path dataDir = tempDir.resolve("browser-policy-reopen");
+        String policyId = id();
+        String ruleId = id();
+
+        try (ConfigurableApplicationContext context = start(dataDir)) {
+            Fixture fixture = createFixture(context);
+            OffsetDateTime now = OffsetDateTime.parse("2026-09-01T12:00:00Z");
+            BrowserPolicyRepository repository = context.getBean(BrowserPolicyRepository.class);
+            repository.createPolicy(new BrowserAccessPolicy(
+                    policyId,
+                    fixture.classroomId,
+                    "Primary allowlist",
+                    BrowserPolicyMode.ALLOWLIST,
+                    BrowserPolicyScopeType.CLASSROOM,
+                    null,
+                    null,
+                    BrowserPolicyAccountScope.PRIMARY,
+                    true,
+                    0,
+                    now,
+                    now));
+            repository.createRule(new BrowserUrlRule(
+                    ruleId,
+                    policyId,
+                    BrowserUrlRuleAction.ALLOW,
+                    BrowserUrlMatchType.HOST_SUFFIX,
+                    "school.local",
+                    true,
+                    "LAN content",
+                    0,
+                    now,
+                    now));
+        }
+
+        try (ConfigurableApplicationContext reopened = start(dataDir)) {
+            BrowserPolicyRepository repository = reopened.getBean(BrowserPolicyRepository.class);
+            assertThat(repository.findPolicyById(policyId))
+                    .get()
+                    .satisfies(policy -> {
+                        assertThat(policy.mode()).isEqualTo(BrowserPolicyMode.ALLOWLIST);
+                        assertThat(policy.accountScope()).isEqualTo(BrowserPolicyAccountScope.PRIMARY);
+                    });
+            assertThat(repository.findRulesByPolicyId(policyId, true))
+                    .singleElement()
+                    .satisfies(rule -> {
+                        assertThat(rule.ruleId()).isEqualTo(ruleId);
+                        assertThat(rule.pattern()).isEqualTo("school.local");
+                    });
+        }
+    }
+
+    @Test
     void migrationIsIdempotentAcrossRestarts() {
         Path dataDir = tempDir.resolve("idempotence");
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(2);
+            assertThat(flywaySuccessCount(context)).isEqualTo(3);
         }
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(2);
+            assertThat(flywaySuccessCount(context)).isEqualTo(3);
             assertThat(context.getBean(ClassroomRepository.class).findActive()).isEmpty();
         }
     }

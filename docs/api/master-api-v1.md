@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16C solo administra policies de navegacion; no aplica bloqueo real en navegadores ni envia policy al Agent. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -274,6 +274,154 @@ Errores relevantes:
 - `403 <authorization.status>`: Master local no autorizado.
 - `404 OPERATION_NOT_FOUND`: operacion inexistente.
 - `503 MASTER_DATABASE_UNAVAILABLE` u otro codigo de storage: SQLite no esta disponible.
+
+## Browser Policies
+
+- `GET /api/classrooms/{classroomId}/browser-policies?active=true|false`
+- `POST /api/classrooms/{classroomId}/browser-policies`
+- `PATCH /api/browser-policies/{policyId}`
+- `POST /api/browser-policies/{policyId}/archive`
+- `GET /api/browser-policies/{policyId}/rules`
+- `POST /api/browser-policies/{policyId}/rules`
+- `PATCH /api/browser-url-rules/{ruleId}`
+- `POST /api/browser-url-rules/{ruleId}/archive`
+- `GET /api/classrooms/{classroomId}/browser-policies/effective?deviceId=&groupId=&accountType=`
+
+Todos estos endpoints estan protegidos por `MasterAccessGuard`. Administran la fuente de verdad del Master para policy administrativa futura; no escriben registry, no crean extension, no modifican Chrome/Edge, no crean proxy/DNS/firewall y no envian nada al Agent.
+
+Create policy:
+
+```json
+{
+  "name": "Aula primaria primary",
+  "mode": "ALLOWLIST",
+  "scopeType": "CLASSROOM",
+  "schoolGroupId": null,
+  "deviceId": null,
+  "accountScope": "PRIMARY"
+}
+```
+
+Modes:
+
+```text
+UNRESTRICTED
+BLOCKLIST
+ALLOWLIST
+```
+
+Scopes:
+
+```text
+CLASSROOM -> sin schoolGroupId ni deviceId
+GROUP     -> schoolGroupId obligatorio y del aula
+DEVICE    -> deviceId obligatorio y del aula
+```
+
+Account scopes:
+
+```text
+ANY
+PRIMARY
+SECONDARY
+```
+
+Patch/archive policy requieren `expectedVersion`.
+
+Create rule:
+
+```json
+{
+  "action": "ALLOW",
+  "matchType": "EXACT_URL",
+  "pattern": "https://www.youtube.com/watch?v=ABC123",
+  "enabled": true,
+  "description": "Video de clase"
+}
+```
+
+Rule actions:
+
+```text
+ALLOW
+BLOCK
+```
+
+Match types:
+
+```text
+HOST_EXACT
+HOST_SUFFIX
+URL_PREFIX
+EXACT_URL
+```
+
+Reglas:
+
+- No se aceptan regex arbitrarias, JavaScript regex ni wildcards libres.
+- `HOST_SUFFIX` respeta frontera DNS: `youtube.com` coincide con `www.youtube.com`, no con `evilyoutube.com`.
+- `URL_PREFIX` y `EXACT_URL` deben ser URLs absolutas seguras `http`/`https`.
+- Fragment se elimina para matching; query se conserva en `EXACT_URL`.
+- `URL_PREFIX` no acepta query como mecanismo de prefix.
+
+Effective policy:
+
+```json
+{
+  "policy": {
+    "policyId": "uuid",
+    "classroomId": "uuid",
+    "name": "PC07 primary",
+    "mode": "UNRESTRICTED",
+    "scopeType": "DEVICE",
+    "schoolGroupId": null,
+    "deviceId": "device-07",
+    "accountScope": "PRIMARY",
+    "active": true,
+    "version": 0
+  },
+  "mode": "UNRESTRICTED",
+  "implicit": false
+}
+```
+
+Si no hay policy aplicable:
+
+```json
+{
+  "policy": null,
+  "mode": "UNRESTRICTED",
+  "implicit": true
+}
+```
+
+Precedencia:
+
+```text
+1. DEVICE + cuenta especifica
+2. DEVICE + ANY
+3. GROUP + cuenta especifica
+4. GROUP + ANY
+5. CLASSROOM + cuenta especifica
+6. CLASSROOM + ANY
+7. ninguna policy -> UNRESTRICTED implicito
+```
+
+Si `accountType` falta, solo aplican policies `ANY`; no se infiere `PRIMARY`.
+
+Errores relevantes:
+
+- `400 BROWSER_POLICY_SCOPE_INVALID`: scope inconsistente o group/device de otra aula.
+- `400 BROWSER_POLICY_RULE_INVALID`: pattern invalido para el match type.
+- `404 BROWSER_POLICY_NOT_FOUND`: policy o rule inexistente/archivada.
+- `409 BROWSER_POLICY_CONFLICT`: ya existe una policy activa para la misma combinacion target/account.
+- `409 CONCURRENT_MODIFICATION`: `expectedVersion` obsoleto.
+
+Separacion de seguridad:
+
+- Safety estructural de URL decide si una URL es tecnicamente procesable.
+- Browser policy decide si la navegacion esta administrativamente permitida.
+- Una policy `ALLOW` nunca puede saltarse safety; `file:`, `javascript:`, `data:` y esquemas inseguros siguen rechazados.
 
 ## Classrooms
 

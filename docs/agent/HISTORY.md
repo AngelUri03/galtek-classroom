@@ -1452,3 +1452,39 @@
 ### Commit sugerido
 
 `feat(agent): open trusted urls in interactive session`
+
+## 2026-09-01 - Prompt 16C
+
+### Realizado
+
+- Agregado dominio Master `browserpolicy` para policies administrativas persistentes de navegacion web.
+- Modelados `BrowserAccessPolicy`, modos `UNRESTRICTED`/`BLOCKLIST`/`ALLOWLIST`, scopes `CLASSROOM`/`GROUP`/`DEVICE` y account scopes `ANY`/`PRIMARY`/`SECONDARY`.
+- Agregado `BrowserUrlRule` con acciones `ALLOW`/`BLOCK` y match types `HOST_EXACT`, `HOST_SUFFIX`, `URL_PREFIX` y `EXACT_URL`, sin regex arbitraria ni wildcards libres.
+- Agregado `BrowserUrlNormalizer` para safety/canonicalizacion `http`/`https`: host obligatorio, sin userinfo/control chars, host lowercase, trailing dot removido, puertos default normalizados, path vacio como `/` y fragment eliminado.
+- `OpenUrlPolicy` Java reutiliza el normalizador nuevo como safety estructural, separado de la policy administrativa.
+- Agregado `BrowserNavigationPolicyEvaluator` puro con decisions `ALLOW`/`BLOCK`, `policyId`, `matchedRuleId` y reason codes `NO_POLICY`, `UNRESTRICTED`, `DEFAULT_ALLOW`, `DEFAULT_BLOCK`, `EXPLICIT_ALLOW`, `EXPLICIT_BLOCK` e `INVALID_URL`.
+- Agregado `BrowserPolicyPrecedenceResolver` puro con precedencia determinista de una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
+- Agregada migracion SQLite `V3__add_browser_navigation_policies.sql` con tablas `browser_access_policies` y `browser_url_rules`, checks de enum/scope e indices unicos parciales para una policy activa por target/account.
+- Agregado `BrowserPolicyRepository` y `SqliteBrowserPolicyRepository` con Spring JDBC explicito, sin JPA.
+- Agregada API administrativa protegida por `MasterAccessGuard` para CRUD/archive de policies y rules, mas endpoint read-only de policy efectiva.
+- Agregados codigos `BROWSER_POLICY_NOT_FOUND`, `BROWSER_POLICY_CONFLICT`, `BROWSER_POLICY_SCOPE_INVALID`, `BROWSER_POLICY_RULE_INVALID` y `URL_BLOCKED_BY_POLICY`.
+- Documentacion actualizada en contexto, arquitectura, modelo funcional, reglas de desarrollo, decisiones, estado, historial y API Master v1.
+
+### Cambios descartados
+
+- No se modifico Agent .NET.
+- No se modifico Protobuf/gRPC, Session Command, Local IPC ni transportes.
+- No se implemento endpoint batch Master para `OPEN_URL`.
+- No se aplico bloqueo real en Chrome, Edge, Windows, DNS, proxy, firewall, hosts, extension ni inspeccion de trafico.
+- No se implementaron politicas de descargas.
+- No se implemento UI.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): add browser navigation policies`

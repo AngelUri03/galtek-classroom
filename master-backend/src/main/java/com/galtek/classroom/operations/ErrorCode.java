@@ -50,6 +50,11 @@ public enum ErrorCode {
     BROWSER_PROFILE_REAUTH_REQUIRED(ErrorCategory.BROWSER, false),
     BROWSER_REAUTH_REQUIRED(ErrorCategory.BROWSER, false),
     INVALID_URL(ErrorCategory.BROWSER, false),
+    BROWSER_POLICY_NOT_FOUND(ErrorCategory.BROWSER, false),
+    BROWSER_POLICY_CONFLICT(ErrorCategory.BROWSER, false),
+    BROWSER_POLICY_SCOPE_INVALID(ErrorCategory.BROWSER, false),
+    BROWSER_POLICY_RULE_INVALID(ErrorCategory.BROWSER, false),
+    URL_BLOCKED_BY_POLICY(ErrorCategory.BROWSER, false),
     URL_LAUNCH_FAILED(ErrorCategory.BROWSER, true),
 
     APPLICATION_NOT_INSTALLED(ErrorCategory.APPLICATION, false),

@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. No hay bloqueo de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
+Prompt 16C agrega en el Master la fuente de verdad persistente para politicas administrativas de navegacion web. El dominio `browserpolicy` modela policies por aula/grupo/device y por account scope `ANY`/`PRIMARY`/`SECONDARY`, reglas URL sin regex arbitraria, normalizacion/evaluacion pura y resolucion determinista de una sola politica efectiva. No aplica bloqueo real en Chrome/Edge/Windows, no agrega transporte Agent, no modifica Protobuf/gRPC y no implementa politicas de descargas.
+
+Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. No hay bloqueo real de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
 
 Prompt 16A agrega el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. Es un Named Pipe separado por sesion interactiva, servido por el Session Agent y consumido por el Service como LocalSystem, con ACL solo para LocalSystem, autenticacion del caller real mediante token de Named Pipe, verificacion del servidor por PID/sesion/ruta productiva y framing JSON UTF-8 con longitud BIG ENDIAN de 4 bytes.
 
@@ -192,6 +194,15 @@ IMPLEMENTADO:
   - `GET /api/network/clients`.
   - `POST /api/classrooms/{classroomId}/devices/register`.
   - `POST /api/classrooms/{classroomId}/power-control`.
+  - `GET /api/classrooms/{classroomId}/browser-policies`.
+  - `POST /api/classrooms/{classroomId}/browser-policies`.
+  - `PATCH /api/browser-policies/{policyId}`.
+  - `POST /api/browser-policies/{policyId}/archive`.
+  - `GET /api/browser-policies/{policyId}/rules`.
+  - `POST /api/browser-policies/{policyId}/rules`.
+  - `PATCH /api/browser-url-rules/{ruleId}`.
+  - `POST /api/browser-url-rules/{ruleId}/archive`.
+  - `GET /api/classrooms/{classroomId}/browser-policies/effective`.
 - `RestControllerAdvice` uniforme para errores operacionales HTTP.
 - API documentada en `docs/api/master-api-v1.md`.
 - Cliente `LocalAgentClient` con transporte Windows Named Pipe y framing IPC v1.
@@ -205,6 +216,7 @@ IMPLEMENTADO:
   - `student`: `Student`, `SchoolGroup`, `DeviceAssignment`, policies y planners de move/swap.
   - `workspace`: `StudentWorkspace`, destinos logicos y recovery planificado.
   - `browser`: perfiles de alumno/Master y validacion conservadora de URL.
+  - `browserpolicy`: politicas administrativas de navegacion, normalizacion URL, reglas `ALLOW`/`BLOCK`, resolver de precedencia y evaluador puro.
   - `application`: catalogo de aplicaciones por `applicationId`.
   - `operations`: catalogo de acciones, batch, preflight, resultados, errores, conflict policy y workflows.
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.
@@ -244,6 +256,9 @@ IMPLEMENTADO:
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
 - `POST /api/classrooms/{classroomId}/power-control` registra una `BatchOperation` `SHUTDOWN` o `RESTART` antes de enviar requests y actualiza targets al terminar el fanout.
 - `OpenUrlPolicy` que permite `http`/`https` y rechaza esquemas inseguros como `file`, `javascript` y `data`.
+- `BrowserUrlNormalizer` normaliza solo URLs absolutas seguras `http`/`https`, exige host, quita fragment, rechaza userinfo/control chars, baja host a minusculas, elimina trailing dot y normaliza puertos default.
+- `BrowserNavigationPolicyEvaluator` aplica primero safety estructural y despues politica administrativa: explicit `ALLOW` gana a explicit `BLOCK` dentro de una policy, `BLOCKLIST` permite por default y `ALLOWLIST` bloquea por default.
+- `BrowserPolicyPrecedenceResolver` selecciona como maximo una policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
 - `DistributeFileRequest` modela apertura opcional posterior mediante `openAfterDistribution` sin transferencia real.
 - `LogicalWorkspaceDestination.REMOVABLE_STORAGE` formaliza USB futuro como destino logico autorizado, no como ruta arbitraria.
 - Pruebas Java de assignment, move, swap, batch, URL y autorizacion Master.
@@ -254,6 +269,7 @@ IMPLEMENTADO:
 - Flyway programatico para migraciones SQLite desde `classpath:db/migration/sqlite`.
 - Migracion `V1__create_master_domain.sql` con tablas del dominio Master.
 - Migracion `V2__add_device_network_bindings.sql` con `device_network_bindings` e indices unicos parciales para un Network Identity vigente por Device y un Device vigente por Network Identity.
+- Migracion `V3__add_browser_navigation_policies.sql` con `browser_access_policies`, `browser_url_rules`, checks de enum/scope e indices unicos parciales para una policy activa por target logico y `account_scope`.
 - Configuracion local `galtek.classroom.master.storage.*`.
 - Resolucion de datos del Master a `<CommonApplicationData>\Galtek\Classroom\Master\` con override `GALTEK_CLASSROOM_MASTER_DATA_DIR`.
 - Base local `classroom.db` ignorada por Git, junto con archivos WAL/SHM.
@@ -263,7 +279,7 @@ IMPLEMENTADO:
 - `MasterRunMarker` crea `master-backend.running` al arrancar y lo elimina en cierre limpio para detectar apagado no limpio sin tocar SQLite/WAL/SHM.
 - `AtomicFiles` centraliza escrituras atomicas/durables de archivos criticos del Master con temp file, flush/fsync y move atomico.
 - Estado de almacenamiento `MasterStorageState` con `READY`, `UNAVAILABLE`, `CORRUPT` y `MIGRATION_FAILED`.
-- Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceNetworkBinding`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile` y `BatchOperation`.
+- Repositories explicitos para `Classroom`, `ApplicationDefinition`, `SchoolGroup`, `Student`, `Device`, `DeviceNetworkBinding`, `DeviceAssignment`, `StudentWorkspace`, `BrowserProfile`, `MasterBrowserProfile`, `BrowserPolicy` y `BatchOperation`.
 - Servicios transaccionales de administracion de aula, alumnos, devices, assignments, workspaces, perfiles, catalogo y batch.
 - Repositorio administrativo JDBC con modelos de lectura para bootstrap, snapshot, conteos, operaciones y batches sin exponer entidades de persistencia a controllers.
 - Control de version optimista mediante columna `version` y error `CONCURRENT_MODIFICATION`.
