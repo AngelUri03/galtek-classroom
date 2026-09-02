@@ -75,7 +75,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
 - Descubrimiento futuro: mDNS/DNS-SD.
-- IPC local Service-Session Agent y Master Backend-Agent Service: Windows Named Pipes.
+- IPC local Master Backend/Session Agent -> Agent Service read-only y canal local privilegiado Agent Service -> Session Agent: Windows Named Pipes.
 - Almacenamiento local Master: SQLite.
 
 ## Principios de producto
@@ -125,6 +125,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - La reconciliacion de `SHUTDOWN`/`RESTART` inciertos pregunta por el resultado ORIGINAL usando el mismo `operationId`; nunca reenvia automaticamente una operacion destructiva para comprobar si funciono.
 - `SHUTDOWN + OFFLINE` y `RESTART + reconnect` son evidencia operacional, pero no prueban `SUCCESS`; solo `OperationResult` o `OperationStatusReport KNOWN` pueden reconciliar exito.
 - El plano de control tiene prioridad sobre el plano visual: Local IPC, identidad, trust, heartbeat/reconexion y acciones criticas futuras deben quedar disponibles antes que thumbnails, captura, proyeccion, inventario, transferencias grandes o sync pesado.
+- Local IPC v1 permanece read-only. Las acciones interactivas futuras dentro de la sesion de usuario usan un canal separado Agent Service -> Session Agent, autenticado bilateralmente y con comandos tipados.
 - El Master no espera a que todos los Clients arranquen para quedar operativo; se considera control-plane ready con proceso vivo y almacenamiento listo, aunque el conteo de Clients online sea cero.
 - Boot, `ClientHello`, pairing, registration, reconnect y heartbeat no deben iniciar captura, proyeccion, thumbnails, filesystem sync ni inventario pesado automaticamente.
 - Operaciones pesadas como distribucion, thumbnails o inventario nunca deben impedir operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.

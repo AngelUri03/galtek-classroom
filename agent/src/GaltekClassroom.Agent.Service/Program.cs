@@ -6,6 +6,7 @@ using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Shared;
 using System.Text.Json;
 
@@ -26,6 +27,7 @@ builder.Services.AddNetworkIdentityServices();
 builder.Services.AddClientPairingServices();
 builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
 builder.Services.AddLocalIpcServices();
+builder.Services.AddSessionCommandServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
 {

@@ -1380,3 +1380,39 @@
 ### Commit sugerido
 
 `feat: reconcile uncertain remote power operations`
+
+## 2026-09-01 - Prompt 16A
+
+### Realizado
+
+- Agregado `Session Command v1` como canal local separado Service -> Session, sin modificar Local IPC v1.
+- Documentado el protocolo canonico en `protocol/local-session-command-v1.md`.
+- Agregados contratos compartidos tipados `SessionCommandRequest`/`SessionCommandResponse`, `protocolVersion = 1`, `requestId` UUID, `commandType`, error codes y framing dedicado de 16 KiB.
+- El Session Agent ahora inicia un pipe server por sesion `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>` solo despues de adquirir instancia unica y validar `Process.SessionId != 0`.
+- El pipe server de Session usa `WaitForConnectionAsync`, vuelve a aceptar tras cada conexion y se cancela limpiamente.
+- La ACL productiva del pipe de comandos permite como cliente solo LocalSystem (`S-1-5-18`).
+- El Session Agent valida el SID real del caller Named Pipe mediante impersonation y rechaza callers no LocalSystem.
+- Agregado `SessionCommandClient` en el Agent Service con resolucion interna de sesion interactiva mediante `WTSGetActiveConsoleSessionId`, timeout fijo de 2 segundos y conexion on-demand no persistente.
+- El Service verifica el servidor Named Pipe con PID real, proceso existente, `Process.SessionId` esperado y ruta productiva normalizada del Session Agent antes de enviar comandos.
+- Implementado solo `CHANNEL_PING`, que devuelve `SUCCESS` sin acciones visibles ni efectos externos.
+- Agregados tests dirigidos de protocolo, framing, correlacion `requestId`, rechazo de comandos desconocidos, Session 0, autorizacion fake de caller, cancelacion, verificacion del servidor y timeouts.
+
+### Cambios descartados
+
+- No se implemento `OPEN_URL`.
+- No se implemento bloqueo de URLs ni bloqueo de descargas.
+- No se implemento `OPEN_APPLICATION`, bloqueo de input, overlays, wallpaper, filesystem, shell, scripts, browser policies ni UI.
+- No se modifico Master Backend Java.
+- No se modifico API HTTP, Protobuf, gRPC, SQLite, `RemoteOperationDispatcher`, power control ni reconciliacion.
+- No se agregaron comandos write a `GaltekClassroom.Agent.v1`.
+- No se acepto payload generico, `command`, `arguments`, `RUN_*` ni `EXECUTE_*`.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~SessionCommand|FullyQualifiedName~SessionAgentBackgroundHostTests"` en `agent`: correcto, 11 pruebas Session y 14 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): add trusted session command channel`

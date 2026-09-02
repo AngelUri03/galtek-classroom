@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-08-31 - Prompt 15C.
+2026-09-01 - Prompt 16A.
 
 ## Estado del proyecto
 
@@ -29,6 +29,8 @@ Prompt 15A implementa las primeras operaciones remotas productivas del Agent: `S
 Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con request tipada y `targetDeviceIds` explicitos. El Master hace preflight por Device, persiste una `BatchOperation` antes del envio, envia `OperationRequest` solo a conexiones gRPC/mTLS autenticadas `ONLINE` con trust `PAIRED`, Device registrado y `POWER_CONTROL_V1`, correlaciona por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Timeout o desconexion despues del envio produce `OPERATION_RESULT_UNKNOWN` no retryable.
 
 Prompt 15C implementa reconciliacion segura de `SHUTDOWN`/`RESTART` inciertos. Agrega `OperationStatusQuery`/`OperationStatusReport` al Protobuf v1 sobre `NetworkConnection.Connect`, sin cambiar `protocolVersion`. El Agent responde read-only desde el cache acotado del dispatcher o desde `power-operation-receipts.json`, un receipt durable minimo para power control aceptado. El Master acepta late `OperationResult` autentico, consulta status manualmente con `POST /api/operations/{operationId}/reconcile` y reconcilia de forma ligera en reconnect del mismo Device. No hay retry automatico, resend automatico, scheduler general ni inferencia de `SUCCESS` por `OFFLINE` o reconnect.
+
+Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB. La unica operacion implementada es `CHANNEL_PING`; no se implementan `OPEN_URL`, bloqueo de URLs/descargas, lanzamiento de aplicaciones ni UI.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
@@ -99,6 +101,20 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
 - Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- Local IPC v1 permanece read-only; no se agregaron comandos write ni acciones interactivas a `GaltekClassroom.Agent.v1`.
+- Protocolo canonico `Session Command v1` documentado en `protocol/local-session-command-v1.md`.
+- Contratos compartidos `SessionCommandRequest`/`SessionCommandResponse`, `protocolVersion = 1`, `requestId` UUID y `commandType` tipado.
+- Framing Session Command v1 con longitud BIG ENDIAN de 4 bytes mas JSON UTF-8 y limite de 16 KiB.
+- Nombre de pipe de sesion derivado internamente como `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`; `SessionId = 0` se rechaza.
+- Session Agent background inicia el servidor de comandos solo despues de adquirir instancia unica y validar `Process.SessionId != 0`.
+- Pipe server de Session Command v1 espera conexiones con `WaitForConnectionAsync`, sin polling, timer, heartbeat, disk writes ni loop ocupado.
+- ACL productiva del pipe de comandos restringida a LocalSystem (`S-1-5-18`) como cliente; no concede `Users`, `Authenticated Users` ni `Everyone`.
+- Session Agent valida el SID real del cliente Named Pipe mediante impersonation y rechaza cualquier caller distinto de LocalSystem.
+- Agent Service registra `SessionCommandClient` on-demand, sin conexion persistente.
+- Agent Service resuelve sesion interactiva mediante `WTSGetActiveConsoleSessionId`, sin procesos externos, shell, PowerShell, WMI shell ni Session 0.
+- Agent Service valida el servidor del Named Pipe con `GetNamedPipeServerProcessId`, existencia del proceso, `Process.SessionId` esperado y ruta productiva normalizada del Session Agent antes de enviar request.
+- Timeouts del canal de sesion: 2 segundos para connect y request/response.
+- `CHANNEL_PING` devuelve `SUCCESS` y no ejecuta acciones externas.
 - `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del proceso real `GaltekClassroom.Agent.Service`: working set aproximado, private memory aproximada, CPU acumulado, thread count, uptime y GC managed memory aproximada.
 - El transporte IPC local del Master usa virtual threads por intercambio en vez de un cached pool de threads de plataforma.
 - Agent Service instalable como Windows Service `GaltekClassroomAgent`.
@@ -196,8 +212,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## En progreso
 
-- Prompt 15C cerrado tecnicamente.
-- No queda desarrollo 15C a medias.
+- Prompt 16A cerrado tecnicamente.
+- No queda desarrollo 16A a medias.
 
 ## Pendiente inmediato
 
@@ -213,6 +229,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 - Implementar workflows reales de workspace/sync en fases posteriores.
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
+- Prompt 16B pendiente: extender explicitamente Session Command v1 para `OPEN_URL` sin payload generico y sin tocar Local IPC v1.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
@@ -325,6 +342,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo, filesys
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~SessionCommand|FullyQualifiedName~SessionAgentBackgroundHostTests"` en `agent`: correcto, 11 pruebas Session y 14 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~PowerOperationHandlerTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 28 pruebas Service superadas.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,PowerOperationReconciliationServiceTest,NetworkClientControllerTest" test` en `master-backend`: correcto, pruebas dirigidas de gateway, reconciliacion y endpoint power-control superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.

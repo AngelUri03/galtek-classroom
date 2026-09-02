@@ -1,4 +1,5 @@
 using GaltekClassroom.Agent.Session.Ipc;
+using GaltekClassroom.Agent.Session.Commands;
 using GaltekClassroom.Agent.Session.Lifecycle;
 using GaltekClassroom.Agent.Shared;
 
@@ -25,21 +26,25 @@ public sealed class SessionAgentBackgroundHostTests
     public async Task RunAsync_WhenProcessIsInSessionZero_ExitsWithErrorWithoutStartingSupervisor()
     {
         var client = new CountingLocalAgentClient();
+        var commandServer = new CountingSessionCommandServer();
         var host = CreateHost(
             acquired: true,
             sessionId: 0,
-            client);
+            client,
+            commandServer);
 
         var exitCode = await host.RunAsync(CancellationToken.None);
 
         Assert.Equal(1, exitCode);
         Assert.Equal(0, client.PingCalls);
+        Assert.Equal(0, commandServer.StartCalls);
     }
 
     private static SessionAgentBackgroundHost CreateHost(
         bool acquired,
         int sessionId,
-        CountingLocalAgentClient client)
+        CountingLocalAgentClient client,
+        CountingSessionCommandServer? commandServer = null)
     {
         return new SessionAgentBackgroundHost(
             new FakeSessionInstanceLock(acquired),
@@ -47,7 +52,8 @@ public sealed class SessionAgentBackgroundHostTests
             new SessionAgentSupervisor(
                 client,
                 new NeverDelay(),
-                new SessionAgentSupervisorOptions()));
+                new SessionAgentSupervisorOptions()),
+            commandServer);
     }
 
     private sealed class FakeSessionInstanceLock : ISessionInstanceLock
@@ -103,6 +109,17 @@ public sealed class SessionAgentBackgroundHostTests
             cancellationToken.ThrowIfCancellationRequested();
             PingCalls++;
             return new LocalIpcPingPayload();
+        }
+    }
+
+    private sealed class CountingSessionCommandServer : ISessionCommandServer
+    {
+        public int StartCalls { get; private set; }
+
+        public Task RunAsync(int sessionId, CancellationToken cancellationToken)
+        {
+            StartCalls++;
+            return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
     }
 }

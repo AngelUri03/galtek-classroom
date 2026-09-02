@@ -1,8 +1,10 @@
 using System.Runtime.Loader;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Agent.Session;
+using GaltekClassroom.Agent.Session.Commands;
 using GaltekClassroom.Agent.Session.Ipc;
 using GaltekClassroom.Agent.Session.Lifecycle;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 var commandLine = SessionAgentCommandLine.Parse(args);
@@ -64,7 +66,8 @@ try
     var backgroundHost = new SessionAgentBackgroundHost(
         new NamedMutexSessionInstanceLock(),
         new WindowsSessionContext(),
-        supervisor);
+        supervisor,
+        CreateSessionCommandServer());
 
     return await backgroundHost.RunAsync(shutdown.Token);
 }
@@ -129,4 +132,18 @@ static JsonSerializerOptions CreateConsoleJsonOptions()
     {
         WriteIndented = true
     };
+}
+
+static ISessionCommandServer CreateSessionCommandServer()
+{
+    if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+    {
+        return new SessionCommandServer(
+            new UnsupportedSessionCommandPipeStreamFactory(),
+            new UnavailableSessionCommandCallerVerifier());
+    }
+
+    return new SessionCommandServer(
+        new SessionCommandPipeStreamFactory(),
+        new WindowsSessionCommandCallerVerifier());
 }

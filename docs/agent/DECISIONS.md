@@ -66,6 +66,15 @@
 - IPC v1 limita el payload JSON a 64 KiB.
 - IPC v1 es read-only.
 - IPC v1 solo permite `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION` y `GET_RUNTIME_DIAGNOSTICS`.
+- Local IPC v1 permanece estrictamente read-only; no se agregan comandos write ni acciones interactivas a `GaltekClassroom.Agent.v1`.
+- Las acciones interactivas futuras usan un canal separado Service -> Session llamado `Session Command v1`.
+- `Session Command v1` usa un pipe por sesion `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, derivado del `Process.SessionId` real del Session Agent.
+- El Session Agent es servidor de `Session Command v1`; el Agent Service es cliente.
+- `Session Command v1` permite como cliente solo LocalSystem (`S-1-5-18`) y el Session Agent valida el SID real del caller Named Pipe mediante impersonation.
+- El Agent Service debe autenticar tambien al Session Agent antes de enviar comandos, validando PID real del servidor, `Process.SessionId` esperado y ruta productiva normalizada del ejecutable.
+- `Session Command v1` usa JSON UTF-8 con prefijo de longitud BIG ENDIAN de 4 bytes y limite de 16 KiB.
+- Prompt 16A solo implementa `CHANNEL_PING`; `OPEN_URL` y demas acciones interactivas requieren extension tipada explicita posterior.
+- `Session Command v1` no admite payload generico, `command`, `arguments`, shell, PowerShell, `cmd`, rutas ejecutables arbitrarias ni comandos `RUN_*`/`EXECUTE_*`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.
 - El Master Backend no lee `installation.json`, no lee `license.dat`, no valida JWT y no reconstruye Machine Code localmente.

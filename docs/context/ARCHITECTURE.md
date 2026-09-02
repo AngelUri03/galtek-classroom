@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 16A agrega el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. Es un Named Pipe separado por sesion interactiva, servido por el Session Agent y consumido por el Service como LocalSystem, con ACL solo para LocalSystem, autenticacion del caller real mediante token de Named Pipe, verificacion del servidor por PID/sesion/ruta productiva y framing JSON UTF-8 con longitud BIG ENDIAN de 4 bytes. La unica operacion implementada es `CHANNEL_PING`; no abre navegador, no lanza procesos, no bloquea URLs/descargas, no toca UI y no modifica Local IPC v1.
+
 Prompt 15C cierra la primera capacidad remota end-to-end de power control con reconciliacion segura de resultados inciertos. El protocolo Protobuf v1 agrega `OperationStatusQuery`/`OperationStatusReport` sobre el stream `NetworkConnection.Connect` existente, sin cambiar `protocolVersion` ni crear otro servicio. El Agent responde read-only desde el cache acotado del dispatcher o desde un receipt durable minimo de power control aceptado; la consulta nunca ejecuta handlers ni modifica Windows. El Master acepta resultados tardios autenticos y agrega reconciliacion manual/event-driven por reconnect para targets `FAILED + OPERATION_RESULT_UNKNOWN`, sin reenviar `SHUTDOWN`/`RESTART` ni inferir exito por `OFFLINE` o reconnect.
 
 Prompt 15B implementa el primer dispatch remoto batch real desde Master para `SHUTDOWN` y `RESTART`. Agrega `POST /api/classrooms/{classroomId}/power-control`, protegido por `MasterAccessGuard`, con body tipado y lista explicita de `targetDeviceIds`. El Master hace preflight por Device, persiste una unica `BatchOperation`, envia `OperationRequest` por la conexion gRPC/mTLS autenticada solo a targets `READY`, correlaciona resultados por `(deviceId, operationId)` y registra `SUCCESS`, `PARTIAL_SUCCESS` o `FAILED`. Si una request ya enviada queda sin `OperationResult` por timeout o desconexion, el target falla con `OPERATION_RESULT_UNKNOWN` no retryable y Prompt 15C puede reconciliarlo sin reenviar la operacion destructiva.
@@ -36,7 +38,7 @@ Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master B
 
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
-Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`.
+Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
 Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B solo despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; no ejecuta transferencia real, Chrome, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo.
 
@@ -472,6 +474,7 @@ IMPLEMENTADO:
 - Framing IPC con prefijo de longitud de 4 bytes BIG ENDIAN mas JSON UTF-8.
 - Limite maximo de mensaje de 64 KiB.
 - Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- Local IPC v1 conserva estrictamente sus operaciones read-only; no se agregan comandos write ni acciones interactivas alli.
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
 - `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` para diagnostico local de recovery.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
@@ -479,6 +482,11 @@ IMPLEMENTADO:
 - `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del Agent Service con memoria aproximada, CPU acumulado, threads, uptime y GC managed memory.
 - Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no en `INFO`, para evitar logs periodicos durante idle.
 - ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
+- Cliente `SessionCommandClient` para canal Service -> Session separado, on-demand y no persistente.
+- Resolucion productiva de sesion interactiva mediante `WTSGetActiveConsoleSessionId`, sin `quser.exe`, `query session`, shell, PowerShell, WMI shell ni procesos externos.
+- El Service nunca intenta enviar comandos a Session 0.
+- Antes de enviar un comando de sesion, el Service valida el servidor Named Pipe con `GetNamedPipeServerProcessId`, existencia de proceso, `Process.SessionId` esperado y ruta productiva normalizada `<ProgramFiles>\Galtek\Classroom\Agent\Session\GaltekClassroom.Agent.Session.exe`.
+- Timeouts iniciales del canal de sesion: 2 segundos para conectar y request/response; no son configurables desde Master.
 
 PLANIFICADO:
 
@@ -530,6 +538,10 @@ IMPLEMENTADO:
 - `MultipleInstances Parallel` en Task Scheduler para no bloquear futuras sesiones Windows multiples.
 - Single instance por sesion mediante named mutex local `Local\GaltekClassroom.Agent.Session`.
 - Validacion de `Process.SessionId`; el modo background no debe ejecutarse normalmente en `SessionId = 0`.
+- Servidor `Session Command v1` por sesion en `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, derivado del `Process.SessionId` real.
+- ACL del pipe de comandos restringida a LocalSystem (`S-1-5-18`) como cliente; no concede `Users`, `Authenticated Users` ni `Everyone`.
+- Autenticacion del caller real del Named Pipe mediante impersonation y rechazo de cualquier SID distinto de LocalSystem.
+- `CHANNEL_PING` como unica operacion de comando de sesion implementada; devuelve `SUCCESS` sin ejecutar acciones externas ni generar UI.
 - Supervisor IPC local con estados internos `STARTING`, `WAITING_FOR_SERVICE`, `CONNECTED`, `READY` y `STOPPING`.
 - Reconexion automatica al Agent Service con backoff acotado `2s`, `5s`, `10s`, `30s`.
 - Polling saludable por `PING` cada 15 segundos.
@@ -652,11 +664,17 @@ IMPLEMENTADO:
 - Version desconocida devuelve `IPC_PROTOCOL_UNSUPPORTED`.
 - Operacion desconocida devuelve `IPC_OPERATION_NOT_SUPPORTED`.
 - JSON malformado, longitud invalida y desconexiones de clientes se manejan sin detener el Service.
+- Canal separado `Session Command v1` para Service -> Session, documentado en `protocol/local-session-command-v1.md`.
+- Pipe por sesion `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, servido por el Session Agent de esa sesion.
+- Framing Session Command v1: longitud BIG ENDIAN de 4 bytes mas JSON UTF-8, con limite de 16 KiB.
+- ACL de Session Command v1 solo para LocalSystem como cliente y autenticacion bilateral: Session Agent valida SID real del caller, Service valida PID/sesion/ruta del servidor.
+- Unica operacion Session Command v1 implementada: `CHANNEL_PING`.
 
 NO IMPLEMENTADO:
 
 - Activacion de licencia por IPC.
 - Operaciones write por IPC.
+- `OPEN_URL`, bloqueo de URLs, bloqueo de descargas, lanzamiento de aplicaciones u otras acciones interactivas sobre Session Command v1.
 
 ## Identidades
 
