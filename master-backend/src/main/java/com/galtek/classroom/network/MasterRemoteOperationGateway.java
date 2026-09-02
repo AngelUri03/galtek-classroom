@@ -330,6 +330,14 @@ public class MasterRemoteOperationGateway {
                     ErrorCode.BROWSER_POLICY_RECOVERY_REQUIRED;
             case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID ->
                     ErrorCode.BROWSER_DOWNLOAD_POLICY_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT ->
+                    ErrorCode.BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_APPLY_FAILED ->
+                    ErrorCode.BROWSER_DOWNLOAD_POLICY_APPLY_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED ->
+                    ErrorCode.BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED ->
+                    ErrorCode.BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED;
             case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY -> ErrorCode.URL_BLOCKED_BY_POLICY;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
@@ -385,6 +393,14 @@ public class MasterRemoteOperationGateway {
                     "Browser navigation policy requires local recovery.";
             case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID ->
                     "Agent rejected an invalid browser download policy.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT ->
+                    "Existing browser download policy conflicts with Galtek enforcement.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_APPLY_FAILED ->
+                    "Browser download policy apply failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED ->
+                    "Browser download policy rollback failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED ->
+                    "Browser download policy requires local recovery.";
             case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY ->
                     "URL is blocked by applied browser navigation policy.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->

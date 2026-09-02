@@ -1590,3 +1590,39 @@
 ### Commit sugerido
 
 `feat(agent): add browser download policy contract`
+
+## 2026-09-02 - Prompt 16E2B
+
+### Realizado
+
+- Implementado enforcement productivo Agent-side de `APPLY_BROWSER_DOWNLOAD_POLICY` para Chrome y Edge en Windows usando solo `DownloadRestrictions`.
+- Reutilizado `IInteractiveUserIdentityResolver` para resolver el usuario interactivo real y aplicar en `HKEY_USERS\<SID>`, no `HKCU` desde LocalSystem ni HKLM.
+- Agregado `ApplyBrowserDownloadPolicyOperationHandler` y registrado en `RemoteOperationDispatcher`.
+- Agregado `IBrowserDownloadPolicyRegistryStore`/`WindowsBrowserDownloadPolicyRegistryStore` para leer, escribir, borrar y verificar `DownloadRestrictions` como `REG_DWORD`.
+- Agregado state durable separado `browser-download-policy-state.json` y journal lazy `browser-download-policy-apply.json` mediante `DurableFileWriter`.
+- Preservada la distincion entre `NO_SPECIAL_RESTRICTIONS` implicito, que remueve solo policy Galtek-owned, y `NO_SPECIAL_RESTRICTIONS` explicito, que escribe `REG_DWORD 0`.
+- Implementado preflight conservador de ownership: conflicto ante `DownloadRestrictions` HKLM, user-level desconocido, divergencia contra state Galtek, parent values desconocidos o subkeys no demostradas como Galtek-owned.
+- Agregado reader read-only de ownership de navegacion para permitir `URLBlocklist`/`URLAllowlist` solo cuando state de navegacion 16D demuestra ownership.
+- Implementado hardening ACL parent-only para Chrome/Edge parent key, sin rewrite recursivo de child subkeys y evitando reescritura cuando la ACL ya es segura.
+- Implementado rollback ante fallo parcial y recovery lazy tras power loss al siguiente apply.
+- Anunciada capability `BROWSER_DOWNLOAD_POLICY_V1` solo despues de registrar el handler productivo.
+- Agregados errores download-specific `BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT`, `BROWSER_DOWNLOAD_POLICY_APPLY_FAILED`, `BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED` y `BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED`.
+- Actualizada documentacion de browser download policy, arquitectura, modelo funcional, reglas, estado, decisiones y protocolo.
+
+### Cambios descartados
+
+- No se implemento endpoint Master, batch dispatch, UI, Session Command, temporary unlock, teacher-authorized download delivery ni `DISTRIBUTE_FILE`.
+- No se agrego extension denylist, MIME denylist, browser extension, proxy, DNS, firewall, hosts, browser automation, process monitoring, browser version polling, filesystem watcher ni DLP.
+- No se implemento endpoint Master, dispatch batch ni persistence Java; solo se actualizo el mapping minimo de errores remotos de descarga.
+- No se hizo prueba manual contra Chrome/Edge personales del desarrollador.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserDownloadPolicyAgentTests|FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 86 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(agent): enforce browser download policies`

@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-02 - Prompt 16E2A.
+2026-09-02 - Prompt 16E2B.
 
 ## Estado del proyecto
 
@@ -38,7 +38,7 @@ Prompt 16D agrega enforcement Agent-side de politicas de navegacion para Chrome 
 
 Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador. Se agregan `BrowserDownloadPolicy`, enum `BrowserDownloadRestrictionMode`, resolver puro con la misma precedencia de navegacion, migracion SQLite `V4__add_browser_download_policies.sql`, repositorio Spring JDBC explicito y API administrativa protegida. No se modifica Agent .NET, Protobuf/gRPC, Registry, C# ni enforcement; no se modelan listas arbitrarias de extensiones/MIME y no se implementan descargas autorizadas por maestra.
 
-Prompt 16E2A prepara Agent/Protobuf para politicas de descarga de navegador. Agrega operacion remota tipada `APPLY_BROWSER_DOWNLOAD_POLICY`, parametros Protobuf explicitos, enum `BrowserDownloadRestrictionMode`, error `BROWSER_DOWNLOAD_POLICY_INVALID`, capability reservada `BROWSER_DOWNLOAD_POLICY_V1` y compilador C# puro `ChromiumDownloadPolicyCompiler`. El compilador traduce `NO_SPECIAL_RESTRICTIONS`/`BLOCK_DANGEROUS`/`BLOCK_POTENTIALLY_DANGEROUS`/`BLOCK_ALL`/`BLOCK_MALICIOUS` a `DownloadRestrictions` 0-4, diferencia removal implicito de policy explicita valor 0 mediante content hash determinista y valida enums/policy id/version/account scope. No registra handler productivo, no anuncia la capability en `ClientHello`, no escribe Registry, no toca HKU/HKLM, no aplica policies reales y no modifica el registry ownership de navegacion; 16E2B hara enforcement.
+Prompt 16E2B implementa enforcement Agent-side real para politicas de descarga de navegador. El Agent registra `ApplyBrowserDownloadPolicyOperationHandler`, anuncia `BROWSER_DOWNLOAD_POLICY_V1`, resuelve el usuario interactivo real, usa el compilador `ChromiumDownloadPolicyCompiler` como autoridad de mapping y aplica `DownloadRestrictions` como `REG_DWORD` en `HKEY_USERS\<SID>\Software\Policies\Google\Chrome` y `HKEY_USERS\<SID>\Software\Policies\Microsoft\Edge`. Agrega store especifico de descarga, state durable `browser-download-policy-state.json`, journal lazy `browser-download-policy-apply.json`, ownership conservador, conflicto ante `DownloadRestrictions` HKLM/user-level ajeno, hardening ACL parent-only, rollback y recovery tras power loss. No agrega dispatch batch desde Master, UI, Session Command, extension, proxy, DNS, firewall, hosts, browser automation, process scan, version polling ni DLP.
 
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
@@ -83,8 +83,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `ChromiumDownloadPolicyCompiler` es puro y mapea `NO_SPECIAL_RESTRICTIONS -> 0`, `BLOCK_DANGEROUS -> 1`, `BLOCK_POTENTIALLY_DANGEROUS -> 2`, `BLOCK_ALL -> 3` y `BLOCK_MALICIOUS -> 4`.
 - `ChromiumDownloadPolicyCompiler` distingue `NO_SPECIAL_RESTRICTIONS` implicito (`RemoveGaltekPolicy = true`, sin valor nativo) de policy explicita `NO_SPECIAL_RESTRICTIONS` (`RemoveGaltekPolicy = false`, valor nativo `0`).
 - `ChromiumDownloadPolicyCompiler` genera content hash determinista sin timestamps, nombres visibles, SID ni rutas Registry, y diferencia removal implicito de valor explicito 0.
-- `BROWSER_DOWNLOAD_POLICY_V1` queda reservada, pero `ClientCapabilityProvider` no la anuncia todavia en `ClientHello`.
-- No existe `ApplyBrowserDownloadPolicyOperationHandler` registrado; la operacion conserva `OPERATION_NOT_IMPLEMENTED` hasta 16E2B.
+- `BROWSER_DOWNLOAD_POLICY_V1` es capability productiva anunciada por `ClientCapabilityProvider`.
+- `ApplyBrowserDownloadPolicyOperationHandler` esta registrado para `APPLY_BROWSER_DOWNLOAD_POLICY`.
+- El Agent aplica `DownloadRestrictions` user-scope en Chrome y Edge bajo `HKEY_USERS\<SID>` del usuario interactivo real, no `HKCU` desde LocalSystem ni HKLM.
+- Descargas usa durable state `browser-download-policy-state.json` y journal `browser-download-policy-apply.json`, separados de `browser-navigation-policy-state.json` y `browser-navigation-policy-apply.json`.
+- Download policy endurece solo la parent key Chrome/Edge cuando es seguro; no hay ACL por value y no hay rewrite recursivo de child subkeys.
+- `NO_SPECIAL_RESTRICTIONS` implicito remueve solo policy Galtek-owned; `NO_SPECIAL_RESTRICTIONS` explicito escribe `REG_DWORD 0`.
+- Errores download-specific vigentes: `BROWSER_DOWNLOAD_POLICY_INVALID`, `BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT`, `BROWSER_DOWNLOAD_POLICY_APPLY_FAILED`, `BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED` y `BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED`.
 - SQLite V4 crea `browser_download_policies` con checks de enum/scope, indices unicos parciales por target/account activo y triggers para impedir `GROUP`/`DEVICE` de otro classroom.
 - No existen `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` en el modelo persistente de descargas.
 - `BrowserNavigationPolicyEvaluator` aplica safety estructural primero; gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`; conserva defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
@@ -190,7 +195,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`; `BROWSER_DOWNLOAD_POLICY_V1` esta reservada pero no anunciada; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
 - `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
@@ -248,8 +253,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## En progreso
 
-- Prompt 16E2A cerrado tecnicamente.
-- No queda desarrollo 16E2A a medias.
+- Prompt 16E2B cerrado tecnicamente.
+- No queda desarrollo 16E2B a medias.
 
 ## Pendiente inmediato
 
@@ -266,7 +271,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
 - Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
-- Implementar enforcement Agent-side de descargas en 16E2B mediante `DownloadRestrictions`, usando el contrato tipado y compilador puro ya preparados.
+- Implementar endpoint/batch Master futuro para aplicar policies de navegacion y descarga desde la fuente de verdad persistente.
 - Implementar posteriormente entrega autorizada por maestra mediante canal Galtek tipado/controlado hacia destinos logicos de `StudentWorkspace`, no desbloqueando temporalmente el browser.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
@@ -296,7 +301,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -390,6 +395,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserDownloadPolicyAgentTests|FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 86 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto, mapping de errores remotos de descarga validado.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~BrowserPolicyAgentTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterNetworkTransportTests"` en `agent`: correcto, 59 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
@@ -414,4 +422,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 16E2B para implementar enforcement Agent-side real de `DownloadRestrictions` usando el contrato tipado preparado, sin anunciar `BROWSER_DOWNLOAD_POLICY_V1` hasta registrar handler productivo con apply/verificacion Registry.
+Siguiente fase recomendada: Prompt 16F para dispatch batch Master de browser policies, sin redisenar el enforcement Agent-side ya implementado.

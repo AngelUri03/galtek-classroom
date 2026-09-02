@@ -11,7 +11,8 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.SessionAgentAvailable,
         NetworkCapability.PowerControlV1,
         NetworkCapability.OpenUrlV1,
-        NetworkCapability.BrowserNavigationPolicyV1
+        NetworkCapability.BrowserNavigationPolicyV1,
+        NetworkCapability.BrowserDownloadPolicyV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

@@ -14,7 +14,7 @@ Current scope:
 - `POWER_CONTROL_V1` announces Agent-side support for `SHUTDOWN` and `RESTART`.
 - `OPEN_URL_V1` announces Agent-side support for `OPEN_URL` through Session Command v1 and the interactive user's registered HTTP/HTTPS handler.
 - `BROWSER_NAVIGATION_POLICY_V1` announces Agent-side support for Chrome/Edge `URLBlocklist` and `URLAllowlist` enforcement for the real interactive Windows user.
-- `BROWSER_DOWNLOAD_POLICY_V1` is reserved for future Agent-side Chrome/Edge `DownloadRestrictions` enforcement, but is not announced by the Agent until a productive handler exists.
+- `BROWSER_DOWNLOAD_POLICY_V1` announces Agent-side support for Chrome/Edge `DownloadRestrictions` enforcement for the real interactive Windows user.
 
 Authorization is never based on IP, MAC address, hostname, discovery, or MASTER license alone. A peer must be `PAIRED`, must not be `REVOKED`, and its certificate public key must match the stored trust fingerprint.
 
@@ -24,4 +24,4 @@ For `OPEN_URL`, `SUCCESS` means Windows accepted the local launch request only. 
 
 For `APPLY_BROWSER_NAVIGATION_POLICY`, `SUCCESS` means the Agent wrote, reread and durably recorded the desired user-scope Chrome/Edge policy. It does not mean Chrome/Edge was restarted, installed, open, or that every already-loaded tab immediately changed state.
 
-`APPLY_BROWSER_DOWNLOAD_POLICY` is a typed contract only in 16E2A. Without a registered Agent handler, it follows the generic `OPERATION_NOT_IMPLEMENTED` behavior. The administrative API sends Galtek restriction modes, not raw Chromium `DownloadRestrictions` values.
+For `APPLY_BROWSER_DOWNLOAD_POLICY`, `SUCCESS` means the Agent wrote or removed the desired user-scope Chrome/Edge `DownloadRestrictions` value, reread and verified both browsers, durably recorded download state and cleared the download journal. The administrative API sends Galtek restriction modes, not raw Chromium `DownloadRestrictions` values. The Agent still does not provide Master batch dispatch for this operation.

@@ -263,6 +263,10 @@ public static class ClassroomOperationErrorCodes
     public const string BrowserPolicyRollbackFailed = "BROWSER_POLICY_ROLLBACK_FAILED";
     public const string BrowserPolicyRecoveryRequired = "BROWSER_POLICY_RECOVERY_REQUIRED";
     public const string BrowserDownloadPolicyInvalid = "BROWSER_DOWNLOAD_POLICY_INVALID";
+    public const string BrowserDownloadPolicyExternalConflict = "BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT";
+    public const string BrowserDownloadPolicyApplyFailed = "BROWSER_DOWNLOAD_POLICY_APPLY_FAILED";
+    public const string BrowserDownloadPolicyRollbackFailed = "BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED";
+    public const string BrowserDownloadPolicyRecoveryRequired = "BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED";
     public const string UrlBlockedByPolicy = "URL_BLOCKED_BY_POLICY";
 }
 

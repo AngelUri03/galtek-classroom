@@ -135,6 +135,10 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.PowerControlFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.BrowserPolicyNotNativeEnforceable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyInvalid, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyExternalConflict, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyApplyFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyRollbackFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyRecoveryRequired, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.UrlBlockedByPolicy, errorCodes);
     }
 

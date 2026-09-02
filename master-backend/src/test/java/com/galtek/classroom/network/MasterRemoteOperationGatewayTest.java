@@ -155,17 +155,27 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
-    void operationResultMapsBrowserDownloadPolicyInvalidError() {
-        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
-                MasterRemoteOperationGateway.outcomeFromResult(failed(
-                        "download-policy",
-                        "PC01",
-                        NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY,
-                        NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID));
-
-        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
-        assertThat(outcome.errorCode()).isEqualTo(ErrorCode.BROWSER_DOWNLOAD_POLICY_INVALID);
-        assertThat(outcome.errorCode().retryable()).isFalse();
+    void operationResultMapsBrowserDownloadPolicyErrors() {
+        assertDownloadError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_INVALID,
+                ErrorCode.BROWSER_DOWNLOAD_POLICY_INVALID,
+                false);
+        assertDownloadError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT,
+                ErrorCode.BROWSER_DOWNLOAD_POLICY_EXTERNAL_CONFLICT,
+                false);
+        assertDownloadError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_APPLY_FAILED,
+                ErrorCode.BROWSER_DOWNLOAD_POLICY_APPLY_FAILED,
+                true);
+        assertDownloadError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED,
+                ErrorCode.BROWSER_DOWNLOAD_POLICY_ROLLBACK_FAILED,
+                false);
+        assertDownloadError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED,
+                ErrorCode.BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED,
+                false);
     }
 
     @Test
@@ -317,6 +327,22 @@ class MasterRemoteOperationGatewayTest {
         assertThat(gateway.timeoutStatusQuery(timeout)).isEmpty();
         assertThat(timeout.completion()).isCompletedWithValue(java.util.Optional.empty());
         assertThat(gateway.pendingStatusQueryCount()).isZero();
+    }
+
+    private static void assertDownloadError(
+            NetworkOperationErrorCode networkError,
+            ErrorCode expected,
+            boolean retryable) {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "download-policy",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY,
+                        networkError));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(expected);
+        assertThat(outcome.errorCode().retryable()).isEqualTo(retryable);
     }
 
     private static OperationResult success(

@@ -42,7 +42,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL` y `APPLY_BROWSER_NAVIGATION_POLICY`; `APPLY_BROWSER_DOWNLOAD_POLICY` existe como contrato tipado sin handler productivo; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL`/browser policies todavia no tienen endpoint/batch funcional del Master.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe solo para `SHUTDOWN` y `RESTART`, y `OPEN_URL`/browser policies todavia no tienen endpoint/batch funcional del Master.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -89,11 +89,15 @@
 - `browser-navigation-policy-apply.json` es journal lazy para recovery en el siguiente apply; no hay timer, polling, scan de procesos, scan de browsers ni polling de registry.
 - `APPLY_BROWSER_NAVIGATION_POLICY SUCCESS` significa registry escrito, releido/verificado y state durable confirmado; no significa que Chrome/Edge exista, se reinicie, cierre tabs o refresque cada pagina ya cargada.
 - Prompt 16D no agrega extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, tab/history monitoring, browser automation, descargas, UI ni batch Master.
-- Prompt 16E1 modela politicas de descarga de navegador solo en el Master Backend: `BrowserDownloadPolicy`, SQLite V4, repository/service/controller y resolver efectivo. Prompt 16E2A agrega contrato Protobuf y compilador C# puro para descargas, pero no modifica Registry ni browser enforcement.
+- Prompt 16E1 modela politicas de descarga de navegador en el Master Backend: `BrowserDownloadPolicy`, SQLite V4, repository/service/controller y resolver efectivo. Prompt 16E2A agrega contrato Protobuf y compilador C# puro para descargas. Prompt 16E2B agrega enforcement Agent-side real mediante `DownloadRestrictions`.
 - `APPLY_BROWSER_DOWNLOAD_POLICY` es una operacion distinta de `APPLY_BROWSER_NAVIGATION_POLICY` y solo acepta parametros Protobuf tipados de descarga.
 - El Master/API conserva el enum Galtek de descarga; los numeros Chromium 0-4 no son parte de la API administrativa ni se aceptan como valor nativo enviado directamente.
-- Para descargas, `NO_SPECIAL_RESTRICTIONS` implicito significa remover solo policy Galtek-owned futura; `NO_SPECIAL_RESTRICTIONS` explicito significa escribir valor nativo `0` cuando exista enforcement.
-- `BROWSER_DOWNLOAD_POLICY_V1` esta reservada pero no se anuncia en `ClientHello` hasta que exista handler productivo con escritura/verificacion Registry.
+- Para descargas, `NO_SPECIAL_RESTRICTIONS` implicito significa remover solo policy Galtek-owned; `NO_SPECIAL_RESTRICTIONS` explicito significa escribir valor nativo `0`.
+- `BROWSER_DOWNLOAD_POLICY_V1` se anuncia en `ClientHello` desde 16E2B porque existe handler productivo con escritura/verificacion Registry.
+- `APPLY_BROWSER_DOWNLOAD_POLICY` usa exclusivamente `DownloadRestrictions` user-scope en `HKEY_USERS\<SID>` del usuario interactivo real para Chrome y Edge; no usa HKCU desde LocalSystem, HKLM, extension, proxy, DNS, firewall, hosts, browser automation, scripts ni shell.
+- `ChromiumDownloadPolicyCompiler` es la autoridad del mapping Galtek -> `DownloadRestrictions` 0-4; el handler no duplica una tabla de severidad ni trata el valor `4` como mas restrictivo que `3`.
+- Como `DownloadRestrictions` es un value y Registry no tiene ACL por value, el Agent solo puede endurecer la parent key Chrome/Edge cuando es seguro; la ACL se aplica parent-only y no se propaga ni reescribe child subkeys.
+- `browser-download-policy-state.json` y `browser-download-policy-apply.json` son separados de navegacion; recovery de descargas es lazy al siguiente apply, sin startup scan, timers ni polling.
 - Navegacion y descargas son dominios distintos. `DownloadRestrictions` no se guarda dentro de `BrowserAccessPolicy`, `BrowserPolicyMode`, `BrowserUrlRule` ni match types URL.
 - Los restriction modes Galtek de descarga son exactamente `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`; la API no devuelve el numero Chromium 0-4 como autoridad.
 - No se modelan `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` porque Galtek no puede garantizar enforcement equivalente Chrome/Edge sobre Windows para bloqueo arbitrario por extension/MIME.
@@ -148,11 +152,11 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1` y `BROWSER_NAVIGATION_POLICY_V1`. `BROWSER_DOWNLOAD_POLICY_V1` no se anuncia en 16E2A.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion y descarga. `SHUTDOWN`, `RESTART`, `OPEN_URL` y `APPLY_BROWSER_NAVIGATION_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion y descarga. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.
