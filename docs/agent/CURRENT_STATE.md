@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-02 - Prompt 16D.
+2026-09-02 - Prompt 16E1.
 
 ## Estado del proyecto
 
@@ -36,6 +36,8 @@ Prompt 16C agrega en el Master Backend la fuente de verdad persistente y determi
 
 Prompt 16D agrega enforcement Agent-side de politicas de navegacion para Chrome y Edge usando `URLBlocklist`/`URLAllowlist` de Chromium en `HKEY_USERS\<SID>` del usuario interactivo real. Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C#, resolver de usuario interactivo por APIs Windows, registry store con ACL, state durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, descargas, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, polling, browser automation ni matar/reiniciar navegadores.
 
+Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador. Se agregan `BrowserDownloadPolicy`, enum `BrowserDownloadRestrictionMode`, resolver puro con la misma precedencia de navegacion, migracion SQLite `V4__add_browser_download_policies.sql`, repositorio Spring JDBC explicito y API administrativa protegida. No se modifica Agent .NET, Protobuf/gRPC, Registry, C# ni enforcement; no se modelan listas arbitrarias de extensiones/MIME y no se implementan descargas autorizadas por maestra.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -67,9 +69,15 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `POST /api/classrooms/{classroomId}/devices/register` protegido, registra un Client `PAIRED` como Device del aula y crea binding; rechaza `REVOKED`, no paired y doble registro.
 - `POST /api/classrooms/{classroomId}/power-control` protegido, envia batch `SHUTDOWN`/`RESTART` solo a Devices explicitamente seleccionados.
 - Endpoints protegidos de browser policies: listar/crear/patch/archive policies, listar/crear/patch/archive rules y resolver read-only de policy efectiva.
+- Endpoints protegidos de browser download policies: listar/crear/patch/archive policies y resolver read-only de policy efectiva.
 - `BrowserAccessPolicy` persiste `mode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
 - `BrowserUrlRule` persiste `ALLOW`/`BLOCK`, `HOST_EXACT`/`HOST_SUFFIX`/`URL_PREFIX`/`EXACT_URL`, pattern canonico, enabled, descripcion opcional y timestamps UTC.
 - `BrowserPolicyPrecedenceResolver` selecciona una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
+- `BrowserDownloadPolicy` persiste `restrictionMode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
+- `BrowserDownloadPolicyPrecedenceResolver` selecciona una sola policy efectiva con la misma precedencia de navegacion, o `NO_SPECIAL_RESTRICTIONS` implicito.
+- Restriction modes de descarga implementados en Master: `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`.
+- SQLite V4 crea `browser_download_policies` con checks de enum/scope, indices unicos parciales por target/account activo y triggers para impedir `GROUP`/`DEVICE` de otro classroom.
+- No existen `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` en el modelo persistente de descargas.
 - `BrowserNavigationPolicyEvaluator` aplica safety estructural primero; gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`; conserva defaults `BLOCKLIST`/`ALLOWLIST` y decision estructurada con reason code.
 - `BrowserUrlNormalizer` acepta solo URL absoluta segura `http`/`https`, host obligatorio, sin userinfo/control chars, host lowercase, trailing dot removido, puertos default normalizados, path vacio como `/` y fragment eliminado.
 - Migracion SQLite `V3__add_browser_navigation_policies.sql` crea `browser_access_policies` y `browser_url_rules` con checks e indices unicos parciales para una policy activa por target/account.
@@ -231,8 +239,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## En progreso
 
-- Prompt 16D cerrado tecnicamente.
-- No queda desarrollo 16D a medias.
+- Prompt 16E1 cerrado tecnicamente.
+- No queda desarrollo 16E1 a medias.
 
 ## Pendiente inmediato
 
@@ -249,7 +257,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Implementar mDNS/discovery real y exponer flujos reales de pairing/discovery sobre red sin convertir discovery en trust.
 - Implementar comandos administrativos remotos restantes en fases posteriores sobre el transporte seguro.
 - Implementar endpoint batch Master para `OPEN_URL` en una fase posterior, con preflight/capability y persistencia batch.
-- Implementar bloqueo de descargas en fase posterior.
+- Implementar enforcement Agent-side de descargas en fase posterior mediante mapping nativo de `DownloadRestrictions`.
+- Implementar posteriormente entrega autorizada por maestra mediante canal Galtek tipado/controlado hacia destinos logicos de `StudentWorkspace`, no desbloqueando temporalmente el browser.
 - Prompt 14.5A, 14.5B, 14.5C y 14.5D quedan cerrados.
 - Empaquetar la llave publica real de Galtek Hub para produccion.
 
@@ -314,6 +323,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `accountScope = ANY` aplica al usuario interactivo actual; `PRIMARY`/`SECONDARY` devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta existir binding seguro a Windows SID.
 - `PRIMARY` y `SECONDARY` no implican restriccion automatica; una policy por cuenta existe solo si el administrador la crea explicitamente.
 - Si el contexto no conoce cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
+- Las politicas de descarga de navegador quedan separadas de las politicas de navegacion. `DownloadRestrictions` no se agrega a `BrowserAccessPolicy`.
+- `NO_SPECIAL_RESTRICTIONS` significa que Galtek no agrega restricciones especiales de descarga; no significa desactivar Safe Browsing ni toda seguridad del navegador.
+- En Windows no se modela bloqueo administrable arbitrario por extension/MIME para Chrome/Edge hasta contar con un mecanismo comun soportado y enforceable.
+- Bajo `BLOCK_ALL`, una futura descarga autorizada por maestra debe entregarse por canal Galtek controlado hacia `StudentWorkspace`, no abriendo ventanas temporales de descarga en el navegador.
 - Las prioridades operacionales deben impedir que transferencias grandes, thumbnails o inventario bloqueen operaciones `CRITICAL`.
 - Power loss, reboot abrupto, kill del proceso y boot storm son condiciones normales de diseno.
 - Startup rapido del plano de control tiene prioridad sobre licencia comercial completa, WMI costoso, inventario, thumbnails, captura, proyeccion, transferencias grandes y filesystem sync.
@@ -368,6 +381,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=BrowserDownloadPolicyPrecedenceResolverTest,BrowserDownloadPolicyPersistenceIntegrationTest,BrowserDownloadPolicyControllerTest" test` en `master-backend`: correcto, pruebas dirigidas de resolver, V4/repository y API 16E1 superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto, pruebas dirigidas de evaluador, resolver, API y persistencia SQLite superadas.
 - `mvn -q "-Dtest=BrowserNavigationPolicyEvaluatorTest,BrowserPolicyPrecedenceResolverTest,BrowserPolicyControllerTest" test` en `master-backend`: correcto, pruebas dirigidas browserpolicy 16D superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.

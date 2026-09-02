@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 16E1 agrega en el Master Backend la fuente de verdad persistente para politicas de descarga de navegador, separada de las politicas de navegacion. El dominio `browserpolicy` modela `BrowserDownloadPolicy` con scopes `CLASSROOM`/`GROUP`/`DEVICE`, account scopes `ANY`/`PRIMARY`/`SECONDARY`, restriction modes `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`, resolver determinista, migracion SQLite V4, repositorio Spring JDBC explicito y API administrativa protegida. No aplica nada al Agent, no modifica Protobuf/gRPC, no escribe registry, no modela extensiones/MIME arbitrarios y no implementa descargas autorizadas por maestra.
+
 Prompt 16D implementa enforcement real Agent-side de politicas de navegacion para Google Chrome y Microsoft Edge en Windows usando las policies empresariales `URLBlocklist`/`URLAllowlist` en el hive del usuario interactivo real (`HKEY_USERS\<SID>`). Agrega operacion remota tipada `APPLY_BROWSER_NAVIGATION_POLICY`, parametros Protobuf tipados, capability `BROWSER_NAVIGATION_POLICY_V1`, compilador/evaluator C# de subset Chromium, resolver local de usuario interactivo por token Windows, estado durable `browser-navigation-policy-state.json`, journal lazy `browser-navigation-policy-apply.json` y defensa en profundidad para `OPEN_URL`. No agrega endpoint batch Master, UI, Session Command nuevo, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, browser automation, polling ni kill/restart de navegador.
 
 Prompt 16C agrega en el Master la fuente de verdad persistente para politicas administrativas de navegacion web. El dominio `browserpolicy` modela policies por aula/grupo/device y por account scope `ANY`/`PRIMARY`/`SECONDARY`, reglas URL sin regex arbitraria, normalizacion/evaluacion pura y resolucion determinista de una sola politica efectiva. No aplica bloqueo real en Chrome/Edge/Windows, no agrega transporte Agent, no modifica Protobuf/gRPC y no implementa politicas de descargas.
@@ -218,7 +220,7 @@ IMPLEMENTADO:
   - `student`: `Student`, `SchoolGroup`, `DeviceAssignment`, policies y planners de move/swap.
   - `workspace`: `StudentWorkspace`, destinos logicos y recovery planificado.
   - `browser`: perfiles de alumno/Master y validacion conservadora de URL.
-  - `browserpolicy`: politicas administrativas de navegacion, normalizacion URL, reglas `ALLOW`/`BLOCK`, resolver de precedencia y evaluador puro.
+  - `browserpolicy`: politicas administrativas de navegacion, normalizacion URL, reglas `ALLOW`/`BLOCK`, resolver de precedencia y evaluador puro; tambien politicas administrativas de descarga de navegador con restriction modes y resolver separado.
   - `application`: catalogo de aplicaciones por `applicationId`.
   - `operations`: catalogo de acciones, batch, preflight, resultados, errores, conflict policy y workflows.
   - `master`: `MasterWindowsBinding`, proveedor de SID actual y politica de autorizacion.

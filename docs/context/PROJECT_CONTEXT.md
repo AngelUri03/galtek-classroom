@@ -40,6 +40,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Workspace canonico en Master con working copy local en Client mientras el alumno usa la PC.
 - Browser profiles de alumno y Master sin almacenar contrasenas ni cookies.
 - Politicas persistentes de navegacion web del Master con scopes `CLASSROOM`, `GROUP` y `DEVICE`, account scopes `ANY`, `PRIMARY` y `SECONDARY`, modos `UNRESTRICTED`, `BLOCKLIST` y `ALLOWLIST`, y reglas URL sin regex arbitraria.
+- Politicas persistentes de descarga de navegador del Master, separadas de navegacion, con scopes `CLASSROOM`, `GROUP` y `DEVICE`, account scopes `ANY`, `PRIMARY` y `SECONDARY`, modos `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`, sin denylist arbitraria de extensiones/MIME.
 - Miniaturas de pantallas de clientes.
 - Vista en vivo de un cliente seleccionado.
 - Proyeccion diferenciada por modo: screen share, whiteboard, pointer, media local y apertura local de contenido web.
@@ -50,6 +51,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
 - Resolucion determinista de una sola politica efectiva para validar `OPEN_URL` y restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist`; el endpoint batch Master de dispatch de policies queda pendiente.
+- Resolucion determinista de una sola politica efectiva de descarga de navegador en el Master; el enforcement Agent-side mediante `DownloadRestrictions` queda pendiente.
 - Distribucion batch de archivos a destinos logicos de workspace con apertura opcional posterior.
 - Creacion masiva de carpetas de trabajo.
 - Cambio y restauracion futura de wallpaper.

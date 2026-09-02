@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, y Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, y Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador sin enforcement Agent.
 
 ## Principio de producto
 
@@ -862,7 +862,7 @@ La accion visible la ejecuta el Session Agent mediante el handler registrado de 
 
 Si el Service no puede enviar el comando al Session Agent, el resultado usa `SESSION_AGENT_UNAVAILABLE`. Si el Service ya envio `OPEN_URL` y pierde/expira la respuesta, usa `SESSION_COMMAND_RESULT_UNKNOWN` y no reintenta automaticamente para evitar duplicar pestanas. Desde 16D, despues de la safety estructural y antes del Session Command, el Agent evalua la policy Galtek aplicada al usuario interactivo actual; si bloquea la URL devuelve `URL_BLOCKED_BY_POLICY` y no llama al Session Agent.
 
-Desde Prompt 16D existe enforcement Agent-side para Chrome/Edge mediante registry policy de usuario. No existe todavia endpoint batch Master para `OPEN_URL`, endpoint batch Master para policies, bloqueo de descargas ni seleccion de browser/profile.
+Desde Prompt 16D existe enforcement Agent-side para Chrome/Edge mediante registry policy de usuario. Desde Prompt 16E1 existe fuente de verdad persistente del Master para politicas de descarga de navegador. No existe todavia endpoint batch Master para `OPEN_URL`, endpoint batch Master para aplicar policies, enforcement Agent de descargas ni seleccion de browser/profile.
 
 ## Browser Access Policy
 
@@ -977,6 +977,79 @@ Master reproduce
   -> captura 30 FPS
   -> transmite a 26 PCs
 ```
+
+## Browser Download Policy
+
+`BrowserDownloadPolicy` define restricciones administrativas de descargas de navegador para un aula. Es un dominio distinto de `BrowserAccessPolicy`: navegacion decide cargas de URL; descarga decide el comportamiento futuro de browser downloads cubiertos por `DownloadRestrictions`.
+
+Campos conceptuales:
+
+```text
+policyId
+classroomId
+name
+restrictionMode
+scopeType
+schoolGroupId?
+deviceId?
+accountScope
+active
+version
+createdAtUtc
+updatedAtUtc
+```
+
+Restriction modes:
+
+```text
+NO_SPECIAL_RESTRICTIONS
+BLOCK_DANGEROUS
+BLOCK_POTENTIALLY_DANGEROUS
+BLOCK_ALL
+BLOCK_MALICIOUS
+```
+
+Mapping nativo futuro de `DownloadRestrictions`: `NO_SPECIAL_RESTRICTIONS = 0`, `BLOCK_DANGEROUS = 1`, `BLOCK_POTENTIALLY_DANGEROUS = 2`, `BLOCK_ALL = 3`, `BLOCK_MALICIOUS = 4`. La API expone el enum Galtek, no el numero Chromium como autoridad.
+
+`NO_SPECIAL_RESTRICTIONS` significa que Galtek no agrega restricciones especiales de descarga; no significa desactivar Safe Browsing ni toda seguridad del navegador.
+
+Scopes:
+
+```text
+CLASSROOM -> schoolGroupId = null, deviceId = null
+GROUP     -> schoolGroupId obligatorio, deviceId = null
+DEVICE    -> deviceId obligatorio, schoolGroupId = null
+```
+
+`GROUP` y `DEVICE` deben pertenecer al classroom de la policy. No existe scope `STUDENT`.
+
+Account scopes:
+
+```text
+ANY
+PRIMARY
+SECONDARY
+```
+
+Si el contexto no conoce una cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
+
+Precedencia determinista de una sola policy efectiva:
+
+```text
+1. DEVICE + cuenta especifica
+2. DEVICE + ANY
+3. GROUP + cuenta especifica
+4. GROUP + ANY
+5. CLASSROOM + cuenta especifica
+6. CLASSROOM + ANY
+7. ninguna policy -> NO_SPECIAL_RESTRICTIONS implicito
+```
+
+La policy mas especifica reemplaza completamente a la menos especifica. No se combinan valores numericos.
+
+16E1 no modela `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes`. Galtek necesita semantica equivalente en Chrome y Edge sobre Windows, y no existe actualmente una policy nativa comun soportada en Windows para bloqueo arbitrario por extension en ambos navegadores. Edge tiene `DownloadBlockedForFileTypes`, pero no esta soportada en Windows actualmente.
+
+En modo `BLOCK_ALL`, una descarga futura autorizada por maestra no debe implementarse desbloqueando temporalmente el navegador ni automatizando clicks. La direccion permanente es entregar contenido por una operacion Galtek tipada/controlada hacia un destino logico autorizado de `StudentWorkspace`, posiblemente reutilizando `DISTRIBUTE_FILE`.
 
 ## Operaciones de contenido
 

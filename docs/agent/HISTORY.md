@@ -1523,3 +1523,39 @@
 ### Commit sugerido
 
 `feat(agent): enforce browser navigation policies`
+
+## 2026-09-02 - Prompt 16E1
+
+### Realizado
+
+- Agregado dominio Master `BrowserDownloadPolicy` separado de `BrowserAccessPolicy`.
+- Agregado enum `BrowserDownloadRestrictionMode` con valores exactos `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`.
+- Reutilizados scopes `CLASSROOM`/`GROUP`/`DEVICE` y account scopes `ANY`/`PRIMARY`/`SECONDARY`.
+- Agregado `BrowserDownloadPolicyPrecedenceResolver` puro con una sola policy efectiva y `NO_SPECIAL_RESTRICTIONS` implicito cuando no hay policy aplicable.
+- Agregada migracion SQLite `V4__add_browser_download_policies.sql` con tabla `browser_download_policies`, checks de enum/scope, indices unicos parciales por target/account activo y triggers para impedir `GROUP`/`DEVICE` de otro classroom.
+- Agregado `BrowserDownloadPolicyRepository` y `SqliteBrowserDownloadPolicyRepository` con Spring JDBC explicito, sin JPA.
+- Agregada API administrativa protegida por `MasterAccessGuard` para listar, crear, patch, archivar y resolver policy efectiva de descarga.
+- Agregados codigos `BROWSER_DOWNLOAD_POLICY_NOT_FOUND`, `BROWSER_DOWNLOAD_POLICY_CONFLICT` y `BROWSER_DOWNLOAD_POLICY_SCOPE_INVALID`.
+- Documentado que navegacion y descargas son dominios distintos, que la API no expone numeros Chromium como autoridad y que `NO_SPECIAL_RESTRICTIONS` no desactiva Safe Browsing.
+- Documentada la limitacion Windows: no se modelan `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` porque no hay enforcement comun garantizable Chrome/Edge Windows para bloqueo arbitrario.
+- Documentada la direccion futura de descargas autorizadas por maestra: entrega Galtek tipada/controlada hacia `StudentWorkspace`, no desbloqueo temporal de browser.
+
+### Cambios descartados
+
+- No se modifico Agent .NET.
+- No se modifico Protobuf/gRPC, Registry, C# ni transportes.
+- No se implemento enforcement Agent-side de `DownloadRestrictions`.
+- No se agregaron extension denylist, MIME denylist, browser extension, proxy, DNS, firewall, filesystem watcher, download monitoring ni browser automation.
+- No se implemento descarga autorizada real por maestra ni `DISTRIBUTE_FILE`.
+- No se implemento UI.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=BrowserDownloadPolicyPrecedenceResolverTest,BrowserDownloadPolicyPersistenceIntegrationTest,BrowserDownloadPolicyControllerTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `git diff --check`: correcto, solo advertencias de conversion CRLF esperadas.
+
+### Commit sugerido
+
+`feat(master): add browser download policies`

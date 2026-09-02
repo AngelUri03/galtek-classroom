@@ -89,6 +89,11 @@
 - `browser-navigation-policy-apply.json` es journal lazy para recovery en el siguiente apply; no hay timer, polling, scan de procesos, scan de browsers ni polling de registry.
 - `APPLY_BROWSER_NAVIGATION_POLICY SUCCESS` significa registry escrito, releido/verificado y state durable confirmado; no significa que Chrome/Edge exista, se reinicie, cierre tabs o refresque cada pagina ya cargada.
 - Prompt 16D no agrega extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, tab/history monitoring, browser automation, descargas, UI ni batch Master.
+- Prompt 16E1 modela politicas de descarga de navegador solo en el Master Backend: `BrowserDownloadPolicy`, SQLite V4, repository/service/controller y resolver efectivo. No modifica Agent, Protobuf, Registry, C# ni browser enforcement.
+- Navegacion y descargas son dominios distintos. `DownloadRestrictions` no se guarda dentro de `BrowserAccessPolicy`, `BrowserPolicyMode`, `BrowserUrlRule` ni match types URL.
+- Los restriction modes Galtek de descarga son exactamente `NO_SPECIAL_RESTRICTIONS`, `BLOCK_DANGEROUS`, `BLOCK_POTENTIALLY_DANGEROUS`, `BLOCK_ALL` y `BLOCK_MALICIOUS`; la API no devuelve el numero Chromium 0-4 como autoridad.
+- No se modelan `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes` porque Galtek no puede garantizar enforcement equivalente Chrome/Edge sobre Windows para bloqueo arbitrario por extension/MIME.
+- Una descarga futura autorizada por maestra bajo `BLOCK_ALL` debe entregarse por operacion Galtek tipada/controlada hacia un destino logico de `StudentWorkspace`, no desbloqueando temporalmente el navegador ni automatizando browser clicks.
 - `Session Command v1` no admite payload generico, `command`, `arguments`, shell, PowerShell, `cmd`, rutas ejecutables arbitrarias ni comandos `RUN_*`/`EXECUTE_*`.
 - `GET_DEVICE_STATUS` no expone JWT, hashes de hardware, seriales crudos, llaves ni rutas internas.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y debe funcionar sin licencia activa.

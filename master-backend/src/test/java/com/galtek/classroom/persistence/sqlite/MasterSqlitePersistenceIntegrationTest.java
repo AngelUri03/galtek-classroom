@@ -107,7 +107,7 @@ class MasterSqlitePersistenceIntegrationTest {
                             "student_workspaces", "browser_profiles", "master_browser_profiles",
                             "application_definitions", "batch_operations", "batch_target_results",
                             "device_network_bindings", "browser_access_policies", "browser_url_rules",
-                            "flyway_schema_history")
+                            "browser_download_policies", "flyway_schema_history")
                     .doesNotContain("master_windows_binding");
 
             List<String> indexes = jdbcTemplate.queryForList(
@@ -121,6 +121,9 @@ class MasterSqlitePersistenceIntegrationTest {
                             "uq_browser_policy_active_classroom_account",
                             "uq_browser_policy_active_group_account",
                             "uq_browser_policy_active_device_account",
+                            "uq_browser_download_policy_active_classroom_account",
+                            "uq_browser_download_policy_active_group_account",
+                            "uq_browser_download_policy_active_device_account",
                             "ix_browser_url_rules_policy",
                             "ix_batch_target_results_operation_status");
 
@@ -147,6 +150,18 @@ class MasterSqlitePersistenceIntegrationTest {
                     .noneMatch(column -> column.equalsIgnoreCase("arguments"))
                     .noneMatch(column -> column.equalsIgnoreCase("proxy"))
                     .noneMatch(column -> column.equalsIgnoreCase("executable"))
+                    .noneMatch(column -> column.equalsIgnoreCase("path"));
+
+            List<String> downloadPolicyColumns = jdbcTemplate.queryForList(
+                    "SELECT name FROM pragma_table_info('browser_download_policies')",
+                    String.class);
+            assertThat(downloadPolicyColumns)
+                    .contains("policy_id", "classroom_id", "name", "restriction_mode", "scope_type",
+                            "school_group_id", "device_id", "account_scope", "active", "version")
+                    .noneMatch(column -> column.toLowerCase().contains("extension"))
+                    .noneMatch(column -> column.toLowerCase().contains("mime"))
+                    .noneMatch(column -> column.equalsIgnoreCase("script"))
+                    .noneMatch(column -> column.equalsIgnoreCase("command"))
                     .noneMatch(column -> column.equalsIgnoreCase("path"));
         }
     }
@@ -290,11 +305,11 @@ class MasterSqlitePersistenceIntegrationTest {
         Path dataDir = tempDir.resolve("idempotence");
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(3);
+            assertThat(flywaySuccessCount(context)).isEqualTo(4);
         }
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(3);
+            assertThat(flywaySuccessCount(context)).isEqualTo(4);
             assertThat(context.getBean(ClassroomRepository.class).findActive()).isEmpty();
         }
     }

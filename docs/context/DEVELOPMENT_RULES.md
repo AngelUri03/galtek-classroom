@@ -112,6 +112,9 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Para navegacion web, resolver como maximo una policy efectiva por contexto usando precedencia determinista; no mezclar reglas de policies de scopes distintos.
 - No usar regex arbitraria, JavaScript regex ni wildcards libres para reglas URL de administracion escolar.
 - El enforcement productivo de navegacion Chrome/Edge debe usar operaciones tipadas Galtek y `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real; no usar HKLM, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, shell, polling, browser automation ni matar/reiniciar navegadores para esta funcionalidad.
+- Las politicas administrativas de descarga de navegador viven en un dominio separado de navegacion. No agregar `DownloadRestrictions`, extension lists ni MIME lists dentro de `BrowserAccessPolicy`, `BrowserPolicyMode`, `BrowserUrlRule` o URL match types.
+- Para descargas de navegador, resolver como maximo una policy efectiva por contexto con la misma precedencia que navegacion: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `NO_SPECIAL_RESTRICTIONS` implicito.
+- No modelar bloqueo arbitrario administrable por extension/MIME para Chrome/Edge Windows hasta que exista un mecanismo comun realmente enforceable. En `BLOCK_ALL`, la descarga futura autorizada por maestra debe ir por canal Galtek tipado/controlado hacia `StudentWorkspace`, no desbloqueando temporalmente el browser.
 - Projection debe distinguir `SCREEN_SHARE`, `WHITEBOARD`, `POINTER`, `LOCAL_MEDIA` y `OPEN_WEB_CONTENT`.
 - Chrome passwords, cookies y cache no se copian directamente como estrategia de portabilidad.
 - Un Master se autoriza por Windows SID ligado, no solo por username ni por pertenecer a Administrators.

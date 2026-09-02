@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16C solo administra policies de navegacion; no aplica bloqueo real en navegadores ni envia policy al Agent. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16C solo administra policies de navegacion; Prompt 16E1 solo administra policies de descarga de navegador. No aplica bloqueo real de descargas, no escribe registry y no envia download policy al Agent. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -422,6 +422,111 @@ Separacion de seguridad:
 - Safety estructural de URL decide si una URL es tecnicamente procesable.
 - Browser policy decide si la navegacion esta administrativamente permitida.
 - Una policy `ALLOW` nunca puede saltarse safety; `file:`, `javascript:`, `data:` y esquemas inseguros siguen rechazados.
+
+## Browser Download Policies
+
+- `GET /api/classrooms/{classroomId}/browser-download-policies?active=true|false`
+- `POST /api/classrooms/{classroomId}/browser-download-policies`
+- `PATCH /api/browser-download-policies/{policyId}`
+- `POST /api/browser-download-policies/{policyId}/archive`
+- `GET /api/classrooms/{classroomId}/browser-download-policies/effective?deviceId=&groupId=&accountType=`
+
+Todos estos endpoints estan protegidos por `MasterAccessGuard`. Administran la fuente de verdad del Master para descarga de navegador; no escriben registry, no aplican `DownloadRestrictions`, no crean extension, no monitorean descargas y no envian nada al Agent.
+
+Create policy:
+
+```json
+{
+  "name": "Primaria sin descargas",
+  "restrictionMode": "BLOCK_ALL",
+  "scopeType": "CLASSROOM",
+  "schoolGroupId": null,
+  "deviceId": null,
+  "accountScope": "PRIMARY"
+}
+```
+
+Restriction modes:
+
+```text
+NO_SPECIAL_RESTRICTIONS
+BLOCK_DANGEROUS
+BLOCK_POTENTIALLY_DANGEROUS
+BLOCK_ALL
+BLOCK_MALICIOUS
+```
+
+La API expone el enum Galtek. El mapping nativo futuro de `DownloadRestrictions` es 0-4 y pertenece al Agent en 16E2, no a la autoridad del API.
+
+Scopes y account scopes son iguales a navegacion:
+
+```text
+CLASSROOM -> sin schoolGroupId ni deviceId
+GROUP     -> schoolGroupId obligatorio y del aula
+DEVICE    -> deviceId obligatorio y del aula
+
+ANY
+PRIMARY
+SECONDARY
+```
+
+Patch/archive requieren `expectedVersion`. Patch puede modificar `name`, `restrictionMode`, `scopeType`, `schoolGroupId`, `deviceId` y `accountScope`, con las mismas invariantes de scope que create.
+
+Effective policy:
+
+```json
+{
+  "policy": {
+    "policyId": "uuid",
+    "classroomId": "uuid",
+    "name": "PC07 primary",
+    "restrictionMode": "BLOCK_ALL",
+    "scopeType": "DEVICE",
+    "schoolGroupId": null,
+    "deviceId": "device-07",
+    "accountScope": "PRIMARY",
+    "active": true,
+    "version": 0
+  },
+  "restrictionMode": "BLOCK_ALL",
+  "implicit": false
+}
+```
+
+Si no hay policy aplicable:
+
+```json
+{
+  "policy": null,
+  "restrictionMode": "NO_SPECIAL_RESTRICTIONS",
+  "implicit": true
+}
+```
+
+Precedencia:
+
+```text
+1. DEVICE + cuenta especifica
+2. DEVICE + ANY
+3. GROUP + cuenta especifica
+4. GROUP + ANY
+5. CLASSROOM + cuenta especifica
+6. CLASSROOM + ANY
+7. ninguna policy -> NO_SPECIAL_RESTRICTIONS implicito
+```
+
+Si `accountType` falta, solo aplican policies `ANY`; no se infiere `PRIMARY`.
+
+No se aceptan campos como `registryValue`, `nativeValue`, `downloadPath`, `extension`, `mimeType`, `command`, `script`, `browserExecutable` o `windowsSid`.
+
+Errores relevantes:
+
+- `400 BROWSER_DOWNLOAD_POLICY_SCOPE_INVALID`: scope inconsistente o group/device de otra aula.
+- `404 BROWSER_DOWNLOAD_POLICY_NOT_FOUND`: policy inexistente/archivada.
+- `409 BROWSER_DOWNLOAD_POLICY_CONFLICT`: ya existe una policy activa para la misma combinacion target/account.
+- `409 CONCURRENT_MODIFICATION`: `expectedVersion` obsoleto.
+
+Limitacion Windows: no se modelan `blockedExtensions`, `allowedExtensions`, `blockedMimeTypes` ni `allowedMimeTypes`, porque Galtek no puede garantizar bloqueo arbitrario equivalente en Chrome y Edge sobre Windows en esta fase.
 
 ## Classrooms
 
