@@ -1,5 +1,25 @@
 # Decisiones vigentes
 
+## 2026-09-02 - Prompt 16F2
+
+- `POST /api/classrooms/{classroomId}/open-url` es el endpoint batch Master productivo para `OPEN_URL`; no existe endpoint por Device individual.
+- La request acepta solo `url` y `targetDeviceIds`; no acepta browser/profile, `accountType`, `policyId`, rules, comandos, argumentos, shell, timeout, SID, registry paths ni payload libre.
+- `MasterAccessGuard.requireAuthorized()` debe ejecutarse antes de leer aula, Devices, assignments, Students, policies o bindings.
+- La safety estructural de `url` es global: si falla, toda la request se rechaza con `INVALID_URL` y no se crea `BatchOperation`.
+- El Master usa normalizacion solo para evaluacion de policy; el Agent recibe la URL original aceptada en `OpenUrlOperationParameters.url`, preservando query y fragment.
+- Para cada target, `groupId` se deriva de assignment actual `Device -> Student -> Student.groupId`; sin Student asignado, `groupId = null`.
+- `accountType = null` en dispatch Master de `OPEN_URL` significa que solo participan policies `ANY`; `PRIMARY`/`SECONDARY` no se infieren ni se aceptan por HTTP.
+- `BrowserPolicyPrecedenceResolver` selecciona exactamente una policy efectiva por target o `UNRESTRICTED` implicito; no se combinan reglas entre scopes.
+- `BrowserNavigationPolicyEvaluator` decide `ALLOW`/`BLOCK` por target antes del fanout. `EXACT_URL` si se evalua directamente para `OPEN_URL` concreto y no produce `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- Un target bloqueado por policy queda `FAILED URL_BLOCKED_BY_POLICY` y no recibe `OperationRequest`; otros targets continuan.
+- Preflight `OPEN_URL` exige aula correcta, Device existente, binding vigente, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS autenticada `ONLINE` y capability `OPEN_URL_V1`; no exige browser instalado ni `SESSION_AGENT_AVAILABLE`.
+- Se congela todo el plan antes del fanout, se persiste una unica `BatchOperation` `OPEN_URL` y se usa el mismo `operationId` para todos los Agents.
+- `OPEN_URL SUCCESS` significa solo que Windows acepto abrir la URL con el handler HTTP/HTTPS registrado; no prueba Internet, DNS, HTTP 200, render, browser especifico ni que el alumno vio la pagina.
+- `OPERATION_RESULT_UNKNOWN` significa que Master envio al Agent pero no obtuvo `OperationResult`; `SESSION_COMMAND_RESULT_UNKNOWN` significa que el Agent envio al Session Agent pero no confirmo su respuesta.
+- `OPEN_URL` no tiene retry automatico ni reconciliacion/status query para evitar duplicar pestanas o inferir navegacion.
+- SQLite no requirio V6: las constraints de V1/V5 ya permiten `OPEN_URL` en `batch_operations`.
+- Prompt 16F2 no modifica Agent, Session Agent, Protobuf, Registry, installer, UI ni enforcement 16D.
+
 ## 2026-09-02 - Prompt 16F1
 
 - Los apply endpoints de browser policies viven en Master y aceptan solo `targetDeviceIds`; la request no puede traer `policyId`, rules, `accountType`, URLs, browser, commands, registry paths, timeout ni payload libre.
@@ -54,7 +74,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`. `OPEN_URL` sigue sin endpoint/batch funcional del Master hasta una fase posterior.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.

@@ -5,6 +5,7 @@ import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParame
 import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
+import com.galtek.classroom.network.v1.OpenUrlOperationParameters;
 import com.galtek.classroom.network.v1.OperationAcceptanceStatus;
 import com.galtek.classroom.network.v1.OperationAccepted;
 import com.galtek.classroom.network.v1.OperationExecutionStatus;
@@ -86,7 +87,7 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -95,7 +96,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -104,7 +105,16 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserDownloadPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null);
+    }
+
+    public Optional<DispatchHandle> dispatch(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            OpenUrlOperationParameters parameters) {
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters);
     }
 
     private Optional<DispatchHandle> dispatch(
@@ -113,7 +123,8 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters browserPolicyParameters,
-            ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters) {
+            ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters,
+            OpenUrlOperationParameters openUrlParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
         }
@@ -147,6 +158,9 @@ public class MasterRemoteOperationGateway {
             }
             if (browserDownloadPolicyParameters != null) {
                 request.setApplyBrowserDownloadPolicy(browserDownloadPolicyParameters);
+            }
+            if (openUrlParameters != null) {
+                request.setOpenUrl(openUrlParameters);
             }
             session.send(MasterEnvelope.newBuilder()
                     .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
@@ -460,6 +474,7 @@ public class MasterRemoteOperationGateway {
         return switch (operationType) {
             case SHUTDOWN -> NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN;
             case RESTART -> NetworkOperationType.NETWORK_OPERATION_TYPE_RESTART;
+            case OPEN_URL -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->

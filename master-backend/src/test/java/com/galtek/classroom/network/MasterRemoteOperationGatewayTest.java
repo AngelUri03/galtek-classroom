@@ -17,6 +17,7 @@ import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
+import com.galtek.classroom.network.v1.OpenUrlOperationParameters;
 import com.galtek.classroom.network.v1.OperationAcceptanceStatus;
 import com.galtek.classroom.network.v1.OperationAccepted;
 import com.galtek.classroom.network.v1.OperationExecutionStatus;
@@ -133,6 +134,32 @@ class MasterRemoteOperationGatewayTest {
         assertThat(request.hasApplyBrowserDownloadPolicy()).isTrue();
         assertThat(request.hasApplyBrowserPolicy()).isFalse();
         assertThat(request.getApplyBrowserDownloadPolicy()).isEqualTo(parameters);
+    }
+
+    @Test
+    void dispatchSendsTypedOpenUrlParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        OpenUrlOperationParameters parameters = OpenUrlOperationParameters.newBuilder()
+                .setUrl("https://example.edu/material#page-2")
+                .build();
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(
+                        snapshot,
+                        OperationType.OPEN_URL,
+                        "batch-open-url",
+                        "device-1",
+                        parameters)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType()).isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL);
+        assertThat(request.hasOpenUrl()).isTrue();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+        assertThat(request.getOpenUrl()).isEqualTo(parameters);
     }
 
     @Test

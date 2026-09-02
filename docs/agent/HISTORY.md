@@ -1660,3 +1660,39 @@
 ### Commit sugerido
 
 `feat(master): dispatch browser policy batches`
+
+## 2026-09-02 - Prompt 16F2
+
+### Realizado
+
+- Agregado endpoint Master `POST /api/classrooms/{classroomId}/open-url`.
+- La request acepta solo `url` y `targetDeviceIds`; rechaza campos extra como browser/profile, `accountType`, `policyId`, rules, comandos, argumentos, shell, timeout, SID, registry paths o payload libre.
+- Implementado `OpenUrlDispatchService` con `MasterAccessGuard` antes de datos escolares, safety estructural global mediante `OpenUrlPolicy` y rechazo total `INVALID_URL` sin crear batch.
+- Reutilizada resolucion batch-friendly de contexto: Devices del aula, bindings vigentes, snapshots de conexion, trust paired/revoked, assignments actuales y grupo desde `Student.groupId`.
+- Resuelta una sola policy efectiva por target con `BrowserPolicyPrecedenceResolver`, `accountType = null` (`ANY` solamente) y `UNRESTRICTED` implicito cuando no hay policy.
+- Evaluado `OPEN_URL` en Master con `BrowserNavigationPolicyEvaluator`; `EXACT_URL` funciona para una URL concreta y no produce `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- Targets bloqueados por policy quedan `FAILED URL_BLOCKED_BY_POLICY` sin enviar `OperationRequest`; otros targets continuan.
+- Preflight `OPEN_URL` exige aula correcta, binding, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS autenticada `ONLINE` y capability `OPEN_URL_V1`; no exige browser instalado ni `SESSION_AGENT_AVAILABLE`.
+- Extendida `MasterRemoteOperationGateway` para enviar `OperationType.OPEN_URL` con `OpenUrlOperationParameters.url` tipado y preservar la URL original aceptada.
+- Persistida una unica `BatchOperation` `OPEN_URL` antes del fanout, con el mismo `operationId` para todos los Agents y payload minimo de auditoria con la URL.
+- Conservadas las semanticas `OPERATION_RESULT_UNKNOWN`, `SESSION_COMMAND_RESULT_UNKNOWN`, `SESSION_AGENT_UNAVAILABLE`, `URL_BLOCKED_BY_POLICY`, sin retry automatico ni reconciliacion de tabs.
+- Confirmado que SQLite no requiere V6: V1/V5 ya permiten `OPEN_URL` en `batch_operations`.
+- Actualizada documentacion de API, arquitectura, modelo funcional, reglas, estado, decisiones, historial y browser policy enforcement.
+
+### Cambios descartados
+
+- No se modifico Agent .NET, Session Agent, Protobuf, Registry, installer ni enforcement 16D.
+- No se agrego endpoint por Device individual, UI, browser selector, Chrome/Edge forced, profile/incognito/newTab, browser automation, tab/history monitoring, process scan, automatic policy apply, retry automatico ni `OperationStatusQuery` para `OPEN_URL`.
+- No se creo migracion V6 artificial.
+- No se ejecutaron tests ni builds .NET.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=OpenUrlDispatchControllerTest,MasterRemoteOperationGatewayTest,BrowserNavigationPolicyEvaluatorTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=BrowserPolicyDispatchControllerTest,OpenUrlDispatchControllerTest,MasterRemoteOperationGatewayTest,BrowserNavigationPolicyEvaluatorTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): dispatch open url batches`

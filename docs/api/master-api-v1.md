@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. No agrega endpoint batch Master para `OPEN_URL`, no acepta URLs/commands en estos apply endpoints, no escribe registry desde Java y no modifica Agent/Protobuf/Registry. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Los apply endpoints no aceptan URLs/commands, Java no escribe registry y 16F2 no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -250,6 +250,71 @@ Errores relevantes:
 - Target `DEVICE_OFFLINE`: no hay conexion autenticada online antes del envio.
 - Target `OPERATION_REJECTED`: el Agent rechazo la operacion mediante respuesta tipada; no retryable actualmente.
 - Target `OPERATION_RESULT_UNKNOWN`: resultado incierto despues del envio.
+
+## Open URL
+
+`POST /api/classrooms/{classroomId}/open-url`
+
+Endpoint protegido por `MasterAccessGuard`. Ejecuta una sola operacion batch remota tipada `OPEN_URL` sobre Devices explicitos del aula.
+
+Request:
+
+```json
+{
+  "url": "https://example.com/material",
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- Solo se aceptan `url` y `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
+- `url` es obligatorio, no blank, debe respetar el limite vigente de `OPEN_URL` y debe pasar safety estructural antes de leer aula, Devices, assignments o policies.
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados.
+- No se aceptan `browser`, `executablePath`, `browserProfileId`, `profile`, `accountType`, `groupId`, `policyId`, rules, comandos, argumentos, shell, force, timeout, `newTab`, `incognito`, SID, registry paths ni payload libre.
+
+Safety global:
+
+- La URL debe ser absoluta, `http`/`https`, con host obligatorio, sin userinfo, sin controles/CR/LF, sin rutas locales/UNC, sin URL relativa y sin esquemas `file:`, `javascript:` o `data:`.
+- Si falla safety estructural, se rechaza toda la request con `INVALID_URL` y no se crea `BatchOperation`.
+- La normalizacion se usa para comparar policy, pero el Agent recibe la URL original aceptada, conservando query y fragment visible.
+
+Policy por target:
+
+- El Master resuelve una sola policy efectiva por Device con `classroomId`, `deviceId`, `groupId` derivado del assignment actual `Device -> Student -> Student.groupId` y `accountType = null`.
+- `accountType = null` significa que solo participan policies `ANY`; `PRIMARY`/`SECONDARY` no se infieren ni se aceptan desde HTTP.
+- Si no hay policy efectiva, aplica `UNRESTRICTED` implicito.
+- `BrowserNavigationPolicyEvaluator` decide `ALLOW` o `BLOCK` usando la semantica vigente de matching. `EXACT_URL` si se evalua para `OPEN_URL` concreto; no produce `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
+- Un target bloqueado por policy queda `FAILED URL_BLOCKED_BY_POLICY` y no se envia nada a su Agent.
+
+Preflight y dispatch:
+
+- Para targets permitidos por policy, el Device debe pertenecer al aula, existir, tener binding vigente, trust `PAIRED`, no estar `REVOKED`, tener conexion gRPC/mTLS autenticada `ONLINE` y anunciar `OPEN_URL_V1`.
+- No se exige Chrome, Edge, browser instalado ni `SESSION_AGENT_AVAILABLE` como sustituto de disponibilidad runtime.
+- El Master congela todos los planes antes del fanout, persiste una unica `BatchOperation` `OPEN_URL` antes del primer send y usa el mismo `operationId` para todos los Agents.
+- El gateway envia `OperationType.OPEN_URL` con `OpenUrlOperationParameters { url = originalValidatedUrl }`; no usa payload JSON generico ni transporte nuevo.
+
+Semantica de resultados:
+
+- `SUCCESS` significa solo que Windows, en la sesion interactiva del Client, acepto abrir la URL mediante el handler HTTP/HTTPS registrado. No implica Internet, DNS, HTTP 200, carga completa, render, video iniciado, alumno viendo la pagina, Chrome ni Edge.
+- `OperationAccepted ACCEPTED` no marca `SUCCESS`; solo `OperationResult SUCCESS`.
+- Si el Master envio `OperationRequest` pero no obtuvo `OperationResult`, el target queda `OPERATION_RESULT_UNKNOWN`.
+- Si el Agent envio el Session Command pero perdio/no confirmo respuesta del Session Agent, queda `SESSION_COMMAND_RESULT_UNKNOWN`.
+- No hay retry automatico ni reconciliacion para `OPEN_URL`, para evitar duplicar pestanas o ventanas.
+- La defensa en profundidad se conserva: el Agent vuelve a validar safety y puede devolver `URL_BLOCKED_BY_POLICY` si su policy local aplicada bloquea la URL.
+
+Respuesta: misma forma de batch que `power-control`, con `type = OPEN_URL`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body faltante, `url` blank, targets vacios/duplicados o campos no soportados.
+- `400 INVALID_URL`: safety estructural global falla.
+- `403 <authorization.status>`: Master local no autorizado.
+- `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `URL_BLOCKED_BY_POLICY`, `INVALID_URL`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
 
 ## Reconcile Power Operation
 

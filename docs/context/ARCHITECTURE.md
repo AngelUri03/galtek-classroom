@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 16F1 agrega dispatch batch desde Master para aplicar las policies persistidas de navegacion y descarga de navegador. Expone `POST /api/classrooms/{classroomId}/browser-policies/apply` y `POST /api/classrooms/{classroomId}/browser-download-policies/apply`, ambos protegidos por `MasterAccessGuard`, con request estricta de `targetDeviceIds` explicitos. El Master resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, congela parametros Protobuf tipados antes del fanout, persiste una unica `BatchOperation` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI y no implementa endpoint batch Master para `OPEN_URL`.
+Prompt 16F2 agrega dispatch batch desde Master para `OPEN_URL`. Expone `POST /api/classrooms/{classroomId}/open-url`, protegido por `MasterAccessGuard`, con request estricta de `url` y `targetDeviceIds`. El Master valida safety estructural global con `OpenUrlPolicy`, resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, evalua `BrowserNavigationPolicyEvaluator` incluyendo `EXACT_URL`, congela `OpenUrlOperationParameters.url` antes del fanout, persiste una unica `BatchOperation` `OPEN_URL` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI, no selecciona browser/profile y no agrega retry/reconciliacion.
+
+Prompt 16F1 agrega dispatch batch desde Master para aplicar las policies persistidas de navegacion y descarga de navegador. Expone `POST /api/classrooms/{classroomId}/browser-policies/apply` y `POST /api/classrooms/{classroomId}/browser-download-policies/apply`, ambos protegidos por `MasterAccessGuard`, con request estricta de `targetDeviceIds` explicitos. El Master resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, congela parametros Protobuf tipados antes del fanout, persiste una unica `BatchOperation` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI.
 
 Prompt 16E2B implementa enforcement real Agent-side de politicas de descarga de navegador para Google Chrome y Microsoft Edge en Windows usando la policy empresarial nativa `DownloadRestrictions` como `REG_DWORD` bajo `HKEY_USERS\<SID>` del usuario interactivo real. Agrega `ApplyBrowserDownloadPolicyOperationHandler`, store especifico de descarga, state durable `browser-download-policy-state.json`, journal lazy `browser-download-policy-apply.json`, ownership conservador de parent key, hardening ACL parent-only, rollback/recovery y capability productiva `BROWSER_DOWNLOAD_POLICY_V1`. No agrega endpoint batch Master, UI, Session Command, extension, proxy, DNS, firewall, hosts, browser automation, process scan, version polling ni DLP.
 
@@ -14,7 +16,7 @@ Prompt 16D implementa enforcement real Agent-side de politicas de navegacion par
 
 Prompt 16C agrega en el Master la fuente de verdad persistente para politicas administrativas de navegacion web. El dominio `browserpolicy` modela policies por aula/grupo/device y por account scope `ANY`/`PRIMARY`/`SECONDARY`, reglas URL sin regex arbitraria, normalizacion/evaluacion pura y resolucion determinista de una sola politica efectiva. No aplica bloqueo real en Chrome/Edge/Windows, no agrega transporte Agent, no modifica Protobuf/gRPC y no implementa politicas de descargas.
 
-Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. No hay bloqueo real de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
+Prompt 16B implementa `OPEN_URL` productivo Agent-side usando el canal local seguro `Session Command v1` de Prompt 16A. `OperationRequest OPEN_URL` transporta parametros tipados `OpenUrlOperationParameters.url`; el Agent Service valida la URL y envia un comando `OPEN_URL` tipado al Session Agent de la sesion interactiva. El Session Agent valida nuevamente la URL y pide a Windows abrirla con el handler registrado de HTTP/HTTPS mediante Shell API. El Service corre como LocalSystem/Session 0 y nunca abre directamente el navegador. En esa fase no habia bloqueo real de URLs, bloqueo de descargas, endpoint batch Master para `OPEN_URL`, UI ni `OPEN_APPLICATION`.
 
 Prompt 16A agrega el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. Es un Named Pipe separado por sesion interactiva, servido por el Session Agent y consumido por el Service como LocalSystem, con ACL solo para LocalSystem, autenticacion del caller real mediante token de Named Pipe, verificacion del servidor por PID/sesion/ruta productiva y framing JSON UTF-8 con longitud BIG ENDIAN de 4 bytes.
 
@@ -36,7 +38,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control, `OPEN_URL` y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -54,7 +56,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas. Prompt 16B implementa `OPEN_URL` solo del lado Agent y no agrega dispatch batch Master. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo de input.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo de input.
 
 ## Modelo operativo Master/Client
 
@@ -204,6 +206,7 @@ IMPLEMENTADO:
   - `GET /api/network/clients`.
   - `POST /api/classrooms/{classroomId}/devices/register`.
   - `POST /api/classrooms/{classroomId}/power-control`.
+  - `POST /api/classrooms/{classroomId}/open-url`.
   - `GET /api/classrooms/{classroomId}/browser-policies`.
   - `POST /api/classrooms/{classroomId}/browser-policies`.
   - `POST /api/classrooms/{classroomId}/browser-policies/apply`.
@@ -359,7 +362,6 @@ NO IMPLEMENTADO:
 - mDNS real.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
-- Endpoint batch Master o servicio funcional Master para `OPEN_URL`.
 - Ejecucion real de `OPEN_APPLICATION`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
@@ -555,7 +557,7 @@ NO IMPLEMENTADO:
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Endpoints/IPC de pairing reales expuestos a UI/transporte.
 - Comandos MASTER protegidos por autorizacion de red.
-- Endpoint batch Master para `OPEN_URL` o comandos remotos funcionales distintos de `SHUTDOWN`/`RESTART` en Master.
+- Comandos remotos funcionales distintos de `SHUTDOWN`, `RESTART`, `OPEN_URL` y apply de browser policies en Master.
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 

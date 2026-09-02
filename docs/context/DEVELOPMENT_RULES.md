@@ -108,6 +108,9 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `REMOVABLE_STORAGE` es destino logico futuro autorizado, no una ruta libre.
 - Una distribucion grande, thumbnails o inventario no deben bloquear operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
 - `OPEN_URL` y `OPEN_WEB_CONTENT` deben preferir ejecucion local en el Client; no convertir YouTube en screen share por default.
+- El endpoint Master `POST /api/classrooms/{classroomId}/open-url` debe seguir aceptando solo `url` y `targetDeviceIds`, con `MasterAccessGuard` antes de cualquier lectura escolar y safety estructural global antes de crear `BatchOperation`.
+- Para `OPEN_URL` batch, el Master debe resolver una sola policy efectiva por target con `accountType = null` (`ANY` solamente), derivar `groupId` desde assignment actual y evaluar `EXACT_URL` directamente con `BrowserNavigationPolicyEvaluator`; no aplicar `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` a `OPEN_URL` concreto.
+- `OPEN_URL` batch no debe seleccionar browser/profile, no debe aplicar policies automaticamente, no debe reintentar automaticamente ni extender reconciliacion/status query para inferir pestañas abiertas.
 - Las politicas administrativas de navegacion viven en el Master como fuente de verdad persistente separada de la safety estructural de URL. Una allowlist nunca autoriza esquemas inseguros rechazados por safety.
 - Para navegacion web, resolver como maximo una policy efectiva por contexto usando precedencia determinista; no mezclar reglas de policies de scopes distintos.
 - No usar regex arbitraria, JavaScript regex ni wildcards libres para reglas URL de administracion escolar.

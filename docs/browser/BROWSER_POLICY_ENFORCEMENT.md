@@ -1,6 +1,6 @@
 # Browser Policy Enforcement
 
-Prompt 16D implements Agent-side enforcement of Galtek browser navigation policy for Google Chrome and Microsoft Edge on Windows. Prompt 16F1 adds Master batch dispatch for applying the persisted navigation policy to selected Devices through the existing typed operation.
+Prompt 16D implements Agent-side enforcement of Galtek browser navigation policy for Google Chrome and Microsoft Edge on Windows. Prompt 16F1 adds Master batch dispatch for applying the persisted navigation policy to selected Devices through the existing typed operation. Prompt 16F2 adds Master batch dispatch for concrete `OPEN_URL` requests.
 
 ## Native Mechanism
 
@@ -120,6 +120,12 @@ There is no timer, polling, process scan, browser scan or registry polling.
 `OPEN_URL` still runs structural URL safety first. After that, the Agent checks the locally applied Galtek browser policy for the current interactive user. If the policy blocks the URL, the Agent does not send a Session Command and returns `URL_BLOCKED_BY_POLICY`.
 
 If no Galtek policy is applied locally, `OPEN_URL` keeps the 16B behavior and relies only on structural URL safety.
+
+From Prompt 16F2, the Master also evaluates the effective persisted navigation policy before dispatching a concrete `OPEN_URL`. The endpoint accepts only `url` and `targetDeviceIds`, validates structural URL safety globally, resolves one effective policy per target with `accountType = null` (`ANY` only), derives group from the current Device assignment, and uses `BrowserNavigationPolicyEvaluator`.
+
+`EXACT_URL` is different for `OPEN_URL` than for native apply. A policy containing `EXACT_URL` may be non-native-enforceable for Chromium registry apply, but a concrete `OPEN_URL` has the exact URL in hand, so Master evaluates `EXACT_URL` directly. A blocked target becomes `URL_BLOCKED_BY_POLICY` and receives no `OperationRequest`; an allowed target receives `OpenUrlOperationParameters.url` with the original accepted URL, preserving query and fragment.
+
+Master-side policy evaluation does not replace Agent defense in depth. The Agent still validates structural safety and can still return `URL_BLOCKED_BY_POLICY` if the local applied policy is more restrictive or different.
 
 ## Master Batch Dispatch
 
