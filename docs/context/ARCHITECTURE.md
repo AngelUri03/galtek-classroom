@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `application-bindings.json` para resolver en el Client `applicationId -> target local` en una futura operacion `OPEN_APPLICATION`. El catalogo vive en `<CommonApplicationData>\Galtek\Classroom\`, usa escritura durable, ACL local, configuracion CLI elevada y soporta solo `APP_PATHS` y `ABSOLUTE_EXE`. No agrega launch de procesos, Protobuf, Session Command, endpoint Master, batch dispatch, auto-discovery, scans, polling ni rutas ejecutables desde el Master.
+
 Prompt 16F2 agrega dispatch batch desde Master para `OPEN_URL`. Expone `POST /api/classrooms/{classroomId}/open-url`, protegido por `MasterAccessGuard`, con request estricta de `url` y `targetDeviceIds`. El Master valida safety estructural global con `OpenUrlPolicy`, resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, evalua `BrowserNavigationPolicyEvaluator` incluyendo `EXACT_URL`, congela `OpenUrlOperationParameters.url` antes del fanout, persiste una unica `BatchOperation` `OPEN_URL` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI, no selecciona browser/profile y no agrega retry/reconciliacion.
 
 Prompt 16F1 agrega dispatch batch desde Master para aplicar las policies persistidas de navegacion y descarga de navegador. Expone `POST /api/classrooms/{classroomId}/browser-policies/apply` y `POST /api/classrooms/{classroomId}/browser-download-policies/apply`, ambos protegidos por `MasterAccessGuard`, con request estricta de `targetDeviceIds` explicitos. El Master resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, congela parametros Protobuf tipados antes del fanout, persiste una unica `BatchOperation` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI.
@@ -887,6 +889,13 @@ IMPLEMENTADO:
 - Archivo `master-binding.json` para Master Windows Binding.
 - Archivo `network-identity.json` para metadata publica de Network Identity.
 - Archivo `authorized-masters.json` para trust persistido de Masters emparejados con el Client.
+- Archivo `application-bindings.json` para vincular `applicationId` logico Galtek con un launch target local configurado por administrador.
+- `application-bindings.json` queda separado de identidad, licencia, Master binding, Network Identity, trust stores y state/journals de browser policy.
+- El catalogo local de aplicaciones usa `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
+- ACL de `application-bindings.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; `Builtin Users` y `Authenticated Users` solo lectura para compatibilidad read-only futura.
+- CLI local administrativa: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
+- Las mutaciones del catalogo requieren consola elevada; list/read-only no requiere elevacion y no crea ni modifica el archivo.
+- Corrupcion, schema desconocido, duplicados, launch type desconocido o campos incompatibles producen `APPLICATION_BINDINGS_INVALID` sin regeneracion silenciosa ni adopcion parcial.
 - Llave privada de Network Identity fuera de JSON, en Windows CNG/KSP de maquina.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
 - `DurableFileWriter` centraliza escritura de archivos criticos del Agent con temp file, flush/fsync y reemplazo/movimiento atomico.
@@ -929,6 +938,9 @@ VIGENTE DESDE AHORA:
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows fuera de Galtek.
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
+- Para aplicaciones, el Master solo puede enviar `applicationId`; la resolucion fisica vive en el Client y nunca acepta `executablePath`, comandos, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria desde el Master.
+- Los launch types locales iniciales son exactamente `APP_PATHS` y `ABSOLUTE_EXE`; `ABSOLUTE_EXE` exige ruta local absoluta `.exe` y existencia del archivo al crear/reemplazar el binding.
+- Prompt 17A no implementa `OPEN_APPLICATION`, no modifica Protobuf, no agrega Session Command ni abre procesos.
 - Operaciones de contenido deben usar destinos logicos de `StudentWorkspace`; el Master no debe enviar rutas absolutas arbitrarias ni path traversal.
 - `Device` y `Student` son entidades independientes; mover un alumno es un workflow de alumno/workspace, no una copia manual de una carpeta de PC a PC.
 - Browser profiles modelan portabilidad sin copiar passwords, cookies ni cache protegido.

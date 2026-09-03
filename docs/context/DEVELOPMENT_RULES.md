@@ -87,6 +87,11 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Los perfiles `LEGACY`, `STANDARD` y `MASTER_BALANCED` son operacionales y nunca conceden autorizacion, trust, pairing ni permisos.
 - `PRIMARY` y `SECONDARY` son Windows normal por default; no implementar modo kiosco, restricciones de aplicaciones, cambio automatico de sesion ni bloqueo de input al iniciar clase salvo alcance explicito futuro.
 - El Master no debe enviar rutas ejecutables, rutas de workspace, rutas USB ni rutas absolutas arbitrarias; usar `applicationId` y destinos logicos.
+- Para aplicaciones, `ApplicationDefinition` del Master no equivale a `ApplicationBinding` del Client. El Master solo envia `applicationId`; el Client resuelve localmente desde `application-bindings.json`.
+- Nunca aceptar desde el Master `executablePath`, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria para abrir aplicaciones.
+- El catalogo local `application-bindings.json` vive en `<CommonApplicationData>\Galtek\Classroom\`, usa escritura durable, ACL sin write para usuarios normales y falla cerrado con `APPLICATION_BINDINGS_INVALID` ante corrupcion.
+- Los launch types locales de aplicaciones son tipados. En Prompt 17A solo existen `APP_PATHS` y `ABSOLUTE_EXE`; cualquier tipo nuevo futuro debe agregarse explicitamente y no como comando generico.
+- No agregar auto-discovery de aplicaciones, scans de Program Files, Start Menu, Registry, discos, procesos, WMI, watchers, timers, heartbeat data ni writes idle para mantener el catalogo.
 - No copiar perfiles Chrome crudos (`Login Data`, `Cookies`, `Local State`, tokens o secretos protegidos).
 - No limpiar working copies locales antes de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Ante operacion sin ACK, red perdida o energia perdida, no asumir `SUCCESS`; conservar origen/local working copy y reportar estado recuperable.

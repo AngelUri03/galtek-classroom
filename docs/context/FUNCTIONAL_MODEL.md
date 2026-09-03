@@ -733,6 +733,37 @@ Las aplicaciones continuan ejecutandose localmente en los Clients. Ejemplos futu
 
 Prompt 08 persiste el catalogo por `applicationId` y permite asociarlo a aulas. No ejecuta aplicaciones.
 
+## ApplicationBinding
+
+`ApplicationBinding` formaliza la vinculacion fisica local del Client:
+
+```text
+applicationId
+launchType
+appPathExecutableName?
+executablePath?
+enabled
+createdAtUtc
+updatedAtUtc
+```
+
+`ApplicationDefinition` y `ApplicationBinding` son conceptos distintos. El Master conoce y autoriza aplicaciones logicas para el aula; cada Client conserva localmente como abrir esa aplicacion en ese equipo.
+
+Prompt 17A persiste `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` desde `GaltekClassroom.Agent.Service`, separado de identidades, licencia, trust stores y browser policy state. No ejecuta aplicaciones, no agrega Protobuf, no agrega Session Command y no expone paths al Master.
+
+Launch types iniciales:
+
+```text
+APP_PATHS
+ABSOLUTE_EXE
+```
+
+`APP_PATHS` acepta solo un nombre de ejecutable `.exe` sin path, comillas, espacios, argumentos ni separadores. `ABSOLUTE_EXE` acepta solo una ruta local Windows absoluta a `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders de entorno; al crear o reemplazar se verifica existencia puntual del archivo.
+
+Un `applicationId` puede tener como maximo un binding local. Reemplazar requiere intencion explicita con `--replace-application-binding`; duplicado sin replace devuelve `APPLICATION_BINDING_ALREADY_EXISTS`. Un binding disabled se conserva y una futura fase de launch debera responder `APPLICATION_DISABLED` sin abrir procesos.
+
+Si el archivo esta corrupto, tiene schema desconocido, IDs duplicados o campos incompatibles, el resultado es `APPLICATION_BINDINGS_INVALID`. El Client preserva el archivo y falla cerrado, sin regenerar ni adoptar entradas parciales.
+
 ## Action Catalog
 
 Acciones previstas, todas tipadas:

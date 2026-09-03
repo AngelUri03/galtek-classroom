@@ -1,4 +1,5 @@
 using GaltekClassroom.Agent.Service;
+using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
@@ -28,6 +29,7 @@ builder.Services.AddClientPairingServices();
 builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
 builder.Services.AddLocalIpcServices();
 builder.Services.AddSessionCommandServices();
+builder.Services.AddApplicationBindingServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
 {
@@ -134,6 +136,54 @@ if (commandLine.Mode is AgentCommandMode.BindMasterCurrentUser or AgentCommandMo
     Console.WriteLine(MasterBindingConsoleJsonSerializer.SerializeConfigurationResult(result));
 
     if (!result.Configured)
+    {
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
+if (commandLine.Mode is AgentCommandMode.ApplicationBindList
+    or AgentCommandMode.ApplicationBindExe
+    or AgentCommandMode.ApplicationBindAppPath
+    or AgentCommandMode.ApplicationBindDisable
+    or AgentCommandMode.ApplicationBindEnable
+    or AgentCommandMode.ApplicationBindRemove)
+{
+    builder.Logging.ClearProviders();
+
+    await using var serviceProvider = builder.Services.BuildServiceProvider();
+    var bindingService = serviceProvider.GetRequiredService<ApplicationBindingConfigurationService>();
+    var result = commandLine.Mode switch
+    {
+        AgentCommandMode.ApplicationBindList => await bindingService.ListAsync(CancellationToken.None),
+        AgentCommandMode.ApplicationBindExe => await bindingService.BindAbsoluteExeAsync(
+            commandLine.ApplicationId ?? string.Empty,
+            commandLine.ApplicationTarget ?? string.Empty,
+            commandLine.ReplaceApplicationBinding,
+            CancellationToken.None),
+        AgentCommandMode.ApplicationBindAppPath => await bindingService.BindAppPathAsync(
+            commandLine.ApplicationId ?? string.Empty,
+            commandLine.ApplicationTarget ?? string.Empty,
+            commandLine.ReplaceApplicationBinding,
+            CancellationToken.None),
+        AgentCommandMode.ApplicationBindDisable => await bindingService.SetEnabledAsync(
+            commandLine.ApplicationId ?? string.Empty,
+            enabled: false,
+            CancellationToken.None),
+        AgentCommandMode.ApplicationBindEnable => await bindingService.SetEnabledAsync(
+            commandLine.ApplicationId ?? string.Empty,
+            enabled: true,
+            CancellationToken.None),
+        AgentCommandMode.ApplicationBindRemove => await bindingService.RemoveAsync(
+            commandLine.ApplicationId ?? string.Empty,
+            CancellationToken.None),
+        _ => throw new InvalidOperationException("Unsupported application binding command.")
+    };
+
+    Console.WriteLine(ApplicationBindingConsoleJsonSerializer.SerializeConfigurationResult(result));
+
+    if (!result.Succeeded)
     {
         Environment.ExitCode = 1;
     }

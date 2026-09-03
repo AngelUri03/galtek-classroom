@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-02 - Prompt 16F2.
+2026-09-03 - Prompt 17A.
 
 ## Estado del proyecto
 
@@ -44,6 +44,8 @@ Prompt 16F1 agrega dispatch batch desde Master para aplicar policies persistidas
 
 Prompt 16F2 agrega dispatch batch desde Master para `OPEN_URL`. Expone `POST /api/classrooms/{classroomId}/open-url`, protegido por `MasterAccessGuard`, con request estricta de `url` y `targetDeviceIds`. El Master valida safety estructural global con `OpenUrlPolicy`, resuelve policy efectiva por target con `BrowserPolicyPrecedenceResolver` y `accountType = null` (`ANY` solamente), deriva grupo por assignment actual, evalua `BrowserNavigationPolicyEvaluator` incluyendo `EXACT_URL`, congela `OpenUrlOperationParameters.url`, persiste una unica `BatchOperation` `OPEN_URL` antes del fanout y reutiliza `MasterRemoteOperationGateway`. No modifica Agent, Protobuf, Registry, Session Command ni UI; no agrega retry automatico, reconciliacion, browser selector ni policy apply automatico.
 
+Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `application-bindings.json` para vincular `applicationId` logico Galtek con un target local del Client. Soporta solo `APP_PATHS` y `ABSOLUTE_EXE`, se configura por CLI local administrativa elevada, usa escritura durable y ACL local, falla cerrado ante corrupcion y no ejecuta aplicaciones todavia. No modifica Master, Java, Protobuf, Session Agent, Session Command, installer, UI ni dispatch remoto.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -79,6 +81,14 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Endpoints protegidos de browser download policies: listar/crear/patch/archive policies y resolver read-only de policy efectiva.
 - `POST /api/classrooms/{classroomId}/browser-download-policies/apply` protegido, aplica la policy de descarga efectiva persistida a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/open-url` protegido, envia batch `OPEN_URL` a Devices explicitamente seleccionados despues de safety global y policy efectiva por target.
+- `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` es la fuente de verdad local del Client para `applicationId -> launch target` futuro.
+- Store local `IApplicationBindingStore`/`ApplicationBindingStore` con Load/Get/List/Add/Replace/SetEnabled/Remove, escritura durable, verificacion posterior y fail closed.
+- Launch types locales de aplicaciones soportados en el Agent: `APP_PATHS` y `ABSOLUTE_EXE`.
+- CLI local administrativa de application bindings: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
+- Mutaciones de application bindings requieren elevacion administrativa; list/read-only no muta ni autoeleva.
+- `APP_PATHS` valida solo nombre `.exe` sin path, comillas, espacios, control chars ni argumentos.
+- `ABSOLUTE_EXE` valida ruta Windows local absoluta `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders; al crear/reemplazar verifica existencia puntual.
+- Corrupcion de `application-bindings.json`, schema desconocido, duplicados o campos incompatibles producen `APPLICATION_BINDINGS_INVALID` sin regenerar ni adoptar parcialmente.
 - `BrowserAccessPolicy` persiste `mode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
 - `BrowserUrlRule` persiste `ALLOW`/`BLOCK`, `HOST_EXACT`/`HOST_SUFFIX`/`URL_PREFIX`/`EXACT_URL`, pattern canonico, enabled, descripcion opcional y timestamps UTC.
 - `BrowserPolicyPrecedenceResolver` selecciona una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
@@ -298,6 +308,13 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - La autorizacion local Master falla cerrado ante Agent down, binding invalido, licencia no activa, falta de rol `MASTER`, mismatch de instalacion o SID distinto.
 - Otro administrador Windows no hereda acceso Master si su SID no esta ligado.
 - Rebinding requiere `--replace-master-binding`.
+- El Master envia `applicationId`, nunca rutas ejecutables.
+- `ApplicationDefinition` del Master no equivale a `ApplicationBinding` del Client.
+- El binding fisico local de aplicaciones vive en `application-bindings.json` y se configura solo localmente por administrador.
+- Reemplazar un binding de aplicacion requiere `--replace-application-binding`.
+- Un binding de aplicacion disabled se conserva; una futura operacion de launch debe devolver `APPLICATION_DISABLED` sin lanzar.
+- `APP_PATHS` y `ABSOLUTE_EXE` son los unicos launch types locales de aplicaciones en 17A.
+- `application-bindings.json` corrupto o incompatible falla cerrado como `APPLICATION_BINDINGS_INVALID`.
 - Update de binarios y uninstall normal preservan `master-binding.json`.
 - `-PurgeData` elimina Installation Identity, Commercial License, Master Windows Binding, Network Identity metadata y, si se puede identificar de forma segura, la llave CNG de Network Identity.
 - Network Identity no reemplaza pairing, certificados, mTLS ni autorizacion remota.
@@ -392,6 +409,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - No usar hardware profile como autorizacion.
 - No crear unit tests que fallen por memoria/CPU/Working Set exacto.
 - No reintroducir logs `INFO` por requests IPC exitosos, autorizacion aceptada, PING/heartbeat sano ni relecturas periodicas de trust store por heartbeat idle.
+- No aceptar executable paths, comandos, argumentos, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria desde el Master para abrir aplicaciones.
+- No implementar `OPEN_APPLICATION` real sin resolver antes `applicationId` contra el catalogo local seguro del Client.
+- No agregar auto-discovery, Program Files scans, Start Menu scans, Registry polling, WMI, process scans, filesystem watchers ni heartbeat data para application bindings.
 - No borrar working copies locales para completar sync o move.
 - No modelar YouTube como screen share obligatorio.
 - No hacer commits automaticamente.
@@ -410,6 +430,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~AgentCommandLineTests"` en `agent`: correcto, 47 pruebas Service y 6 pruebas Session sin coincidencia funcional superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=OpenUrlDispatchControllerTest,MasterRemoteOperationGatewayTest,BrowserNavigationPolicyEvaluatorTest" test` en `master-backend`: correcto, pruebas dirigidas de request/safety, policy, preflight, dispatch `OPEN_URL`, gateway tipado y evaluator superadas.
 - `mvn -q "-Dtest=BrowserPolicyDispatchControllerTest,OpenUrlDispatchControllerTest,MasterRemoteOperationGatewayTest,BrowserNavigationPolicyEvaluatorTest" test` en `master-backend`: correcto, regresion dirigida 16F1 + 16F2 superada.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
@@ -443,4 +465,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: definir la siguiente capacidad Master/Client sin redisenar `OPEN_URL`, browser policy enforcement ni el transporte tipado existente.
+Siguiente fase recomendada: Prompt 17B puede disenar `OPEN_APPLICATION(applicationId)` sobre Protobuf/Session Command usando exclusivamente `application-bindings.json` como fuente local, sin aceptar rutas ni comandos desde el Master.

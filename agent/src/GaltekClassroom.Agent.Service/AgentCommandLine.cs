@@ -10,7 +10,13 @@ public enum AgentCommandMode
     BindMasterCurrentUser,
     BindMasterAccount,
     NetworkIdentityStatus,
-    RuntimeDiagnostics
+    RuntimeDiagnostics,
+    ApplicationBindList,
+    ApplicationBindExe,
+    ApplicationBindAppPath,
+    ApplicationBindDisable,
+    ApplicationBindEnable,
+    ApplicationBindRemove
 }
 
 public sealed record AgentCommandLine(
@@ -18,7 +24,10 @@ public sealed record AgentCommandLine(
     string[] HostArgs,
     string? LicenseFilePath,
     string? MasterAccountName,
+    string? ApplicationId,
+    string? ApplicationTarget,
     bool ReplaceMasterBinding,
+    bool ReplaceApplicationBinding,
     string? ErrorMessage)
 {
     public bool IsValid => ErrorMessage is null;
@@ -34,12 +43,22 @@ public sealed record AgentCommandLine(
         const string replaceMasterBindingArgument = "--replace-master-binding";
         const string networkIdentityStatusArgument = "--network-identity-status";
         const string runtimeDiagnosticsArgument = "--runtime-diagnostics";
+        const string applicationBindListArgument = "--application-bind-list";
+        const string applicationBindExeArgument = "--application-bind-exe";
+        const string applicationBindAppPathArgument = "--application-bind-app-path";
+        const string applicationBindDisableArgument = "--application-bind-disable";
+        const string applicationBindEnableArgument = "--application-bind-enable";
+        const string applicationBindRemoveArgument = "--application-bind-remove";
+        const string replaceApplicationBindingArgument = "--replace-application-binding";
 
         var mode = AgentCommandMode.Service;
         var hostArgs = new List<string>();
         string? licenseFilePath = null;
         string? masterAccountName = null;
+        string? applicationId = null;
+        string? applicationTarget = null;
         var replaceMasterBinding = false;
+        var replaceApplicationBinding = false;
         string? error = null;
 
         for (var index = 0; index < args.Length; index++)
@@ -116,6 +135,90 @@ public sealed record AgentCommandLine(
                 continue;
             }
 
+            if (string.Equals(argument, applicationBindListArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindList, argument, ref mode, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, applicationBindExeArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindExe, argument, ref mode, ref error);
+
+                if (index + 2 >= args.Length)
+                {
+                    error ??= "--application-bind-exe requires an applicationId and absolute .exe path.";
+                    continue;
+                }
+
+                applicationId = args[++index];
+                applicationTarget = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, applicationBindAppPathArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindAppPath, argument, ref mode, ref error);
+
+                if (index + 2 >= args.Length)
+                {
+                    error ??= "--application-bind-app-path requires an applicationId and executable name.";
+                    continue;
+                }
+
+                applicationId = args[++index];
+                applicationTarget = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, applicationBindDisableArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindDisable, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--application-bind-disable requires an applicationId.";
+                    continue;
+                }
+
+                applicationId = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, applicationBindEnableArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindEnable, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--application-bind-enable requires an applicationId.";
+                    continue;
+                }
+
+                applicationId = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, applicationBindRemoveArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ApplicationBindRemove, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--application-bind-remove requires an applicationId.";
+                    continue;
+                }
+
+                applicationId = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, replaceApplicationBindingArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                replaceApplicationBinding = true;
+                continue;
+            }
+
             hostArgs.Add(argument);
         }
 
@@ -125,12 +228,21 @@ public sealed record AgentCommandLine(
             error ??= "--replace-master-binding can only be used with a Master binding command.";
         }
 
+        if (replaceApplicationBinding
+            && mode is not AgentCommandMode.ApplicationBindExe and not AgentCommandMode.ApplicationBindAppPath)
+        {
+            error ??= "--replace-application-binding can only be used with an application binding command.";
+        }
+
         return new AgentCommandLine(
             mode,
             hostArgs.ToArray(),
             licenseFilePath,
             masterAccountName,
+            applicationId,
+            applicationTarget,
             replaceMasterBinding,
+            replaceApplicationBinding,
             error);
     }
 

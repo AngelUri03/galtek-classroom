@@ -1696,3 +1696,36 @@
 ### Commit sugerido
 
 `feat(master): dispatch open url batches`
+
+## 2026-09-03 - Prompt 17A
+
+### Realizado
+
+- Agregado en `GaltekClassroom.Agent.Service` el modelo local `ApplicationBinding` separado de `ApplicationDefinition` del Master.
+- Creado `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` como fuente local `applicationId -> launch target`.
+- Implementado `IApplicationBindingStore`/`ApplicationBindingStore` con Load/Get/List/Add/Replace/SetEnabled/Remove, escritura durable con `DurableFileWriter`, temp file, flush/fsync, replace/move atomico, ACL y verificacion posterior.
+- Soportados solo launch types `APP_PATHS` y `ABSOLUTE_EXE`.
+- Validado `APP_PATHS` como nombre de archivo `.exe` sin path, separadores, dos puntos, comillas, espacios, control chars ni argumentos.
+- Validado `ABSOLUTE_EXE` como ruta Windows local absoluta `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders de entorno; create/replace exige existencia del archivo.
+- Corrupcion, schema desconocido, duplicados, launch type desconocido o campos incompatibles devuelven `APPLICATION_BINDINGS_INVALID` sin regenerar ni adoptar parcialmente.
+- Agregada CLI local: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
+- Mutaciones por CLI requieren elevacion administrativa; list/read-only no autoeleva ni muta el archivo.
+- Documentado `ApplicationDefinition != ApplicationBinding`, ausencia de launch en 17A, no Protobuf, no Session Command, no endpoint Master, no auto-discovery y no paths desde Master.
+
+### Cambios descartados
+
+- No se implemento `OPEN_APPLICATION` remoto.
+- No se modifico Master Backend Java, Protobuf, Network Gateway, Agent dispatcher remoto, Session Agent, Session Command, installer ni UI.
+- No se lanzo ningun proceso ni se resolvio realmente Windows App Paths.
+- No se agregaron scans de Program Files, Start Menu, Registry, WMI, discos, procesos, watchers, timers, heartbeat data ni writes idle.
+- No se exigio firma Authenticode ni SHA-256 fijo.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~AgentCommandLineTests"` en `agent`: correcto, 47 pruebas Service y 6 pruebas Session sin coincidencia funcional superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): add local application bindings`

@@ -1,5 +1,26 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 17A
+
+- `ApplicationDefinition` del Master y `ApplicationBinding` del Client son conceptos separados.
+- El Master solo puede enviar `applicationId` para una futura operacion `OPEN_APPLICATION`; nunca envia rutas ejecutables, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria.
+- `GaltekClassroom.Agent.Service` conserva la fuente de verdad local en `<CommonApplicationData>\Galtek\Classroom\application-bindings.json`.
+- `application-bindings.json` queda separado de `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json` y browser policy state/journals.
+- El catalogo se escribe con `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico, ACL local y verificacion posterior.
+- ACL del catalogo: `LocalSystem` y `Builtin Administrators` con `FullControl`; `Builtin Users` y `Authenticated Users` solo lectura.
+- Launch types iniciales exactos: `APP_PATHS` y `ABSOLUTE_EXE`.
+- `APP_PATHS` acepta solo nombre de archivo `.exe`, sin path, separadores, dos puntos, comillas, espacios, control chars ni argumentos.
+- `ABSOLUTE_EXE` acepta ruta Windows local absoluta `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders de entorno; al crear/reemplazar se verifica que el archivo exista.
+- No se exige firma Authenticode ni SHA-256 fijo en 17A para no bloquear software educativo legacy.
+- Un `applicationId` tiene como maximo un binding local; duplicado sin replace devuelve `APPLICATION_BINDING_ALREADY_EXISTS`.
+- Reemplazo de binding requiere intencion explicita con `--replace-application-binding`.
+- `enabled=false` conserva el binding; una fase futura de launch debe responder `APPLICATION_DISABLED` sin abrir procesos.
+- Corrupcion, schema desconocido, duplicados o campos incompatibles producen `APPLICATION_BINDINGS_INVALID`; no hay regeneracion silenciosa ni adopcion parcial.
+- La CLI local agrega `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
+- Mutaciones del catalogo requieren consola elevada; list/read-only no autoeleva y no modifica el archivo.
+- 17A no implementa `OPEN_APPLICATION`, no modifica Protobuf, no agrega Session Command, no agrega endpoint Master, no lanza procesos y no sincroniza paths con el Master.
+- El catalogo local no hace auto-discovery, scans, WMI, Registry polling, filesystem watchers, timers, heartbeat data ni writes en idle.
+
 ## 2026-09-02 - Prompt 16F2
 
 - `POST /api/classrooms/{classroomId}/open-url` es el endpoint batch Master productivo para `OPEN_URL`; no existe endpoint por Device individual.
