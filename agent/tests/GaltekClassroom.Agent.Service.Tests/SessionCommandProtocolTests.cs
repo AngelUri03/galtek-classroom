@@ -136,6 +136,7 @@ public sealed class SessionCommandProtocolTests
             LocalIpcOperations.GetDeviceStatus,
             LocalIpcOperations.GetMachineCode,
             LocalIpcOperations.GetMasterAuthorization,
+            LocalIpcOperations.GetMasterUnlockAuthorization,
             LocalIpcOperations.GetRuntimeDiagnostics
         };
 

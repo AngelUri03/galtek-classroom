@@ -215,6 +215,67 @@ Campos sensibles prohibidos:
 
 Esta respuesta solo responde si la cuenta local actual puede usar esta instalacion Master. No autoriza control de clientes remotos, pairing, mTLS ni confianza de red.
 
+### GET_MASTER_UNLOCK_AUTHORIZATION
+
+Devuelve una autorizacion local de proposito unico para una futura accion recovery-safe `UNLOCK_INPUT`.
+
+Payload de request:
+
+```json
+{}
+```
+
+El caller no declara su SID. El Agent Service obtiene el SID real del cliente conectado al Named Pipe usando impersonation del pipe y evalua:
+
+```text
+Installation Identity valida
++
+Master Windows Binding existente y estructuralmente valido
++
+binding.installationId == installationIdentity.installationId
++
+SID real del cliente == SID ligado
+```
+
+Esta operacion NO exige Commercial License `ACTIVE`, NO lee claims/roles de una licencia invalida para autorizar recovery y NO convierte licencia expirada en permiso para cualquier administrador local. Si el binding falta, esta corrupto, usa schema desconocido, pertenece a otra instalacion, el SID real no puede obtenerse o el SID no coincide, devuelve `authorized = false`.
+
+Payload de respuesta:
+
+```json
+{
+  "status": "AUTHORIZED",
+  "authorized": true,
+  "configured": true
+}
+```
+
+Estados reutilizados:
+
+- `NOT_CONFIGURED`
+- `AUTHORIZED`
+- `CURRENT_ACCOUNT_NOT_AUTHORIZED`
+- `MASTER_BINDING_INVALID`
+- `MASTER_BINDING_INSTALLATION_MISMATCH`
+
+Campos permitidos:
+
+- `status`
+- `authorized`
+- `configured`
+
+Campos sensibles prohibidos:
+
+- SID completo del binding o del caller
+- JWT o `license.dat`
+- `LicenseState`, roles o raw claims
+- `installationId` completo
+- ruta de `master-binding.json`
+- ACLs internas
+- username/display name
+- key material
+
+Esta respuesta no significa "puede administrar Galtek", "puede ejecutar operaciones remotas" ni "puede saltarse la licencia". Solo significa que el caller Windows real corresponde al Master Windows Binding valido de esta instalacion para solicitar una accion declarada recovery-safe que reduce control. En 18B1 la unica accion prevista es `UNLOCK_INPUT`, pero el endpoint/batch Master todavia no existe.
+
 ### GET_RUNTIME_DIAGNOSTICS
 
 Devuelve un snapshot ligero de runtime del proceso `GaltekClassroom.Agent.Service` en el momento de la solicitud. No inicia timer, no persiste telemetria, no escribe SQLite y no se envia por heartbeat.
@@ -294,6 +355,7 @@ IPC v1 es read-only. Las unicas operaciones permitidas son:
 - `GET_DEVICE_STATUS`
 - `GET_MACHINE_CODE`
 - `GET_MASTER_AUTHORIZATION`
+- `GET_MASTER_UNLOCK_AUTHORIZATION`
 - `GET_RUNTIME_DIAGNOSTICS`
 
 No estan permitidas operaciones write como activacion, set/update/delete de Master binding, bloqueo, apagado, proyeccion, apertura de aplicaciones ni ejecucion de comandos.

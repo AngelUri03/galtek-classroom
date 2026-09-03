@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 18A.
+2026-09-03 - Prompt 18B1.
 
 ## Estado del proyecto
 
@@ -52,13 +52,15 @@ Prompt 17C implementa dispatch batch Master para `OPEN_APPLICATION`. Expone `POS
 
 Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo del lado Client sin endpoint/batch Master. El Agent Service recibe `OperationRequest` tipado, pasa por `RemoteOperationDispatcher`, mantiene licencia comercial activa para `LOCK_INPUT` y aplica una excepcion estricta recovery-safe solo para `UNLOCK_INPUT`; luego envia Session Command v1 tipado. El Session Agent ejecuta `User32.dll BlockInput(BOOL)` desde un `WindowsInputBlockCoordinator` con worker dedicado lazy que conserva ownership del thread para lock/unlock, libera en shutdown acotado y no persiste estado. No hay UI, overlay, hooks, drivers, SendInput, shell, timeout configurable, retry automatico ni bloqueo de `CTRL+ALT+DEL`.
 
+Prompt 18B1 agrega una autorizacion local read-only de proposito unico para que el Master Backend pueda solicitar un futuro `UNLOCK_INPUT` recovery aunque la Commercial License local del Master no este `ACTIVE`. El Agent Service suma `GET_MASTER_UNLOCK_AUTHORIZATION` en Local IPC v1, conserva `protocolVersion = 1`, valida Installation Identity, `master-binding.json`, `installationId` y SID real del caller Named Pipe, y no lee SID de payload, username, Administrators membership ni claims de licencia invalida. Java agrega `LocalAgentClient.getMasterUnlockAuthorization()` y `MasterUnlockAccessGuard.requireUnlockAuthorized()` como guard interno separado. No hay endpoint HTTP, BatchOperation, dispatch gRPC, UI, cache, writes ni cambios de Protobuf.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
 
 Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Clients. Cada PC de alumnos podra tener dos cuentas logicas, `PRIMARY` y `SECONDARY`, y el Master podra planificar una sola accion masiva para dejar un aula/grupo/seleccion en la cuenta objetivo con resultados `NO_CHANGE`, `SUCCESS`, `FAILED` y retry solo de fallidos.
 
-El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
+El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1 para autorizacion administrativa normal, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos. Para el futuro `UNLOCK_INPUT` recovery consume `GET_MASTER_UNLOCK_AUTHORIZATION` mediante `MasterUnlockAccessGuard`, sin exponer endpoint publico y sin fallback entre guards.
 
 El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni endpoint/batch Master para input control.
 
@@ -69,6 +71,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - Endpoints `GET /api/device/status` y `GET /api/device/machine-code` via IPC local al Agent Service.
 - Endpoint `GET /api/master/authorization` via IPC local al Agent Service.
 - `MasterAccessGuard.requireAuthorized()` en endpoints administrativos reales.
+- Operacion Local IPC v1 `GET_MASTER_UNLOCK_AUTHORIZATION`, read-only, con respuesta minima `status`, `authorized`, `configured` para recovery-safe unlock.
+- `MasterUnlockAccessGuard.requireUnlockAuthorized()` en Java como guard interno separado para acciones que reducen control; actualmente solo futuro `UNLOCK_INPUT`.
 - API administrativa documentada en `docs/api/master-api-v1.md`.
 - `GET /api/master/bootstrap` protegido, con authorization status, storage status y aulas activas con conteos.
 - CRUD/archive protegido para `Classroom` y `SchoolGroup`.
@@ -189,7 +193,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - Errores estructurados para cuentas/sesion Windows administrada: `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `WINDOWS_SESSION_UNKNOWN`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED`, `SESSION_SWITCH_FAILED` y `CREDENTIAL_PROVIDER_UNAVAILABLE`.
 - Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
 - Local IPC API v1 read-only sobre Windows Named Pipes.
-- Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- Operaciones IPC v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_MASTER_UNLOCK_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - Local IPC v1 permanece read-only; no se agregaron comandos write ni acciones interactivas a `GaltekClassroom.Agent.v1`.
 - Protocolo canonico `Session Command v1` documentado en `protocol/local-session-command-v1.md`.
 - Contratos compartidos `SessionCommandRequest`/`SessionCommandResponse`, `protocolVersion = 1`, `requestId` UUID, `commandType` tipado y `openUrl` tipado para `OPEN_URL`.
@@ -457,6 +461,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~MasterAuthorizationServiceTests|FullyQualifiedName~LocalIpcRequestHandlerTests|FullyQualifiedName~SessionCommandProtocolTests|FullyQualifiedName~LocalIpcFramingTests|FullyQualifiedName~LocalIpcServerTests"` en `agent`: correcto, 58 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `mvn -q "-Dtest=MasterUnlockAccessGuardTest,MasterAccessGuardTest,WindowsNamedPipeLocalAgentClientTest,LocalIpcFramingTest" test` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~InputBlock|FullyQualifiedName~InputControl|FullyQualifiedName~SessionCommand|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 35 pruebas Session y 84 pruebas Service superadas.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
@@ -503,4 +511,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Prompt 18A cerrado. Siguiente fase recomendada: Prompt 18B para endpoint/batch Master de `LOCK_INPUT`/`UNLOCK_INPUT`, manteniendo `UNLOCK_INPUT` como recovery-safe, sin retry automatico y sin agregar UI/overlay salvo que una fase posterior lo pida explicitamente.
+Prompt 18B1 cerrado. Siguiente fase recomendada: Prompt 18B2 para endpoint/batch Master de `LOCK_INPUT`/`UNLOCK_INPUT`: `LOCK_INPUT` debe usar `MasterAccessGuard`, `UNLOCK_INPUT` debe usar `MasterUnlockAccessGuard`, sin fallback automatico, sin UI/overlay salvo fase posterior y sin retry automatico.

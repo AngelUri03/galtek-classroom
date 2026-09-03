@@ -2,6 +2,8 @@
 
 Prompt 18A implements Agent-side `LOCK_INPUT` and `UNLOCK_INPUT` without Master batch endpoint or UI.
 
+Prompt 18B1 adds a local read-only Master unlock authorization primitive for future recovery-safe `UNLOCK_INPUT` dispatch. It does not add the Master endpoint, batch operation, gRPC dispatch, UI, overlay or input-control persistence.
+
 ## Flow
 
 ```text
@@ -35,9 +37,43 @@ If the Agent Service restarts while the Session Agent remains alive, the lock ca
 
 `LOCK_INPUT` requires Commercial License `ACTIVE`. `UNLOCK_INPUT` is recovery-safe and is not blocked by license state, but it still requires all existing network and local-channel security: mTLS, expected Master identity, paired trust, non-revoked status, registered target Device, known operation type, dispatcher path, and authenticated LocalSystem-to-Session Command.
 
-## Not Implemented In 18A
+## Master Unlock Authorization
+
+For the future Master-originated `UNLOCK_INPUT`, the Master Backend must ask the local Agent Service through Local IPC v1:
+
+```text
+GET_MASTER_UNLOCK_AUTHORIZATION
+```
+
+The Agent Service remains the only local authority. It authorizes unlock recovery only when all of these are true:
+
+- local Installation Identity is valid;
+- `master-binding.json` exists and is structurally valid;
+- `binding.installationId` matches the current Installation Identity;
+- the real Windows SID of the Named Pipe caller is obtained through impersonation/API Windows;
+- that real SID exactly matches the bound SID.
+
+This check does not require local Master Commercial License `ACTIVE` and does not read claims/roles from an invalid or tampered license. It also does not trust a SID declared in JSON, username/display name, HTTP headers, request parameters or membership in Builtin Administrators.
+
+The response is intentionally minimal:
+
+```json
+{
+  "status": "AUTHORIZED",
+  "authorized": true,
+  "configured": true
+}
+```
+
+It must not expose SID, JWT, `LicenseState`, raw claims, roles, full `installationId`, binding path, ACLs, username or key material. Any uncertainty about identity, binding, SID resolution, impersonation or IPC caller fails closed with `authorized=false`.
+
+In Java, `MasterUnlockAccessGuard.requireUnlockAuthorized()` is separate from `MasterAccessGuard.requireAuthorized()`. It must only protect actions that reduce control and have been explicitly declared recovery-safe. Currently that is only the future `UNLOCK_INPUT`. There is no fallback between guards.
+
+## Not Implemented Through 18B1
 
 - Master endpoint or batch dispatch.
+- BatchOperation `LOCK_INPUT` or `UNLOCK_INPUT`.
+- Master gRPC dispatch for input control.
 - UI or overlay.
 - Message on screen.
 - Keyboard-only or mouse-only modes.

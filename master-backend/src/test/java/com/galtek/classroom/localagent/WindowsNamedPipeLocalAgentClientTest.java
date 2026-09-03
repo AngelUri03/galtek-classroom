@@ -145,6 +145,34 @@ class WindowsNamedPipeLocalAgentClientTest {
     }
 
     @Test
+    void getMasterUnlockAuthorizationSerializesRequestAndDeserializesMinimalResponse() throws Exception {
+        CapturingTransport transport = new CapturingTransport(responseJson(
+                REQUEST_ID,
+                true,
+                null,
+                Map.of(
+                        "status", "AUTHORIZED",
+                        "authorized", true,
+                        "configured", true)));
+        WindowsNamedPipeLocalAgentClient client = new WindowsNamedPipeLocalAgentClient(
+                objectMapper,
+                transport,
+                () -> REQUEST_ID);
+
+        MasterUnlockAuthorizationResponse response = client.getMasterUnlockAuthorization();
+        JsonNode requestJson = objectMapper.readTree(transport.requests().getFirst());
+
+        assertThat(requestJson.get("protocolVersion").asInt()).isEqualTo(LocalIpcProtocol.PROTOCOL_VERSION);
+        assertThat(requestJson.get("requestId").asText()).isEqualTo(REQUEST_ID);
+        assertThat(requestJson.get("operation").asText())
+                .isEqualTo(LocalIpcProtocol.OPERATION_GET_MASTER_UNLOCK_AUTHORIZATION);
+        assertThat(response.status()).isEqualTo("AUTHORIZED");
+        assertThat(response.authorized()).isTrue();
+        assertThat(response.configured()).isTrue();
+        assertThat(response.toString()).doesNotContain("Sid", "License", "claims");
+    }
+
+    @Test
     void responseRequestIdMismatchIsRejected() throws Exception {
         CapturingTransport transport = new CapturingTransport(responseJson(
                 "22222222-2222-2222-2222-222222222222",

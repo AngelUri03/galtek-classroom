@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 18B1 agrega una ruta local read-only y recovery-safe para autorizar el futuro `UNLOCK_INPUT` desde el Master aun cuando la Commercial License local del Master no este `ACTIVE`. Local IPC v1 conserva `protocolVersion = 1` y suma `GET_MASTER_UNLOCK_AUTHORIZATION`, calculado exclusivamente por `GaltekClassroom.Agent.Service` con Installation Identity valida, `master-binding.json` existente/valido, `installationId` coincidente y SID real del caller Named Pipe obtenido por impersonation. No lee SID del payload, username, headers ni membresia de Administrators, no exige licencia activa, no lee claims de licencia invalida y no escribe archivos. El Master Backend Java agrega `LocalAgentClient.getMasterUnlockAuthorization()` y `MasterUnlockAccessGuard.requireUnlockAuthorized()` como guard interno de proposito unico para acciones que reducen control; no hay endpoint HTTP, batch, Protobuf, gRPC dispatch, UI ni fallback desde `MasterAccessGuard`.
+
 Prompt 18A implementa `LOCK_INPUT` y `UNLOCK_INPUT` productivos del lado Client sin endpoint/batch Master. El Protobuf v1 conserva `protocolVersion = 1`, agrega `INPUT_CONTROL_V1` y errores `INPUT_LOCK_FAILED`/`INPUT_UNLOCK_FAILED`; las operaciones no llevan payload funcional. El Agent Service recibe `OperationRequest`, pasa por `RemoteOperationDispatcher`, aplica Commercial License activa para `LOCK_INPUT` y una excepcion recovery-safe estricta para `UNLOCK_INPUT`, y envia Session Command v1 tipado. El Session Agent ejecuta el control fisico mediante `User32.dll BlockInput(BOOL)` desde un `WindowsInputBlockCoordinator` con worker dedicado lazy para cumplir ownership de thread lock/unlock. No hay UI, overlay, endpoint Master, batch Master, retry automatico, hooks, drivers, SendInput, shell ni persistencia de lock.
 
 Prompt 17C implementa dispatch batch end-to-end de `OPEN_APPLICATION(applicationId)` desde el Master Backend. Expone `POST /api/classrooms/{classroomId}/open-application`, protegido por `MasterAccessGuard`, con request estricta de `applicationId` y `targetDeviceIds`. El Master resuelve una `ApplicationDefinition` activa persistida, exige que este autorizada en el Classroom por `classroom_applications`, congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del fanout y usa `MasterRemoteOperationGateway` con `OpenApplicationOperationParameters.applicationId`. No modifica Agent, Session Agent, Protobuf, `ApplicationBinding`, resolucion de App Paths ni `CreateProcessW`.
@@ -62,7 +64,7 @@ Prompt 07 agrega el modelo funcional completo de Galtek Classroom en el Master B
 
 Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agrega el ciclo de vida productivo de `GaltekClassroom.Agent.Session`. El Service se ejecuta en Session 0 como `LocalSystem`; el Session Agent arranca al logon mediante Windows Task Scheduler, se ejecuta con el token del usuario interactivo, usa privilegio limitado, permanece en background sin UI y se reconecta al Service por Local IPC.
 
-Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
+Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master administrativa, autorizacion interna de unlock recovery y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
 Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI ni captura. El input control ya es productivo del lado Client desde Prompt 18A; su endpoint/batch Master sigue pendiente para 18B.
 
@@ -521,12 +523,13 @@ IMPLEMENTADO:
 - Named Pipe server versionado `GaltekClassroom.Agent.v1`.
 - Framing IPC con prefijo de longitud de 4 bytes BIG ENDIAN mas JSON UTF-8.
 - Limite maximo de mensaje de 64 KiB.
-- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- Operaciones IPC permitidas: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_MASTER_UNLOCK_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - Local IPC v1 conserva estrictamente sus operaciones read-only; no se agregan comandos write ni acciones interactivas alli.
 - `GET_DEVICE_STATUS` expone solo estado seguro y no expone JWT ni hashes de hardware.
 - `GET_DEVICE_STATUS` expone `startupPhase`, `previousShutdownWasUnclean` y `recoveryActive` para diagnostico local de recovery.
 - `GET_MACHINE_CODE` reutiliza la implementacion existente de Machine Code y no exige licencia activa.
 - `GET_MASTER_AUTHORIZATION` deriva el SID real del cliente Named Pipe y no acepta SID en el payload.
+- `GET_MASTER_UNLOCK_AUTHORIZATION` deriva el SID real del cliente Named Pipe y autoriza solo una futura recuperacion `UNLOCK_INPUT` si Installation Identity, binding e `installationId` coinciden; no exige Commercial License activa, no usa claims de licencia invalida y no expone SID, licencia, roles, installationId completo, rutas ni usernames.
 - `GET_RUNTIME_DIAGNOSTICS` devuelve snapshot on-demand del Agent Service con memoria aproximada, CPU acumulado, threads, uptime y GC managed memory.
 - Requests IPC exitosos y conexion IPC saludable se registran en `DEBUG`, no en `INFO`, para evitar logs periodicos durante idle.
 - ACL actual del pipe: `LocalSystem` y `BuiltinAdministrators` con `FullControl`; `Authenticated Users` con `ReadWrite | Synchronize`.
@@ -703,12 +706,12 @@ IMPLEMENTADO:
 - Windows Named Pipe `GaltekClassroom.Agent.v1`.
 - `GaltekClassroom.Agent.Service` es el servidor IPC.
 - `GaltekClassroom.Agent.Session` consume `PING` y `GET_DEVICE_STATUS` en CLI one-shot y en supervisor background; tambien puede consultar `GET_RUNTIME_DIAGNOSTICS` bajo solicitud explicita.
-- Master Backend Java consume `GET_DEVICE_STATUS`, `GET_MACHINE_CODE` y `GET_MASTER_AUTHORIZATION`.
+- Master Backend Java consume `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION` y `GET_MASTER_UNLOCK_AUTHORIZATION`.
 - Protocolo documentado en `protocol/local-ipc-v1.md`.
 - `protocolVersion = 1`.
 - Mensajes JSON UTF-8 con prefijo de longitud de 4 bytes BIG ENDIAN.
 - Limite de payload de 64 KiB.
-- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
+- Operaciones permitidas en v1: `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_MASTER_UNLOCK_AUTHORIZATION`, `GET_RUNTIME_DIAGNOSTICS`.
 - IPC v1 es read-only.
 - El SID de autorizacion Master se deriva del token real del cliente conectado al Named Pipe mediante impersonation; no viene del payload.
 - Version desconocida devuelve `IPC_PROTOCOL_UNSUPPORTED`.
@@ -797,6 +800,8 @@ IMPLEMENTADO:
 - Binding corrupto, incompleto, schema desconocido o SID invalido produce `MASTER_BINDING_INVALID` sin tumbar el Service.
 - `GET_MASTER_AUTHORIZATION` expone al Master Backend solo estado derivado seguro, sin SID completo ni rutas internas.
 - `MasterAuthorizationService` en Agent Service evalua Installation Identity, `LicenseState`, binding y SID real del caller.
+- `GET_MASTER_UNLOCK_AUTHORIZATION` expone al Master Backend un estado derivado minimo (`status`, `authorized`, `configured`) para recovery-safe unlock; `MasterAuthorizationService.EvaluateUnlock` omite solo el gate de Commercial License/rol y conserva Installation Identity, binding valido, installationId coincidente y SID real del caller.
+- `MasterUnlockAccessGuard` en Java es interno y de uso exclusivo para acciones declaradas recovery-safe que reducen control. Actualmente la unica accion prevista es `UNLOCK_INPUT`; no reemplaza `MasterAccessGuard` ni agrega fallback entre guards.
 - CLI administrativa elevada crea/reemplaza binding con `--bind-master-current-user`, `--bind-master-account <WINDOWS_ACCOUNT>` y `--replace-master-binding`.
 - Otro administrador Windows no hereda permiso Master si su SID no esta ligado.
 

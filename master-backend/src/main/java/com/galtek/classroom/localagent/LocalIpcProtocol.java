@@ -11,6 +11,7 @@ public final class LocalIpcProtocol {
     public static final String OPERATION_GET_DEVICE_STATUS = "GET_DEVICE_STATUS";
     public static final String OPERATION_GET_MACHINE_CODE = "GET_MACHINE_CODE";
     public static final String OPERATION_GET_MASTER_AUTHORIZATION = "GET_MASTER_AUTHORIZATION";
+    public static final String OPERATION_GET_MASTER_UNLOCK_AUTHORIZATION = "GET_MASTER_UNLOCK_AUTHORIZATION";
 
     public static final String ERROR_RESPONSE_MISMATCH = "IPC_RESPONSE_MISMATCH";
     public static final String ERROR_MALFORMED_RESPONSE = "IPC_MALFORMED_RESPONSE";

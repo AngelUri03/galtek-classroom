@@ -14,6 +14,7 @@ public static class LocalIpcOperations
     public const string GetDeviceStatus = "GET_DEVICE_STATUS";
     public const string GetMachineCode = "GET_MACHINE_CODE";
     public const string GetMasterAuthorization = "GET_MASTER_AUTHORIZATION";
+    public const string GetMasterUnlockAuthorization = "GET_MASTER_UNLOCK_AUTHORIZATION";
     public const string GetRuntimeDiagnostics = "GET_RUNTIME_DIAGNOSTICS";
 }
 

@@ -1,12 +1,31 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 18B1
+
+- Local IPC v1 suma `GET_MASTER_UNLOCK_AUTHORIZATION` y conserva `protocolVersion = 1`.
+- `GET_MASTER_UNLOCK_AUTHORIZATION` es read-only, no escribe `master-binding.json`, `license.dat`, `installation.json`, SQLite, Network Identity, trust, Session Agent ni input de Windows.
+- El Agent Service sigue siendo la unica autoridad local: Java no lee `master-binding.json`, no interpreta `LicenseState`, no calcula SID Windows ni reevalua `installationId`.
+- La autorizacion unlock responde solo si el caller Windows real del Named Pipe corresponde al Master Windows Binding valido de esta instalacion para solicitar una futura accion recovery-safe `UNLOCK_INPUT`.
+- `authorized=true` exige Installation Identity valida, binding existente, binding estructuralmente valido, `binding.installationId` coincidente, SID real del caller obtenido por impersonation/API Windows y SID exacto igual al del binding.
+- `GET_MASTER_UNLOCK_AUTHORIZATION` no exige Commercial License Master `ACTIVE`; estados `ACTIVE`, `LICENSE_EXPIRED`, `ACTIVATION_REQUIRED`, no resueltos o inactivos no bloquean unlock si Installation Identity, binding y SID son validos.
+- La autorizacion unlock no lee claims/roles de una licencia invalida o tampered para autorizar recovery.
+- Binding ausente, corrupto, schema desconocido, mismatch de instalacion, SID distinto, otro administrador Windows o fallo al resolver SID producen `authorized=false`.
+- La respuesta unlock expone solo `status`, `authorized` y `configured`; no expone SID, JWT, `LicenseState`, roles, raw claims, `installationId`, rutas, ACLs, username ni key material.
+- Se reutilizan estados existentes: `AUTHORIZED`, `NOT_CONFIGURED`, `MASTER_BINDING_INVALID`, `MASTER_BINDING_INSTALLATION_MISMATCH` y `CURRENT_ACCOUNT_NOT_AUTHORIZED`.
+- `GET_MASTER_AUTHORIZATION` conserva su semantica administrativa normal: requiere Commercial License activa, rol `MASTER`, Installation Identity, binding y SID real.
+- Java agrega `LocalAgentClient.getMasterUnlockAuthorization()` sobre el mismo Named Pipe y `MasterUnlockAccessGuard.requireUnlockAuthorized()` como guard interno separado.
+- `MasterUnlockAccessGuard` solo puede usarse para acciones que reducen control y hayan sido declaradas recovery-safe; actualmente solo el futuro `UNLOCK_INPUT`.
+- No hay fallback entre `MasterAccessGuard` y `MasterUnlockAccessGuard`; el caller futuro debe elegir explicitamente el guard por tipo de operacion.
+- Si el Agent Service local no esta disponible, `MasterUnlockAccessGuard` falla cerrado propagando el mapping vigente `LOCAL_AGENT_UNAVAILABLE`/HTTP 503.
+- No se agrega cache, TTL, timer, polling, heartbeat, thread permanente, endpoint publico, BatchOperation, dispatch gRPC, UI, Protobuf network, Session Command ni cambios de `BlockInput`.
+
 ## 2026-09-03 - Prompt 18A
 
-- `LOCK_INPUT` y `UNLOCK_INPUT` quedan implementados productivamente solo del lado Client; endpoint/batch Master queda pendiente para 18B.
+- `LOCK_INPUT` y `UNLOCK_INPUT` quedan implementados productivamente solo del lado Client; endpoint/batch Master queda pendiente para 18B2.
 - El contrato remoto conserva `protocolVersion = 1`; `LOCK_INPUT` y `UNLOCK_INPUT` son `NetworkOperationType` explicitos sin payload funcional.
 - `INPUT_CONTROL_V1` se anuncia porque existen handlers Service, comandos Session, coordinador Session y API nativa productiva.
 - Session Command v1 agrega `LOCK_INPUT` y `UNLOCK_INPUT` sin campos funcionales. No transporta key list, keyboardOnly, mouseOnly, duration, timeout configurable, message, command, shell, arguments, username ni SID.
-- Local IPC v1 `GaltekClassroom.Agent.v1` permanece read-only y no agrega operaciones de input control.
+- En 18A, Local IPC v1 `GaltekClassroom.Agent.v1` permanecio read-only y no agrego operaciones de input control.
 - El Agent Service corre como LocalSystem/Session 0 y nunca llama `BlockInput`; solo valida/dispatcha y envia Session Command tipado al Session Agent.
 - El Session Agent es la autoridad fisica de input control y usa exclusivamente `User32.dll BlockInput(BOOL)`.
 - `WindowsInputBlockCoordinator` garantiza que `BlockInput(TRUE)` y `BlockInput(FALSE)` se llamen desde el mismo owner thread. No llama la API nativa desde continuations async del pipe.
@@ -173,7 +192,7 @@
 - IPC v1 usa `protocolVersion = 1`.
 - IPC v1 limita el payload JSON a 64 KiB.
 - IPC v1 es read-only.
-- IPC v1 solo permite `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION` y `GET_RUNTIME_DIAGNOSTICS`.
+- IPC v1 solo permite `PING`, `GET_DEVICE_STATUS`, `GET_MACHINE_CODE`, `GET_MASTER_AUTHORIZATION`, `GET_MASTER_UNLOCK_AUTHORIZATION` y `GET_RUNTIME_DIAGNOSTICS`.
 - Local IPC v1 permanece estrictamente read-only; no se agregan comandos write ni acciones interactivas a `GaltekClassroom.Agent.v1`.
 - Las acciones interactivas futuras usan un canal separado Service -> Session llamado `Session Command v1`.
 - `Session Command v1` usa un pipe por sesion `GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`, derivado del `Process.SessionId` real del Session Agent.

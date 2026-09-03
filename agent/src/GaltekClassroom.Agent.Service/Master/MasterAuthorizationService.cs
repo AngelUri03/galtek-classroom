@@ -49,6 +49,42 @@ public sealed class MasterAuthorizationService
         return authorization;
     }
 
+    public async Task<LocalMasterUnlockAuthorization> GetUnlockAuthorizationAsync(
+        LocalIpcClientContext clientContext,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(clientContext);
+
+        InstallationIdentity installationIdentity;
+
+        try
+        {
+            installationIdentity = _runtimeState.GetInstallationIdentity();
+        }
+        catch (InvalidOperationException exception)
+        {
+            _logger.LogWarning(exception, "Master unlock authorization failed closed because installation identity is unavailable.");
+            return UnlockUnauthorized(MasterAuthorizationStatus.MasterBindingInvalid, configured: false);
+        }
+
+        var bindingResult = await _bindingStore.ReadAsync(cancellationToken);
+        var authorization = EvaluateUnlock(
+            installationIdentity,
+            bindingResult,
+            clientContext);
+
+        if (authorization.Authorized)
+        {
+            _logger.LogDebug("Master unlock authorization evaluated: {Status}.", authorization.Status);
+        }
+        else
+        {
+            _logger.LogInformation("Master unlock authorization evaluated: {Status}.", authorization.Status);
+        }
+
+        return authorization;
+    }
+
     public static LocalMasterAuthorization Evaluate(
         InstallationIdentity installationIdentity,
         LicenseState licenseState,
@@ -118,6 +154,46 @@ public sealed class MasterAuthorizationService
         };
     }
 
+    public static LocalMasterUnlockAuthorization EvaluateUnlock(
+        InstallationIdentity installationIdentity,
+        MasterBindingStoreReadResult bindingResult,
+        LocalIpcClientContext clientContext)
+    {
+        ArgumentNullException.ThrowIfNull(installationIdentity);
+        ArgumentNullException.ThrowIfNull(bindingResult);
+        ArgumentNullException.ThrowIfNull(clientContext);
+
+        if (bindingResult.Status == MasterBindingStoreReadStatus.Missing)
+        {
+            return UnlockUnauthorized(MasterAuthorizationStatus.NotConfigured, configured: false);
+        }
+
+        if (bindingResult.Status == MasterBindingStoreReadStatus.Invalid)
+        {
+            return UnlockUnauthorized(MasterAuthorizationStatus.MasterBindingInvalid, configured: true);
+        }
+
+        var binding = bindingResult.Binding!;
+
+        if (binding.InstallationId != installationIdentity.InstallationId)
+        {
+            return UnlockUnauthorized(MasterAuthorizationStatus.InstallationMismatch, configured: true);
+        }
+
+        if (!MasterBindingValidator.IsValidSid(clientContext.WindowsSid)
+            || !string.Equals(binding.WindowsSid, clientContext.WindowsSid, StringComparison.OrdinalIgnoreCase))
+        {
+            return UnlockUnauthorized(MasterAuthorizationStatus.CurrentAccountNotAuthorized, configured: true);
+        }
+
+        return new LocalMasterUnlockAuthorization
+        {
+            Status = MasterAuthorizationStatus.Authorized.ToCode(),
+            Authorized = true,
+            Configured = true
+        };
+    }
+
     private static LocalMasterAuthorization Unauthorized(
         MasterAuthorizationStatus status,
         bool configured,
@@ -131,6 +207,18 @@ public sealed class MasterAuthorizationService
             Configured = configured,
             BoundAccountDisplayName = boundAccountDisplayName,
             CurrentAccountDisplayName = currentAccountDisplayName
+        };
+    }
+
+    private static LocalMasterUnlockAuthorization UnlockUnauthorized(
+        MasterAuthorizationStatus status,
+        bool configured)
+    {
+        return new LocalMasterUnlockAuthorization
+        {
+            Status = status.ToCode(),
+            Authorized = false,
+            Configured = configured
         };
     }
 

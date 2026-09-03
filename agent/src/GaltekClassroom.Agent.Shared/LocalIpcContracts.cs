@@ -242,3 +242,18 @@ public sealed record LocalMasterAuthorization
     [JsonPropertyOrder(4)]
     public string? CurrentAccountDisplayName { get; init; }
 }
+
+public sealed record LocalMasterUnlockAuthorization
+{
+    [JsonPropertyName("status")]
+    [JsonPropertyOrder(0)]
+    public string Status { get; init; } = MasterAuthorizationStatus.NotConfigured.ToCode();
+
+    [JsonPropertyName("authorized")]
+    [JsonPropertyOrder(1)]
+    public bool Authorized { get; init; }
+
+    [JsonPropertyName("configured")]
+    [JsonPropertyOrder(2)]
+    public bool Configured { get; init; }
+}

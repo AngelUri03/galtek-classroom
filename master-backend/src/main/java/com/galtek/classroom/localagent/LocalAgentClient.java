@@ -7,4 +7,6 @@ public interface LocalAgentClient {
     MachineCodeResponse getMachineCode();
 
     MasterAuthorizationResponse getMasterAuthorization();
+
+    MasterUnlockAuthorizationResponse getMasterUnlockAuthorization();
 }

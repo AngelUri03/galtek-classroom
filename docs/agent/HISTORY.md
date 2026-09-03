@@ -1848,3 +1848,38 @@
 ### Commit sugerido
 
 `feat(agent): add recoverable input control`
+
+## 2026-09-03 - Prompt 18B1
+
+### Realizado
+
+- Agregada operacion Local IPC v1 `GET_MASTER_UNLOCK_AUTHORIZATION`, manteniendo `protocolVersion = 1` y el pipe existente `GaltekClassroom.Agent.v1`.
+- Agregado contrato C# `LocalMasterUnlockAuthorization` con respuesta minima `status`, `authorized` y `configured`.
+- Agregada evaluacion Agent-side `MasterAuthorizationService.GetUnlockAuthorizationAsync` / `EvaluateUnlock`, separada de `GET_MASTER_AUTHORIZATION`.
+- La autorizacion unlock exige Installation Identity disponible, binding existente y estructuralmente valido, `installationId` coincidente y SID real del caller Named Pipe obtenido por el contexto IPC.
+- La autorizacion unlock no exige Commercial License Master `ACTIVE` y no lee claims/roles de una licencia invalida para autorizar recovery.
+- Binding ausente/corrupto/schema desconocido, mismatch de instalacion, SID distinto, otro administrador o fallo al obtener SID real fallan cerrado con `authorized=false`.
+- La respuesta unlock no expone SID, JWT, `LicenseState`, roles, raw claims, `installationId`, rutas, ACLs, username ni key material.
+- Java agrega `LocalAgentClient.getMasterUnlockAuthorization()`, `MasterUnlockAuthorizationResponse` y `MasterUnlockAccessGuard.requireUnlockAuthorized()`.
+- `MasterUnlockAccessGuard` queda como guard interno para acciones que reducen control y hayan sido declaradas recovery-safe; actualmente solo el futuro `UNLOCK_INPUT`.
+- `MasterAccessGuard.requireAuthorized()` y `GET_MASTER_AUTHORIZATION` conservan la semantica administrativa normal con licencia activa.
+- Agregados tests dirigidos .NET y Java para autorizacion unlock, independencia de licencia, binding/SID, Local IPC, campos sensibles, no escritura y ausencia de fallback.
+- Actualizada documentacion de Local IPC, arquitectura, modelo funcional, reglas, input control, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se implemento endpoint HTTP de input control, endpoint publico de unlock authorization, `BatchOperation LOCK_INPUT/UNLOCK_INPUT`, dispatch gRPC Master, UI, cache, timers, polling, heartbeat, writes, Protobuf network, Session Command, `RemoteOperationDispatcher`, Session Agent ni cambios de `BlockInput`.
+- No se convirtio licencia expirada en permiso para cualquier administrador local.
+- No se agrego fallback entre guards ni framework generico de permisos.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~MasterAuthorizationServiceTests|FullyQualifiedName~LocalIpcRequestHandlerTests|FullyQualifiedName~SessionCommandProtocolTests|FullyQualifiedName~LocalIpcFramingTests|FullyQualifiedName~LocalIpcServerTests"` en `agent`: correcto, 58 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `mvn -q "-Dtest=MasterUnlockAccessGuardTest,MasterAccessGuardTest,WindowsNamedPipeLocalAgentClientTest,LocalIpcFramingTest" test` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): add unlock recovery authorization`

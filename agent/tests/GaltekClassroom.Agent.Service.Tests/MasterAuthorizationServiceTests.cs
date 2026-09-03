@@ -66,6 +66,78 @@ public sealed class MasterAuthorizationServiceTests
     }
 
     [Fact]
+    public void EvaluateUnlock_WhenBindingInstallationAndSidMatch_Authorizes()
+    {
+        var result = EvaluateUnlock(
+            LoadedBinding(Binding(InstallationId, BoundSid)),
+            new LocalIpcClientContext(BoundSid, "AULA\\MaestraPrimaria"));
+
+        Assert.True(result.Authorized);
+        Assert.True(result.Configured);
+        Assert.Equal("AUTHORIZED", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateUnlock_WhenBindingIsMissing_ReturnsNotConfigured()
+    {
+        var result = EvaluateUnlock(
+            MasterBindingStoreReadResult.Missing("master-binding.json"),
+            new LocalIpcClientContext(BoundSid, "AULA\\MaestraPrimaria"));
+
+        Assert.False(result.Authorized);
+        Assert.False(result.Configured);
+        Assert.Equal("NOT_CONFIGURED", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateUnlock_WhenBindingIsInvalid_ReturnsMasterBindingInvalid()
+    {
+        var result = EvaluateUnlock(
+            MasterBindingStoreReadResult.Invalid("master-binding.json", "unsupported schema"),
+            new LocalIpcClientContext(BoundSid, "AULA\\MaestraPrimaria"));
+
+        Assert.False(result.Authorized);
+        Assert.True(result.Configured);
+        Assert.Equal("MASTER_BINDING_INVALID", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateUnlock_WhenBindingInstallationDiffers_ReturnsInstallationMismatch()
+    {
+        var result = EvaluateUnlock(
+            LoadedBinding(Binding(Guid.Parse("bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee"), BoundSid)),
+            new LocalIpcClientContext(BoundSid, "AULA\\MaestraPrimaria"));
+
+        Assert.False(result.Authorized);
+        Assert.True(result.Configured);
+        Assert.Equal("MASTER_BINDING_INSTALLATION_MISMATCH", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateUnlock_WhenCallerSidDiffers_DoesNotAllowAdministratorBypass()
+    {
+        var result = EvaluateUnlock(
+            LoadedBinding(Binding(InstallationId, BoundSid)),
+            new LocalIpcClientContext(OtherSid, "AULA\\SoporteAdministrador"));
+
+        Assert.False(result.Authorized);
+        Assert.True(result.Configured);
+        Assert.Equal("CURRENT_ACCOUNT_NOT_AUTHORIZED", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateUnlock_WhenCallerSidIsUnavailable_FailsClosed()
+    {
+        var result = EvaluateUnlock(
+            LoadedBinding(Binding(InstallationId, BoundSid)),
+            LocalIpcClientContext.Unavailable());
+
+        Assert.False(result.Authorized);
+        Assert.True(result.Configured);
+        Assert.Equal("CURRENT_ACCOUNT_NOT_AUTHORIZED", result.Status);
+    }
+
+    [Fact]
     public void Evaluate_WhenBindingIsMissing_ReturnsNotConfigured()
     {
         var result = Evaluate(
@@ -126,6 +198,19 @@ public sealed class MasterAuthorizationServiceTests
                 new HardwareFingerprint("a", "b", "c", "d"),
                 FixedNowUtc),
             licenseState,
+            bindingResult,
+            clientContext);
+    }
+
+    private static LocalMasterUnlockAuthorization EvaluateUnlock(
+        MasterBindingStoreReadResult bindingResult,
+        LocalIpcClientContext clientContext)
+    {
+        return MasterAuthorizationService.EvaluateUnlock(
+            InstallationIdentity.Create(
+                InstallationId,
+                new HardwareFingerprint("a", "b", "c", "d"),
+                FixedNowUtc),
             bindingResult,
             clientContext);
     }
