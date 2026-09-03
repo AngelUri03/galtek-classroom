@@ -578,6 +578,14 @@ public sealed class BrowserPolicyAgentTests
             OpenUrlCalls.Add((operationId, url));
             return Task.FromResult(SessionCommandClientResult.Success());
         }
+
+        public Task<SessionCommandClientResult> OpenApplicationAsync(
+            string applicationId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(SessionCommandClientResult.Success());
+        }
     }
 
     private sealed class MutableClock : ISystemClock

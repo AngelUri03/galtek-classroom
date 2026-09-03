@@ -4,23 +4,10 @@ namespace GaltekClassroom.Agent.Service.Identity;
 
 public static class AgentDataDirectory
 {
-    public const string EnvironmentVariableName = "GALTEK_CLASSROOM_DATA_DIR";
+    public const string EnvironmentVariableName = GaltekDataDirectory.EnvironmentVariableName;
 
     public static string Resolve(Func<string, string?>? getEnvironmentVariable = null)
     {
-        var environment = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
-        var configuredDirectory = environment(EnvironmentVariableName);
-
-        if (!string.IsNullOrWhiteSpace(configuredDirectory))
-        {
-            return Path.GetFullPath(configuredDirectory);
-        }
-
-        var commonApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-
-        return Path.Combine(
-            commonApplicationData,
-            ProductInfo.DataDirectoryOrganizationName,
-            ProductInfo.DataDirectoryProductName);
+        return GaltekDataDirectory.Resolve(getEnvironmentVariable);
     }
 }

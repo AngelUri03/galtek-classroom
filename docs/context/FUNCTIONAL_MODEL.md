@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, y Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`, Prompt 17A agrega el catalogo local `application-bindings.json`, y Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo Agent-side sin endpoint/batch Master.
 
 ## Principio de producto
 
@@ -233,7 +233,7 @@ Desde Prompt 14:
 - El Master genera y controla `deviceId`; no se acepta `deviceId` declarado por el Client como identidad.
 - El vinculo vigente entre Device y Network Identity se persiste en `device_network_bindings`.
 - `paired-clients.json` sigue siendo la autoridad de trust; SQLite no reemplaza pairing.
-- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
 
@@ -861,7 +861,7 @@ Si el Device estaba offline antes de enviar, el target usa `DEVICE_OFFLINE` retr
 
 Desde Prompt 15C, la reconciliacion de `OPERATION_RESULT_UNKNOWN` para `SHUTDOWN`/`RESTART` consulta read-only el resultado original mediante `OperationStatusQuery(protocolVersion, operationId, targetDeviceId)` sobre el mismo stream autenticado. El Agent responde `OperationStatusReport KNOWN` solo si conserva el `OperationResult` original en cache o un receipt durable minimo de power control aceptado; responde `UNKNOWN` cuando no tiene evidencia. La query nunca llama al handler, nunca modifica Windows, nunca crea un `OperationRequest` nuevo y no renueva indefinidamente la retencion del cache.
 
-Desde Prompt 16A, las operaciones remotas que requieran accion dentro de la sesion interactiva del usuario deben usar el canal local separado `Session Command v1` entre Agent Service y Session Agent. Local IPC v1 permanece read-only y no recibe comandos write. Prompt 16B agrega `OPEN_URL` como comando de sesion tipado: el Service valida URL y envia el comando al Session Agent; el Session Agent valida otra vez y ejecuta la accion visible en la sesion interactiva. Las politicas de navegacion y descarga se aplican desde el Agent Service mediante Registry del usuario interactivo real, no mediante Session Command. `OPEN_APPLICATION` y demas acciones siguen pendientes.
+Desde Prompt 16A, las operaciones remotas que requieran accion dentro de la sesion interactiva del usuario deben usar el canal local separado `Session Command v1` entre Agent Service y Session Agent. Local IPC v1 permanece read-only y no recibe comandos write. Prompt 16B agrega `OPEN_URL` como comando de sesion tipado: el Service valida URL y envia el comando al Session Agent; el Session Agent valida otra vez y ejecuta la accion visible en la sesion interactiva. Las politicas de navegacion y descarga se aplican desde el Agent Service mediante Registry del usuario interactivo real, no mediante Session Command. Desde Prompt 17B, `OPEN_APPLICATION` tambien usa `Session Command v1` de forma tipada y transporta solo `applicationId`; las demas acciones interactivas continuan pendientes.
 
 El Master puede reconciliar manualmente con `POST /api/operations/{operationId}/reconcile` o de forma ligera al reconnect autenticado del mismo Device. Solo targets `FAILED + OPERATION_RESULT_UNKNOWN` de operaciones `SHUTDOWN`/`RESTART` pueden cambiar. `KNOWN SUCCESS` cambia el target a `SUCCESS`; `KNOWN FAILED` conserva `FAILED` pero reemplaza el error desconocido por el error real. `UNKNOWN`, timeout de query u offline conservan `OPERATION_RESULT_UNKNOWN`.
 
@@ -1210,6 +1210,32 @@ Ejemplos:
 - `HIGH`: preparar `PRIMARY`, asignar alumno, recuperar/sincronizar workspace necesario para iniciar clase.
 - `NORMAL`: distribuir actividad, `OPEN_APPLICATION`, `OPEN_URL`.
 - `LOW`: thumbnails, inventario, metadata secundaria, prefetch.
+
+## OPEN_APPLICATION
+
+`OPEN_APPLICATION` abre una aplicacion autorizada localmente en el Client mediante un `applicationId` logico. El Master/Protobuf, Agent Service y Session Command no transportan rutas ejecutables, command line, argumentos, working directory, shell, URI ni payload generico.
+
+El flujo productivo Agent-side es:
+
+```text
+OperationRequest OPEN_APPLICATION(applicationId)
+  -> RemoteOperationDispatcher con licencia comercial activa
+  -> OpenApplicationOperationHandler
+  -> ApplicationBindingStore local
+  -> Session Command OPEN_APPLICATION(applicationId)
+  -> Session Agent
+  -> read-only application-bindings.json
+  -> resolucion fisica segura
+  -> CreateProcessW en la sesion interactiva
+```
+
+`APPLICATION_BINDING_NOT_FOUND` cubre catalogo ausente o `applicationId` inexistente. `APPLICATION_BINDINGS_INVALID` cubre JSON/schema/catalogo corrupto. `APPLICATION_DISABLED` no resuelve target ni comprueba executable. `APPLICATION_EXECUTABLE_NOT_FOUND` significa que el `.exe` autorizado no existe al momento de ejecucion. `APPLICATION_LAUNCH_FAILED` significa que Windows rechazo la creacion del proceso con el token normal del Session Agent.
+
+`APP_PATHS` solo usa HKLM App Paths, valor default, Registry64/Registry32 cuando aplica, y falla cerrado si ambas vistas resuelven distinto. No se consulta HKCU, PATH, Program Files, Start Menu, WindowsApps, uninstall keys, procesos ni discos. `ABSOLUTE_EXE` se revalida como path Windows local absoluto `.exe` y se comprueba con `File.Exists` justo antes del launch.
+
+`SUCCESS` solo significa que Windows acepto crear el proceso; no implica ventana visible, foreground, app estable, documento cargado, respuesta de la app ni instancia unica. No hay polling, dedupe por proceso, monitoring ni `WaitForExit`. Duplicados del mismo `operationId + applicationId` devuelven el resultado cacheado; mismo `operationId` con otro `applicationId` falla como conflicto vigente. Si el Session Command fue enviado y se pierde la respuesta, el resultado es `SESSION_COMMAND_RESULT_UNKNOWN` y no hay retry automatico.
+
+El endpoint/batch Master para `OPEN_APPLICATION` queda pendiente para 17C.
 
 Una transferencia grande nunca debe impedir una operacion `CRITICAL`. No hay scheduler real en Prompt 14.2.
 

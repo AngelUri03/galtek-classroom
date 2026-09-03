@@ -1,6 +1,6 @@
 # Application bindings locales
 
-Prompt 17A agrega la fuente de verdad local del Client para vincular un `applicationId` logico Galtek con una aplicacion abrible en ese equipo. No lanza aplicaciones todavia.
+Prompt 17A agrega la fuente de verdad local del Client para vincular un `applicationId` logico Galtek con una aplicacion abrible en ese equipo. Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent: el Master/Protobuf y el Session Command siguen transportando solo `applicationId`; el Service y el Session Agent resuelven localmente el binding antes de lanzar.
 
 ## Separacion de conceptos
 
@@ -8,7 +8,7 @@ Prompt 17A agrega la fuente de verdad local del Client para vincular un `applica
 
 `ApplicationBinding` vive en el Client y describe como ese equipo encuentra localmente una aplicacion por `applicationId`.
 
-El Master solo puede enviar `applicationId` en una fase futura de `OPEN_APPLICATION`. Nunca debe enviar `executablePath`, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria.
+El Master solo puede enviar `applicationId` para `OPEN_APPLICATION`. Nunca debe enviar `executablePath`, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria.
 
 ## Archivo
 
@@ -62,6 +62,20 @@ No soportados en 17A: MSIX, UWP AUMID, URI/protocol, shortcut/LNK, BAT/CMD/PS1/V
 
 JSON invalido, schema desconocido, duplicados, launch type desconocido o campos incompatibles producen `APPLICATION_BINDINGS_INVALID`. El Agent preserva el archivo y no adopta parcialmente entradas buenas.
 
+## OPEN_APPLICATION productivo
+
+`OPEN_APPLICATION` llega como `OperationRequest` tipado con `OpenApplicationOperationParameters.applicationId`. El Agent Service valida el `applicationId`, carga `application-bindings.json`, exige catalogo valido, binding existente y `enabled = true`, valida la estructura local y envia al Session Agent un Session Command `OPEN_APPLICATION` que tambien contiene solo `applicationId`.
+
+El Agent Service no crea procesos, no resuelve HKCU, no usa shell, no pasa rutas al Session Agent y no envia argumentos. La licencia comercial, pairing, Device registrado y dedupe siguen siendo responsabilidad del dispatcher remoto antes del handler.
+
+El Session Agent vuelve a leer el catalogo on-demand, vuelve a validar schema/binding/enabled/target y resuelve el target fisico. Si el catalogo falta o el `applicationId` no existe devuelve `APPLICATION_BINDING_NOT_FOUND`; si el JSON/schema es invalido devuelve `APPLICATION_BINDINGS_INVALID`; si el binding esta disabled devuelve `APPLICATION_DISABLED` sin resolver ni comprobar ejecutable.
+
+Para `ABSOLUTE_EXE`, el Session Agent revalida ruta absoluta Windows local `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders, y ejecuta `File.Exists` justo antes de lanzar. Si falta devuelve `APPLICATION_EXECUTABLE_NOT_FOUND`.
+
+Para `APP_PATHS`, el Session Agent resuelve explicitamente solo el valor default de `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\<executableName>` en Registry64 y Registry32 cuando corresponde. No consulta HKCU, PATH, Program Files, Start Menu, WindowsApps, uninstall keys, procesos ni discos. Si ambas vistas existen y apuntan a rutas distintas falla cerrado con `APPLICATION_BINDING_INVALID`; si no resuelve o el archivo no existe devuelve `APPLICATION_EXECUTABLE_NOT_FOUND`.
+
+El launch productivo usa `CreateProcessW` con `lpApplicationName` igual a la ruta absoluta resuelta, `lpCommandLine = null`, `bInheritHandles = false` y working directory derivado del directorio padre del `.exe`. El proceso hereda usuario/sesion/privilegios normales del Session Agent; no hay `runas`, UAC intencional, `cmd`, PowerShell, ShellExecute, argumentos, monitoring, polling ni `WaitForExit`. `SUCCESS` significa solo que Windows acepto crear el proceso.
+
 ## CLI local
 
 Comandos administrativos:
@@ -80,4 +94,4 @@ Las mutaciones requieren consola elevada. `--application-bind-list` es read-only
 
 ## Performance
 
-El catalogo no agrega timers, polling, discovery, registry scan, WMI, process scan, filesystem scan, heartbeat data ni writes en idle. Solo hay I/O cuando se ejecuta la CLI o cuando una fase futura consulte explicitamente el catalogo.
+El catalogo no agrega timers, polling, discovery, registry scan, WMI, process scan, filesystem scan, heartbeat data ni writes en idle. Solo hay I/O cuando se ejecuta la CLI o cuando `OPEN_APPLICATION` consulta explicitamente el catalogo.

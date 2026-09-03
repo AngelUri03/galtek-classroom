@@ -1,5 +1,6 @@
 using System.Reflection;
 using GaltekClassroom.Agent.Shared;
+using GaltekClassroom.Protocol.Network.V1;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 
@@ -140,6 +141,12 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyRollbackFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.BrowserDownloadPolicyRecoveryRequired, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.UrlBlockedByPolicy, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationBindingsInvalid, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationBindingNotFound, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationBindingInvalid, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationDisabled, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationExecutableNotFound, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ApplicationLaunchFailed, errorCodes);
     }
 
     [Fact]
@@ -156,6 +163,45 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomCapabilities.BrowserDownloadPolicyV1, capabilities);
         Assert.DoesNotContain("0", modes);
         Assert.DoesNotContain("DownloadRestrictions", modes);
+    }
+
+    [Fact]
+    public void OpenApplicationRemoteContract_IsTypedApplicationIdOnly()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.OpenApplication,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1",
+            OpenApplication = new OpenApplicationOperationParameters
+            {
+                ApplicationId = "conejito-lector"
+            }
+        };
+
+        Assert.Equal(NetworkOperationType.OpenApplication, request.OperationType);
+        Assert.Equal(OperationRequest.OperationParametersOneofCase.OpenApplication, request.OperationParametersCase);
+        Assert.Equal("conejito-lector", request.OpenApplication.ApplicationId);
+
+        var parameterNames = typeof(OpenApplicationOperationParameters)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("ApplicationId", parameterNames);
+        Assert.DoesNotContain("ExecutablePath", parameterNames);
+        Assert.DoesNotContain("Arguments", parameterNames);
+        Assert.DoesNotContain("CommandLine", parameterNames);
+        Assert.DoesNotContain("WorkingDirectory", parameterNames);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeOpenApplicationV1()
+    {
+        Assert.Equal(
+            "OPEN_APPLICATION_V1",
+            ClassroomCapabilities.OpenApplicationV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.OpenApplicationV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

@@ -141,11 +141,17 @@ static ISessionCommandServer CreateSessionCommandServer()
         return new SessionCommandServer(
             new UnsupportedSessionCommandPipeStreamFactory(),
             new UnavailableSessionCommandCallerVerifier(),
-            new UnavailableUrlLauncher());
+            new UnavailableUrlLauncher(),
+            new UnavailableSessionApplicationResolver(),
+            new UnavailableWindowsApplicationLauncher());
     }
 
     return new SessionCommandServer(
         new SessionCommandPipeStreamFactory(),
         new WindowsSessionCommandCallerVerifier(),
-        new WindowsUrlLauncher());
+        new WindowsUrlLauncher(),
+        new SessionApplicationResolver(
+            new SessionApplicationResolverOptions(GaltekDataDirectory.Resolve()),
+            new WindowsAppPathsRegistry()),
+        new WindowsApplicationLauncher());
 }

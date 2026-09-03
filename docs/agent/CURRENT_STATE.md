@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 17A.
+2026-09-03 - Prompt 17B.
 
 ## Estado del proyecto
 
@@ -46,6 +46,8 @@ Prompt 16F2 agrega dispatch batch desde Master para `OPEN_URL`. Expone `POST /ap
 
 Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `application-bindings.json` para vincular `applicationId` logico Galtek con un target local del Client. Soporta solo `APP_PATHS` y `ABSOLUTE_EXE`, se configura por CLI local administrativa elevada, usa escritura durable y ACL local, falla cerrado ante corrupcion y no ejecuta aplicaciones todavia. No modifica Master, Java, Protobuf, Session Agent, Session Command, installer, UI ni dispatch remoto.
 
+Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent/Session sin endpoint/batch Master. Protobuf y Session Command transportan solo `applicationId`; el Agent Service valida el binding local y envia el comando tipado, y el Session Agent vuelve a leer/validar `application-bindings.json`, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only y lanza con `CreateProcessW` en la sesion interactiva. No hay argumentos, shell, HKCU App Paths, PATH search, elevacion, monitoring ni retry automatico tras comando enviado.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -81,7 +83,16 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Endpoints protegidos de browser download policies: listar/crear/patch/archive policies y resolver read-only de policy efectiva.
 - `POST /api/classrooms/{classroomId}/browser-download-policies/apply` protegido, aplica la policy de descarga efectiva persistida a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/open-url` protegido, envia batch `OPEN_URL` a Devices explicitamente seleccionados despues de safety global y policy efectiva por target.
-- `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` es la fuente de verdad local del Client para `applicationId -> launch target` futuro.
+- `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` es la fuente de verdad local del Client para `applicationId -> launch target`.
+- `OPEN_APPLICATION` productivo Agent-side llega por `OperationRequest` tipado y usa `OpenApplicationOperationParameters.applicationId` como unico input funcional remoto.
+- `OPEN_APPLICATION_V1` se anuncia en `ClientHello` desde el Agent.
+- `OpenApplicationOperationHandler` valida `applicationId`, catalogo, binding existente, `enabled` y estructura; para `ABSOLUTE_EXE` comprueba existencia puntual antes del Session Command.
+- Session Command v1 soporta `OPEN_APPLICATION` con `openApplication.applicationId` solamente; no transporta path, command line, argumentos, working directory, shell, URI, shortcut ni environment.
+- El Session Agent resuelve aplicaciones read-only/on-demand con `SessionApplicationResolver`, releyendo y validando `application-bindings.json` en cada `OPEN_APPLICATION`.
+- `APP_PATHS` en launch se resuelve solo por HKLM App Paths, valor default, Registry64/Registry32 cuando aplica; no usa HKCU, PATH, Program Files, Start Menu, WindowsApps, uninstall keys, procesos ni scans.
+- `ABSOLUTE_EXE` se revalida en el Session Agent como ruta Windows local absoluta `.exe` y se verifica con `File.Exists` justo antes de lanzar.
+- `WindowsApplicationLauncher` usa `CreateProcessW` con `lpApplicationName` absoluto, `lpCommandLine = null`, sin argumentos, sin handles heredados y working directory del parent del executable; cierra handles de process/thread tras success.
+- `OPEN_APPLICATION SUCCESS` significa solo que Windows acepto crear el proceso; no hay foreground guarantee, app monitoring, PID tracking, `WaitForExit`, instancia unica ni dedupe por proceso.
 - Store local `IApplicationBindingStore`/`ApplicationBindingStore` con Load/Get/List/Add/Replace/SetEnabled/Remove, escritura durable, verificacion posterior y fail closed.
 - Launch types locales de aplicaciones soportados en el Agent: `APP_PATHS` y `ABSOLUTE_EXE`.
 - CLI local administrativa de application bindings: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
@@ -89,6 +100,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `APP_PATHS` valida solo nombre `.exe` sin path, comillas, espacios, control chars ni argumentos.
 - `ABSOLUTE_EXE` valida ruta Windows local absoluta `.exe`, no UNC, no relativa, sin `..`, ADS, control chars, comillas, argumentos, wildcards ni placeholders; al crear/reemplazar verifica existencia puntual.
 - Corrupcion de `application-bindings.json`, schema desconocido, duplicados o campos incompatibles producen `APPLICATION_BINDINGS_INVALID` sin regenerar ni adoptar parcialmente.
+- Errores remotos de aplicacion vigentes: `APPLICATION_BINDINGS_INVALID`, `APPLICATION_BINDING_NOT_FOUND`, `APPLICATION_BINDING_INVALID`, `APPLICATION_DISABLED`, `APPLICATION_EXECUTABLE_NOT_FOUND` y `APPLICATION_LAUNCH_FAILED`.
 - `BrowserAccessPolicy` persiste `mode`, `scopeType`, target `CLASSROOM`/`GROUP`/`DEVICE`, `accountScope` `ANY`/`PRIMARY`/`SECONDARY`, `active`, `version` y timestamps UTC.
 - `BrowserUrlRule` persiste `ALLOW`/`BLOCK`, `HOST_EXACT`/`HOST_SUFFIX`/`URL_PREFIX`/`EXACT_URL`, pattern canonico, enabled, descripcion opcional y timestamps UTC.
 - `BrowserPolicyPrecedenceResolver` selecciona una sola policy efectiva: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `UNRESTRICTED` implicito.
@@ -222,9 +234,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
-- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler` y `ApplyBrowserPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
+- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
 - `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
 - `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
@@ -333,7 +345,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -430,6 +442,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~OpenApplication|FullyQualifiedName~SessionCommand|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 20 pruebas Session y 105 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~AgentCommandLineTests"` en `agent`: correcto, 47 pruebas Service y 6 pruebas Session sin coincidencia funcional superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=OpenUrlDispatchControllerTest,MasterRemoteOperationGatewayTest,BrowserNavigationPolicyEvaluatorTest" test` en `master-backend`: correcto, pruebas dirigidas de request/safety, policy, preflight, dispatch `OPEN_URL`, gateway tipado y evaluator superadas.
@@ -465,4 +481,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 17B puede disenar `OPEN_APPLICATION(applicationId)` sobre Protobuf/Session Command usando exclusivamente `application-bindings.json` como fuente local, sin aceptar rutas ni comandos desde el Master.
+Siguiente fase recomendada: Prompt 17C puede agregar endpoint/batch Master para `OPEN_APPLICATION`, enviando exclusivamente `applicationId` y sin aceptar rutas, comandos ni argumentos desde HTTP/Master.

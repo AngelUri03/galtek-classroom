@@ -169,6 +169,75 @@ public sealed class SessionCommandServerTests
     }
 
     [Fact]
+    public async Task HandleAsync_WhenOpenApplicationIsValid_ResolvesAndLaunches()
+    {
+        var resolver = RecordingApplicationResolver.Success(@"C:\Tools\Conejito.exe");
+        var launcher = RecordingApplicationLauncher.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateOpenApplicationRequest("conejito-lector"),
+            RecordingUrlLauncher.Success(),
+            resolver,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Success, response.Status);
+        Assert.Equal(["conejito-lector"], resolver.ApplicationIds);
+        Assert.Equal([@"C:\Tools\Conejito.exe"], launcher.ExecutablePaths);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenOpenApplicationIdIsInvalid_DoesNotResolveOrLaunch()
+    {
+        var resolver = RecordingApplicationResolver.Success(@"C:\Tools\Conejito.exe");
+        var launcher = RecordingApplicationLauncher.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateOpenApplicationRequest(@"..\bad"),
+            RecordingUrlLauncher.Success(),
+            resolver,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandErrorCodes.ApplicationBindingInvalid, response.ErrorCode);
+        Assert.Empty(resolver.ApplicationIds);
+        Assert.Empty(launcher.ExecutablePaths);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenOpenApplicationResolutionFails_DoesNotLaunch()
+    {
+        var resolver = RecordingApplicationResolver.Failure(ApplicationBindingErrorCodes.ApplicationDisabled);
+        var launcher = RecordingApplicationLauncher.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateOpenApplicationRequest("word"),
+            RecordingUrlLauncher.Success(),
+            resolver,
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(ApplicationBindingErrorCodes.ApplicationDisabled, response.ErrorCode);
+        Assert.Empty(launcher.ExecutablePaths);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenOpenApplicationLaunchFails_ReturnsStructuredFailure()
+    {
+        var launcher = RecordingApplicationLauncher.Failure();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateOpenApplicationRequest("word"),
+            RecordingUrlLauncher.Success(),
+            RecordingApplicationResolver.Success(@"C:\Tools\Word.exe"),
+            launcher,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandErrorCodes.ApplicationLaunchFailed, response.ErrorCode);
+        Assert.Equal([@"C:\Tools\Word.exe"], launcher.ExecutablePaths);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenCallerIsUnauthorized_RejectsConnection()
     {
         var sessionId = Random.Shared.Next(20_000, 70_000);
@@ -342,6 +411,19 @@ public sealed class SessionCommandServerTests
         };
     }
 
+    private static SessionCommandRequest CreateOpenApplicationRequest(string applicationId)
+    {
+        return new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = SessionCommandTypes.OpenApplication,
+            OpenApplication = new SessionOpenApplicationCommand
+            {
+                ApplicationId = applicationId
+            }
+        };
+    }
+
     private static async Task IgnoreCancellationAsync(Task task)
     {
         try
@@ -407,6 +489,68 @@ public sealed class SessionCommandServerTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Urls.Add(url);
+            return Task.FromResult(_result);
+        }
+    }
+
+    private sealed class RecordingApplicationResolver : ISessionApplicationResolver
+    {
+        private readonly SessionApplicationResolution _result;
+
+        private RecordingApplicationResolver(SessionApplicationResolution result)
+        {
+            _result = result;
+        }
+
+        public List<string> ApplicationIds { get; } = [];
+
+        public static RecordingApplicationResolver Success(string executablePath)
+        {
+            return new RecordingApplicationResolver(SessionApplicationResolution.Success(executablePath));
+        }
+
+        public static RecordingApplicationResolver Failure(string errorCode)
+        {
+            return new RecordingApplicationResolver(SessionApplicationResolution.Failure(errorCode, "Resolution failed."));
+        }
+
+        public Task<SessionApplicationResolution> ResolveAsync(
+            string applicationId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplicationIds.Add(applicationId);
+            return Task.FromResult(_result);
+        }
+    }
+
+    private sealed class RecordingApplicationLauncher : IWindowsApplicationLauncher
+    {
+        private readonly ApplicationLaunchResult _result;
+
+        private RecordingApplicationLauncher(ApplicationLaunchResult result)
+        {
+            _result = result;
+        }
+
+        public List<string> ExecutablePaths { get; } = [];
+
+        public static RecordingApplicationLauncher Success()
+        {
+            return new RecordingApplicationLauncher(ApplicationLaunchResult.Success());
+        }
+
+        public static RecordingApplicationLauncher Failure()
+        {
+            return new RecordingApplicationLauncher(ApplicationLaunchResult.Failed("Launch failed."));
+        }
+
+        public Task<ApplicationLaunchResult> LaunchAsync(
+            string executablePath,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ExecutablePaths.Add(executablePath);
             return Task.FromResult(_result);
         }
     }

@@ -78,6 +78,32 @@ public sealed class SessionCommandProtocolTests
     }
 
     [Fact]
+    public void OpenApplicationRequestJson_UsesOnlyTypedApplicationIdShape()
+    {
+        var request = new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = SessionCommandTypes.OpenApplication,
+            OpenApplication = new SessionOpenApplicationCommand
+            {
+                ApplicationId = "conejito-lector"
+            }
+        };
+
+        var json = JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"commandType\":\"OPEN_APPLICATION\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"openApplication\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"applicationId\":\"conejito-lector\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("executablePath", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("workingDirectory", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("command\":", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("shell", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("uri", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LocalIpcV1_RemainsReadOnlyOperationsOnly()
     {
         var operations = new[]
@@ -91,6 +117,7 @@ public sealed class SessionCommandProtocolTests
 
         Assert.DoesNotContain(SessionCommandTypes.ChannelPing, operations);
         Assert.DoesNotContain("OPEN_URL", operations);
+        Assert.DoesNotContain("OPEN_APPLICATION", operations);
         Assert.DoesNotContain("EXECUTE_COMMAND", operations);
     }
 }

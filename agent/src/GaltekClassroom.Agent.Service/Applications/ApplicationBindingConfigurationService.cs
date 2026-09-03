@@ -1,4 +1,5 @@
 using GaltekClassroom.Agent.Service.Master;
+using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Applications;
 

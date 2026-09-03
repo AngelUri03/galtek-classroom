@@ -26,6 +26,7 @@ public static class SessionCommandTypes
 {
     public const string ChannelPing = "CHANNEL_PING";
     public const string OpenUrl = "OPEN_URL";
+    public const string OpenApplication = "OPEN_APPLICATION";
 }
 
 public static class SessionCommandStatuses
@@ -46,6 +47,12 @@ public static class SessionCommandErrorCodes
     public const string SessionCommandResultUnknown = "SESSION_COMMAND_RESULT_UNKNOWN";
     public const string InvalidUrl = "INVALID_URL";
     public const string UrlLaunchFailed = "URL_LAUNCH_FAILED";
+    public const string ApplicationBindingsInvalid = "APPLICATION_BINDINGS_INVALID";
+    public const string ApplicationBindingNotFound = "APPLICATION_BINDING_NOT_FOUND";
+    public const string ApplicationBindingInvalid = "APPLICATION_BINDING_INVALID";
+    public const string ApplicationDisabled = "APPLICATION_DISABLED";
+    public const string ApplicationExecutableNotFound = "APPLICATION_EXECUTABLE_NOT_FOUND";
+    public const string ApplicationLaunchFailed = "APPLICATION_LAUNCH_FAILED";
 }
 
 public sealed record SessionCommandRequest
@@ -66,6 +73,11 @@ public sealed record SessionCommandRequest
     [JsonPropertyOrder(3)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SessionOpenUrlCommand? OpenUrl { get; init; }
+
+    [JsonPropertyName("openApplication")]
+    [JsonPropertyOrder(4)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SessionOpenApplicationCommand? OpenApplication { get; init; }
 }
 
 public sealed record SessionOpenUrlCommand
@@ -77,6 +89,13 @@ public sealed record SessionOpenUrlCommand
     [JsonPropertyName("url")]
     [JsonPropertyOrder(1)]
     public string Url { get; init; } = string.Empty;
+}
+
+public sealed record SessionOpenApplicationCommand
+{
+    [JsonPropertyName("applicationId")]
+    [JsonPropertyOrder(0)]
+    public string ApplicationId { get; init; } = string.Empty;
 }
 
 public sealed record SessionCommandResponse

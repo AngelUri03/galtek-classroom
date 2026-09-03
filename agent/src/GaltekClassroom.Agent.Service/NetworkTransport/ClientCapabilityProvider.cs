@@ -10,6 +10,7 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.OperationFrameworkV1,
         NetworkCapability.SessionAgentAvailable,
         NetworkCapability.PowerControlV1,
+        NetworkCapability.OpenApplicationV1,
         NetworkCapability.OpenUrlV1,
         NetworkCapability.BrowserNavigationPolicyV1,
         NetworkCapability.BrowserDownloadPolicyV1

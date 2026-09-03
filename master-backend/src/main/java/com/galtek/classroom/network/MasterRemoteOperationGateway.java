@@ -5,6 +5,7 @@ import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParame
 import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
+import com.galtek.classroom.network.v1.OpenApplicationOperationParameters;
 import com.galtek.classroom.network.v1.OpenUrlOperationParameters;
 import com.galtek.classroom.network.v1.OperationAcceptanceStatus;
 import com.galtek.classroom.network.v1.OperationAccepted;
@@ -87,7 +88,7 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -96,7 +97,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -105,7 +106,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserDownloadPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -114,7 +115,16 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenUrlOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters);
+    }
+
+    public Optional<DispatchHandle> dispatch(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            OpenApplicationOperationParameters parameters) {
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null);
     }
 
     private Optional<DispatchHandle> dispatch(
@@ -124,6 +134,7 @@ public class MasterRemoteOperationGateway {
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters browserPolicyParameters,
             ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters,
+            OpenApplicationOperationParameters openApplicationParameters,
             OpenUrlOperationParameters openUrlParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
@@ -158,6 +169,9 @@ public class MasterRemoteOperationGateway {
             }
             if (browserDownloadPolicyParameters != null) {
                 request.setApplyBrowserDownloadPolicy(browserDownloadPolicyParameters);
+            }
+            if (openApplicationParameters != null) {
+                request.setOpenApplication(openApplicationParameters);
             }
             if (openUrlParameters != null) {
                 request.setOpenUrl(openUrlParameters);
@@ -389,6 +403,13 @@ public class MasterRemoteOperationGateway {
             case NETWORK_OPERATION_ERROR_CODE_BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED ->
                     ErrorCode.BROWSER_DOWNLOAD_POLICY_RECOVERY_REQUIRED;
             case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY -> ErrorCode.URL_BLOCKED_BY_POLICY;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDINGS_INVALID -> ErrorCode.APPLICATION_BINDINGS_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_NOT_FOUND -> ErrorCode.APPLICATION_BINDING_NOT_FOUND;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_INVALID -> ErrorCode.APPLICATION_BINDING_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_DISABLED -> ErrorCode.APPLICATION_DISABLED;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_EXECUTABLE_NOT_FOUND ->
+                    ErrorCode.APPLICATION_EXECUTABLE_NOT_FOUND;
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED -> ErrorCode.APPLICATION_LAUNCH_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -453,6 +474,18 @@ public class MasterRemoteOperationGateway {
                     "Browser download policy requires local recovery.";
             case NETWORK_OPERATION_ERROR_CODE_URL_BLOCKED_BY_POLICY ->
                     "URL is blocked by applied browser navigation policy.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDINGS_INVALID ->
+                    "Agent reported an invalid application binding catalog.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_NOT_FOUND ->
+                    "Application binding was not found on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_INVALID ->
+                    "Application binding is invalid on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_DISABLED ->
+                    "Application binding is disabled on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_EXECUTABLE_NOT_FOUND ->
+                    "Application executable was not found on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED ->
+                    "Windows did not accept the application launch request.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->
@@ -474,6 +507,7 @@ public class MasterRemoteOperationGateway {
         return switch (operationType) {
             case SHUTDOWN -> NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN;
             case RESTART -> NetworkOperationType.NETWORK_OPERATION_TYPE_RESTART;
+            case OPEN_APPLICATION -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION;
             case OPEN_URL -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;

@@ -43,15 +43,21 @@ public sealed class SessionCommandServer : ISessionCommandServer
     private readonly ISessionCommandPipeStreamFactory _pipeStreamFactory;
     private readonly ISessionCommandCallerVerifier _callerVerifier;
     private readonly IUrlLauncher _urlLauncher;
+    private readonly ISessionApplicationResolver _applicationResolver;
+    private readonly IWindowsApplicationLauncher _applicationLauncher;
 
     public SessionCommandServer(
         ISessionCommandPipeStreamFactory pipeStreamFactory,
         ISessionCommandCallerVerifier callerVerifier,
-        IUrlLauncher? urlLauncher = null)
+        IUrlLauncher? urlLauncher = null,
+        ISessionApplicationResolver? applicationResolver = null,
+        IWindowsApplicationLauncher? applicationLauncher = null)
     {
         _pipeStreamFactory = pipeStreamFactory;
         _callerVerifier = callerVerifier;
         _urlLauncher = urlLauncher ?? new UnavailableUrlLauncher();
+        _applicationResolver = applicationResolver ?? new UnavailableSessionApplicationResolver();
+        _applicationLauncher = applicationLauncher ?? new UnavailableWindowsApplicationLauncher();
     }
 
     public async Task RunAsync(int sessionId, CancellationToken cancellationToken)
@@ -104,7 +110,12 @@ public sealed class SessionCommandServer : ISessionCommandServer
             var requestJson = await SessionCommandFraming.ReadJsonAsync(pipe, cancellationToken)
                 .ConfigureAwait(false);
             var request = JsonSerializer.Deserialize<SessionCommandRequest>(requestJson, JsonOptions);
-            response = await HandleAsync(request, _urlLauncher, cancellationToken).ConfigureAwait(false);
+            response = await HandleAsync(
+                request,
+                _urlLauncher,
+                _applicationResolver,
+                _applicationLauncher,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException)
         {
@@ -134,7 +145,24 @@ public sealed class SessionCommandServer : ISessionCommandServer
         IUrlLauncher urlLauncher,
         CancellationToken cancellationToken)
     {
+        return await HandleAsync(
+            request,
+            urlLauncher,
+            new UnavailableSessionApplicationResolver(),
+            new UnavailableWindowsApplicationLauncher(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<SessionCommandResponse> HandleAsync(
+        SessionCommandRequest? request,
+        IUrlLauncher urlLauncher,
+        ISessionApplicationResolver applicationResolver,
+        IWindowsApplicationLauncher applicationLauncher,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(urlLauncher);
+        ArgumentNullException.ThrowIfNull(applicationResolver);
+        ArgumentNullException.ThrowIfNull(applicationLauncher);
 
         if (request is null)
         {
@@ -166,11 +194,62 @@ public sealed class SessionCommandServer : ISessionCommandServer
             case SessionCommandTypes.OpenUrl:
                 return await HandleOpenUrlAsync(requestId, request.OpenUrl, urlLauncher, cancellationToken)
                     .ConfigureAwait(false);
+            case SessionCommandTypes.OpenApplication:
+                return await HandleOpenApplicationAsync(
+                    requestId,
+                    request.OpenApplication,
+                    applicationResolver,
+                    applicationLauncher,
+                    cancellationToken).ConfigureAwait(false);
             default:
                 return SessionCommandResponse.Error(
                     requestId,
                     SessionCommandErrorCodes.SessionCommandNotSupported);
         }
+    }
+
+    private static async Task<SessionCommandResponse> HandleOpenApplicationAsync(
+        string requestId,
+        SessionOpenApplicationCommand? command,
+        ISessionApplicationResolver applicationResolver,
+        IWindowsApplicationLauncher applicationLauncher,
+        CancellationToken cancellationToken)
+    {
+        if (command is null)
+        {
+            return SessionCommandResponse.Error(
+                requestId,
+                SessionCommandErrorCodes.SessionChannelMalformedRequest);
+        }
+
+        var idValidation = ApplicationBindingValidator.ValidateApplicationId(command.ApplicationId);
+        if (!idValidation.IsValid)
+        {
+            return SessionCommandResponse.Error(
+                requestId,
+                SessionCommandErrorCodes.ApplicationBindingInvalid);
+        }
+
+        var resolution = await applicationResolver.ResolveAsync(
+            idValidation.NormalizedValue!,
+            cancellationToken).ConfigureAwait(false);
+        if (!resolution.Succeeded || string.IsNullOrWhiteSpace(resolution.ExecutablePath))
+        {
+            return SessionCommandResponse.Error(
+                requestId,
+                resolution.ErrorCode ?? SessionCommandErrorCodes.ApplicationBindingInvalid,
+                resolution.Message);
+        }
+
+        var launch = await applicationLauncher.LaunchAsync(
+            resolution.ExecutablePath,
+            cancellationToken).ConfigureAwait(false);
+        return launch.Succeeded
+            ? SessionCommandResponse.Success(requestId)
+            : SessionCommandResponse.Error(
+                requestId,
+                SessionCommandErrorCodes.ApplicationLaunchFailed,
+                launch.Message);
     }
 
     private static async Task<SessionCommandResponse> HandleOpenUrlAsync(

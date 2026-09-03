@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using GaltekClassroom.Agent.Service.Applications;
 using Microsoft.Extensions.DependencyInjection;
 using GaltekClassroom.Agent.Service.BrowserPolicy;
 using GaltekClassroom.Agent.Service.Identity;
@@ -37,6 +38,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AppliedBrowserPolicyEvaluator>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, OpenApplicationOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, OpenUrlOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserPolicyOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserDownloadPolicyOperationHandler>();

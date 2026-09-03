@@ -230,6 +230,12 @@ public static class ClassroomOperationErrorCodes
     public const string ApplicationNotInstalled = "APPLICATION_NOT_INSTALLED";
     public const string ApplicationNotAllowed = "APPLICATION_NOT_ALLOWED";
     public const string ApplicationStartFailed = "APPLICATION_START_FAILED";
+    public const string ApplicationBindingsInvalid = "APPLICATION_BINDINGS_INVALID";
+    public const string ApplicationBindingNotFound = "APPLICATION_BINDING_NOT_FOUND";
+    public const string ApplicationBindingInvalid = "APPLICATION_BINDING_INVALID";
+    public const string ApplicationDisabled = "APPLICATION_DISABLED";
+    public const string ApplicationExecutableNotFound = "APPLICATION_EXECUTABLE_NOT_FOUND";
+    public const string ApplicationLaunchFailed = "APPLICATION_LAUNCH_FAILED";
     public const string InvalidFile = "INVALID_FILE";
     public const string InvalidFolderName = "INVALID_FOLDER_NAME";
     public const string InvalidDestination = "INVALID_DESTINATION";
@@ -285,6 +291,7 @@ public static class ClassroomCapabilities
     public const string OperationFrameworkV1 = "OPERATION_FRAMEWORK_V1";
     public const string SessionAgentAvailable = "SESSION_AGENT_AVAILABLE";
     public const string PowerControlV1 = "POWER_CONTROL_V1";
+    public const string OpenApplicationV1 = "OPEN_APPLICATION_V1";
     public const string OpenUrlV1 = "OPEN_URL_V1";
     public const string BrowserNavigationPolicyV1 = "BROWSER_NAVIGATION_POLICY_V1";
     public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";

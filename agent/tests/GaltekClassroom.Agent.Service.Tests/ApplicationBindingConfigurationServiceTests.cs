@@ -1,6 +1,7 @@
 using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Master;
+using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 

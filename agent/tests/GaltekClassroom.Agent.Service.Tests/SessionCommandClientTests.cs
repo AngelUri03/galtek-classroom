@@ -219,6 +219,58 @@ public sealed class SessionCommandClientTests
     }
 
     [Fact]
+    public async Task OpenApplicationAsync_WhenServerIsValid_SendsOnlyApplicationIdAndReturnsSuccess()
+    {
+        var sessionId = Random.Shared.Next(770_001, 820_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = ObserveOpenApplicationAndEchoSuccessAsync(
+            sessionId,
+            "conejito-lector",
+            cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenApplicationAsync("conejito-lector", cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OpenApplicationAsync_WhenApplicationIdIsInvalid_DoesNotConnect()
+    {
+        var verifier = new RecordingServerVerifier(verified: true);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(Random.Shared.Next(820_001, 870_000)),
+            verifier);
+
+        var result = await client.OpenApplicationAsync(@"..\bad", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.ApplicationBindingInvalid, result.ErrorCode);
+        Assert.Equal(0, verifier.Calls);
+    }
+
+    [Fact]
+    public async Task OpenApplicationAsync_WhenResponseTimesOutAfterSend_ReturnsResultUnknownAndDoesNotRetry()
+    {
+        var sessionId = Random.Shared.Next(870_001, 920_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = AcceptWithoutRespondingAsync(sessionId, cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.OpenApplicationAsync("word", cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionCommandResultUnknown, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task OpenUrlAsync_DoesNotFallbackToLocalIpcV1()
     {
         var sessionId = Random.Shared.Next(720_001, 770_000);
@@ -319,6 +371,26 @@ public sealed class SessionCommandClientTests
         Assert.Equal(url, request.OpenUrl.Url);
         Assert.DoesNotContain("payload", JsonSerializer.Serialize(request, JsonOptions), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("arguments", JsonSerializer.Serialize(request, JsonOptions), StringComparison.OrdinalIgnoreCase);
+        await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
+    }
+
+    private static async Task ObserveOpenApplicationAndEchoSuccessAsync(
+        int sessionId,
+        string applicationId,
+        CancellationToken cancellationToken)
+    {
+        await using var server = CreateServer(sessionId);
+        await server.WaitForConnectionAsync(cancellationToken);
+        var request = await ReadRequestAsync(server, cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        Assert.Equal(SessionCommandTypes.OpenApplication, request.CommandType);
+        Assert.NotNull(request.OpenApplication);
+        Assert.Equal(applicationId, request.OpenApplication.ApplicationId);
+        Assert.DoesNotContain("payload", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("executablePath", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("workingDirectory", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("commandLine", json, StringComparison.OrdinalIgnoreCase);
         await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
     }
 

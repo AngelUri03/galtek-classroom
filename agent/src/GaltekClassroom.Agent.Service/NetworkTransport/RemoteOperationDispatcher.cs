@@ -246,6 +246,10 @@ public sealed class RemoteOperationDispatcher
                 left.OpenUrl?.Url,
                 right.OpenUrl?.Url,
                 StringComparison.Ordinal),
+            OperationRequest.OperationParametersOneofCase.OpenApplication => string.Equals(
+                left.OpenApplication?.ApplicationId,
+                right.OpenApplication?.ApplicationId,
+                StringComparison.Ordinal),
             OperationRequest.OperationParametersOneofCase.ApplyBrowserPolicy => SameBrowserPolicyParameters(
                 left.ApplyBrowserPolicy,
                 right.ApplyBrowserPolicy),

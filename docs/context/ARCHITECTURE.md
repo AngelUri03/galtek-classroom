@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent sin agregar endpoint/batch Master. El Protobuf v1 agrega `OpenApplicationOperationParameters.applicationId`, capability `OPEN_APPLICATION_V1` y errores de aplicacion. El Agent Service hace preflight logico contra `application-bindings.json`, pero no lanza procesos ni envia paths; manda un Session Command `OPEN_APPLICATION` que conserva solo `applicationId`. El Session Agent vuelve a leer y validar el catalogo on-demand, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only (Registry64/Registry32, sin HKCU ni PATH) y lanza mediante `CreateProcessW` con ruta absoluta en `lpApplicationName`, `lpCommandLine = null`, sin argumentos, sin elevacion y sin monitoring.
+
 Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `application-bindings.json` para resolver en el Client `applicationId -> target local` en una futura operacion `OPEN_APPLICATION`. El catalogo vive en `<CommonApplicationData>\Galtek\Classroom\`, usa escritura durable, ACL local, configuracion CLI elevada y soporta solo `APP_PATHS` y `ABSOLUTE_EXE`. No agrega launch de procesos, Protobuf, Session Command, endpoint Master, batch dispatch, auto-discovery, scans, polling ni rutas ejecutables desde el Master.
 
 Prompt 16F2 agrega dispatch batch desde Master para `OPEN_URL`. Expone `POST /api/classrooms/{classroomId}/open-url`, protegido por `MasterAccessGuard`, con request estricta de `url` y `targetDeviceIds`. El Master valida safety estructural global con `OpenUrlPolicy`, resuelve una policy efectiva por target desde SQLite con `accountType = null` (`ANY` solamente), deriva grupo por assignment actual `Student -> Device`, evalua `BrowserNavigationPolicyEvaluator` incluyendo `EXACT_URL`, congela `OpenUrlOperationParameters.url` antes del fanout, persiste una unica `BatchOperation` `OPEN_URL` y usa el transporte gRPC/mTLS existente. No modifica Agent, Registry, Protobuf ni Session Command, no agrega UI, no selecciona browser/profile y no agrega retry/reconciliacion.
@@ -40,7 +42,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control, `OPEN_URL` y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control, `OPEN_URL` y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay endpoint/batch Master para `OPEN_APPLICATION`, mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -364,7 +366,7 @@ NO IMPLEMENTADO:
 - mDNS real.
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
-- Ejecucion real de `OPEN_APPLICATION`, `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
+- Ejecucion real de `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
 - Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
 - Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
@@ -660,7 +662,7 @@ IMPLEMENTADO:
 - El Master valida certificados de Client contra `paired-clients.json`.
 - El Client valida el certificado del Master contra `authorized-masters.json`.
 - `ClientHello` identifica al Client por Network Identity, installation id, fingerprint y public SPKI, nunca por secreto, y reporta version/capabilities operativas tipadas.
-- Capabilities tipadas productivas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
+- Capabilities tipadas productivas vigentes: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
 - Capabilities desconocidas se ignoran y no otorgan permisos.
 - `device_network_bindings` vincula un Client paired con un Device persistente generado por el Master; SQLite no reemplaza `paired-clients.json`.
 - Clients `PAIRED + ONLINE` sin Device se exponen como `AVAILABLE_FOR_REGISTRATION`.
@@ -668,7 +670,7 @@ IMPLEMENTADO:
 - Heartbeat pequeno, sin polling HTTP, sin telemetria pesada, sin logs sanos y sin writes persistentes por ciclo.
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
 - Framework Protobuf compatible para `OperationRequest`, `OperationAccepted`, `OperationResult`, `OperationStatusQuery` y `OperationStatusReport`, con `operationId`, `targetDeviceId`, `protocolVersion` y resultados tipados.
-- El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN` y `RESTART` usan handlers reales de power control y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` usan handlers productivos reales, y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master despacha `SHUTDOWN`/`RESTART` batch con el mismo `operationId` para todos los Devices objetivo y correlaciona por `(deviceId, operationId)`.
 - `OperationAccepted` no equivale a exito; `OperationResult SUCCESS` es la unica confirmacion exitosa del target.
 - El resultado incierto posterior al envio se registra como `OPERATION_RESULT_UNKNOWN`, `FAILED`, no retryable; reconciliacion pregunta por el resultado original y conserva `UNKNOWN` si no hay evidencia.
@@ -896,6 +898,9 @@ IMPLEMENTADO:
 - CLI local administrativa: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
 - Las mutaciones del catalogo requieren consola elevada; list/read-only no requiere elevacion y no crea ni modifica el archivo.
 - Corrupcion, schema desconocido, duplicados, launch type desconocido o campos incompatibles producen `APPLICATION_BINDINGS_INVALID` sin regeneracion silenciosa ni adopcion parcial.
+- `OPEN_APPLICATION` lee el catalogo on-demand desde el Session Agent y conserva `applicationId` como unico input remoto/inter-proceso.
+- `APP_PATHS` se resuelve solo por HKLM App Paths, valor default, vistas Registry64 y Registry32 cuando corresponde; no hay HKCU fallback, PATH search, Program Files scan, Start Menu scan ni discovery.
+- `ABSOLUTE_EXE` se vuelve a validar y se comprueba con `File.Exists` justo antes de launch; si desaparecio devuelve `APPLICATION_EXECUTABLE_NOT_FOUND`.
 - Llave privada de Network Identity fuera de JSON, en Windows CNG/KSP de maquina.
 - Escritura de identidad y licencia con archivo temporal y reemplazo/movimiento para evitar archivos parciales.
 - `DurableFileWriter` centraliza escritura de archivos criticos del Agent con temp file, flush/fsync y reemplazo/movimiento atomico.
@@ -940,7 +945,8 @@ VIGENTE DESDE AHORA:
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
 - Para aplicaciones, el Master solo puede enviar `applicationId`; la resolucion fisica vive en el Client y nunca acepta `executablePath`, comandos, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria desde el Master.
 - Los launch types locales iniciales son exactamente `APP_PATHS` y `ABSOLUTE_EXE`; `ABSOLUTE_EXE` exige ruta local absoluta `.exe` y existencia del archivo al crear/reemplazar el binding.
-- Prompt 17A no implementa `OPEN_APPLICATION`, no modifica Protobuf, no agrega Session Command ni abre procesos.
+- `OPEN_APPLICATION` productivo se ejecuta exclusivamente por gRPC/mTLS -> Agent Service -> Session Command autenticado -> Session Agent; el Service en Session 0 nunca llama `CreateProcess`.
+- `OPEN_APPLICATION` usa `CreateProcessW` en el Session Agent con `lpApplicationName` absoluto y `lpCommandLine = null`; no usa ShellExecute, `runas`, UAC intencional, argumentos ni monitoreo de proceso.
 - Operaciones de contenido deben usar destinos logicos de `StudentWorkspace`; el Master no debe enviar rutas absolutas arbitrarias ni path traversal.
 - `Device` y `Student` son entidades independientes; mover un alumno es un workflow de alumno/workspace, no una copia manual de una carpeta de PC a PC.
 - Browser profiles modelan portabilidad sin copiar passwords, cookies ni cache protegido.

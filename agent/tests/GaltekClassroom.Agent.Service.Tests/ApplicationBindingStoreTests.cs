@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 

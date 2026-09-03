@@ -1,5 +1,21 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 17B
+
+- `OPEN_APPLICATION` queda implementado productivamente solo del lado Agent/Session; el endpoint/batch Master queda pendiente para 17C.
+- El contrato remoto agrega `OpenApplicationOperationParameters.applicationId`; Protobuf y Session Command no transportan rutas ejecutables, command line, argumentos, working directory, shell, URI, shortcut, environment, `runas` ni payload generico.
+- `OPEN_APPLICATION_V1` se anuncia porque existen handler Service, Session Command, resolver Session y launcher productivo.
+- `ApplicationBinding`, `ApplicationLaunchType`, `ApplicationBindingCatalogDocument`, `ApplicationBindingValidator` y el converter JSON pasan a `GaltekClassroom.Agent.Shared`; `ApplicationBindingStore`, mutaciones, ACL y CLI siguen en Service.
+- El Agent Service hace preflight logico con `ApplicationBindingStore`, valida `applicationId`, catalogo, binding existente, `enabled` y estructura; para `ABSOLUTE_EXE` tambien verifica existencia puntual. El Service nunca llama `CreateProcess`.
+- El Session Agent lee `application-bindings.json` on-demand, read-only, y vuelve a validar catalogo/binding/enabled/target/existencia antes de lanzar.
+- Catalogo ausente o `applicationId` inexistente devuelve `APPLICATION_BINDING_NOT_FOUND`; JSON/schema invalido devuelve `APPLICATION_BINDINGS_INVALID`; binding disabled devuelve `APPLICATION_DISABLED`; executable ausente devuelve `APPLICATION_EXECUTABLE_NOT_FOUND`.
+- `APP_PATHS` se resuelve explicitamente solo desde HKLM App Paths, valor default, vistas Registry64 y Registry32 cuando aplica. No existe fallback HKCU, PATH search, Program Files scan, Start Menu scan, WindowsApps, uninstall keys, procesos ni discovery.
+- Si Registry64 y Registry32 resuelven paths distintos, `OPEN_APPLICATION` falla cerrado con `APPLICATION_BINDING_INVALID`.
+- El launcher productivo usa `CreateProcessW` desde el Session Agent con `lpApplicationName` igual al `.exe` absoluto resuelto, `lpCommandLine = null`, sin argumentos, sin handles heredados y working directory derivado del parent del executable.
+- El proceso hereda usuario, sesion y privilegios normales del Session Agent; no hay `runas`, elevacion/UAC intencional, `cmd`, PowerShell, ShellExecute, proceso desde Service, monitoring, PID tracking ni `WaitForExit`.
+- `OPEN_APPLICATION SUCCESS` solo significa que Windows acepto crear el proceso. No prueba ventana, foreground, app viva, documento cargado ni interaccion del alumno.
+- Dedupe remoto compara `applicationId`: mismo `operationId + applicationId` devuelve resultado cacheado; mismo `operationId` con otro `applicationId` devuelve conflicto vigente. Si el Session Command fue enviado y se pierde respuesta, se reporta `SESSION_COMMAND_RESULT_UNKNOWN` sin retry automatico.
+
 ## 2026-09-03 - Prompt 17A
 
 - `ApplicationDefinition` del Master y `ApplicationBinding` del Client son conceptos separados.
@@ -95,7 +111,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -205,11 +221,11 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion y descarga. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion, descarga y `applicationId` cuando aplica. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace GaltekClassroom.Agent.Service.Applications;
+namespace GaltekClassroom.Agent.Shared;
 
 public enum ApplicationBindingValidationStatus
 {
@@ -226,6 +226,44 @@ public static partial class ApplicationBindingValidator
             ApplicationLaunchType.AbsoluteExe => ValidateAbsoluteExeBinding(binding, requireAbsoluteExeExists),
             _ => ApplicationBindingValidationResult.Invalid("binding has unsupported launchType.")
         };
+    }
+
+    public static ApplicationBindingValidationResult ValidateCatalogDocument(
+        ApplicationBindingCatalogDocument? document)
+    {
+        if (document is null)
+        {
+            return ApplicationBindingValidationResult.Invalid("application-bindings.json is empty.");
+        }
+
+        if (document.SchemaVersion != ApplicationBindingConstants.SchemaVersion)
+        {
+            return ApplicationBindingValidationResult.Invalid("application-bindings.json has unsupported schemaVersion.");
+        }
+
+        if (document.Bindings is null)
+        {
+            return ApplicationBindingValidationResult.Invalid("application-bindings.json bindings are required.");
+        }
+
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var binding in document.Bindings)
+        {
+            var validation = ValidateBinding(binding, requireAbsoluteExeExists: false);
+            if (!validation.IsValid)
+            {
+                return validation;
+            }
+
+            if (!ids.Add(binding.ApplicationId))
+            {
+                return ApplicationBindingValidationResult.Invalid(
+                    "application-bindings.json contains duplicate applicationId values.");
+            }
+        }
+
+        return ApplicationBindingValidationResult.Valid(string.Empty);
     }
 
     private static ApplicationBindingValidationResult ValidateAppPathsBinding(ApplicationBinding binding)

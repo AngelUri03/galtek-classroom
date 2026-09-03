@@ -91,6 +91,9 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Nunca aceptar desde el Master `executablePath`, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria para abrir aplicaciones.
 - El catalogo local `application-bindings.json` vive en `<CommonApplicationData>\Galtek\Classroom\`, usa escritura durable, ACL sin write para usuarios normales y falla cerrado con `APPLICATION_BINDINGS_INVALID` ante corrupcion.
 - Los launch types locales de aplicaciones son tipados. En Prompt 17A solo existen `APP_PATHS` y `ABSOLUTE_EXE`; cualquier tipo nuevo futuro debe agregarse explicitamente y no como comando generico.
+- `OPEN_APPLICATION` productivo debe mantener `applicationId` como unico input funcional en Protobuf y Session Command. El Service hace preflight logico; el Session Agent vuelve a validar y resuelve el target fisico local antes de lanzar.
+- `APP_PATHS` para launch se resuelve solo por HKLM App Paths, valor default, vistas Registry64/Registry32 cuando corresponda. No usar HKCU App Paths, PATH, Program Files, Start Menu, WindowsApps, uninstall keys, scans de disco ni procesos.
+- `OPEN_APPLICATION` debe lanzar solo con `CreateProcessW`, `lpApplicationName` absoluto, `lpCommandLine = null`, sin argumentos, sin shell, sin `runas`, sin UAC intencional, sin `WaitForExit` ni monitoreo de proceso.
 - No agregar auto-discovery de aplicaciones, scans de Program Files, Start Menu, Registry, discos, procesos, WMI, watchers, timers, heartbeat data ni writes idle para mantener el catalogo.
 - No copiar perfiles Chrome crudos (`Login Data`, `Cookies`, `Local State`, tokens o secretos protegidos).
 - No limpiar working copies locales antes de `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.

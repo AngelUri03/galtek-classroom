@@ -31,6 +31,10 @@ public interface ISessionCommandClient
         string operationId,
         string url,
         CancellationToken cancellationToken);
+
+    Task<SessionCommandClientResult> OpenApplicationAsync(
+        string applicationId,
+        CancellationToken cancellationToken);
 }
 
 public sealed class SessionCommandClient : ISessionCommandClient
@@ -90,6 +94,31 @@ public sealed class SessionCommandClient : ISessionCommandClient
                 {
                     OperationId = operationId,
                     Url = url
+                }
+            },
+            cancellationToken,
+            unknownIfRequestWasSent: true);
+    }
+
+    public Task<SessionCommandClientResult> OpenApplicationAsync(
+        string applicationId,
+        CancellationToken cancellationToken)
+    {
+        var validation = ApplicationBindingValidator.ValidateApplicationId(applicationId);
+        if (!validation.IsValid)
+        {
+            return Task.FromResult(SessionCommandClientResult.Failure(
+                SessionCommandErrorCodes.ApplicationBindingInvalid));
+        }
+
+        return SendAsync(
+            new SessionCommandRequest
+            {
+                RequestId = Guid.NewGuid().ToString("D"),
+                CommandType = SessionCommandTypes.OpenApplication,
+                OpenApplication = new SessionOpenApplicationCommand
+                {
+                    ApplicationId = validation.NormalizedValue!
                 }
             },
             cancellationToken,

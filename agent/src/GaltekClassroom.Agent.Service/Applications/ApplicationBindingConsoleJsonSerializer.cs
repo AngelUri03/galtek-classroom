@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using GaltekClassroom.Agent.Shared;
+
 namespace GaltekClassroom.Agent.Service.Applications;
 
 public static class ApplicationBindingConsoleJsonSerializer

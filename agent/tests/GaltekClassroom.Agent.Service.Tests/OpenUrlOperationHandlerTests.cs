@@ -212,6 +212,14 @@ public sealed class OpenUrlOperationHandlerTests
             OpenUrlCalls.Add(new OpenUrlCall(operationId, url));
             return Task.FromResult(_result);
         }
+
+        public Task<SessionCommandClientResult> OpenApplicationAsync(
+            string applicationId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
     }
 
     private sealed record OpenUrlCall(string OperationId, string Url);

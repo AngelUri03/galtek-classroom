@@ -17,6 +17,7 @@ import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
+import com.galtek.classroom.network.v1.OpenApplicationOperationParameters;
 import com.galtek.classroom.network.v1.OpenUrlOperationParameters;
 import com.galtek.classroom.network.v1.OperationAcceptanceStatus;
 import com.galtek.classroom.network.v1.OperationAccepted;
@@ -160,6 +161,36 @@ class MasterRemoteOperationGatewayTest {
         assertThat(request.hasApplyBrowserPolicy()).isFalse();
         assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
         assertThat(request.getOpenUrl()).isEqualTo(parameters);
+    }
+
+    @Test
+    void dispatchSendsTypedOpenApplicationParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        OpenApplicationOperationParameters parameters = OpenApplicationOperationParameters.newBuilder()
+                .setApplicationId("conejito-lector")
+                .build();
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(
+                        snapshot,
+                        OperationType.OPEN_APPLICATION,
+                        "batch-open-application",
+                        "device-1",
+                        parameters)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType()).isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION);
+        assertThat(request.hasOpenApplication()).isTrue();
+        assertThat(request.getOpenApplication()).isEqualTo(parameters);
+        assertThat(request.hasOpenUrl()).isFalse();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+        assertThat(request.getOpenApplication().getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .containsExactly("applicationId");
     }
 
     @Test

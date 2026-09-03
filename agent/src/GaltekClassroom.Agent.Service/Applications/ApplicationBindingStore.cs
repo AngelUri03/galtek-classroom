@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Persistence;
+using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Applications;
 
@@ -125,17 +126,6 @@ public interface IApplicationBindingStore
         CancellationToken cancellationToken);
 }
 
-public static class ApplicationBindingErrorCodes
-{
-    public const string ApplicationBindingsInvalid = "APPLICATION_BINDINGS_INVALID";
-    public const string ApplicationBindingNotFound = "APPLICATION_BINDING_NOT_FOUND";
-    public const string ApplicationBindingAlreadyExists = "APPLICATION_BINDING_ALREADY_EXISTS";
-    public const string ApplicationBindingInvalid = "APPLICATION_BINDING_INVALID";
-    public const string ApplicationExecutableNotFound = "APPLICATION_EXECUTABLE_NOT_FOUND";
-    public const string ApplicationDisabled = "APPLICATION_DISABLED";
-    public const string AdministratorRequired = "ADMINISTRATOR_REQUIRED";
-}
-
 public sealed class ApplicationBindingStore : IApplicationBindingStore
 {
     private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -221,12 +211,12 @@ public sealed class ApplicationBindingStore : IApplicationBindingStore
                 bufferSize: 4096,
                 useAsync: true);
 
-            var document = await JsonSerializer.DeserializeAsync<ApplicationBindingDocument>(
+            var document = await JsonSerializer.DeserializeAsync<ApplicationBindingCatalogDocument>(
                 stream,
                 ReadOptions,
                 cancellationToken).ConfigureAwait(false);
 
-            var validation = ValidateDocument(document);
+            var validation = ApplicationBindingValidator.ValidateCatalogDocument(document);
             if (!validation.IsValid)
             {
                 return ApplicationBindingStoreReadResult.Invalid(
@@ -450,11 +440,11 @@ public sealed class ApplicationBindingStore : IApplicationBindingStore
     {
         Directory.CreateDirectory(_dataDirectory);
 
-        var document = new ApplicationBindingDocument(
+        var document = new ApplicationBindingCatalogDocument(
             ApplicationBindingConstants.SchemaVersion,
             bindings.OrderBy(binding => binding.ApplicationId, StringComparer.OrdinalIgnoreCase).ToArray());
 
-        var validation = ValidateDocument(document);
+        var validation = ApplicationBindingValidator.ValidateCatalogDocument(document);
         if (!validation.IsValid)
         {
             return InvalidCandidate(validation);
@@ -493,43 +483,6 @@ public sealed class ApplicationBindingStore : IApplicationBindingStore
                 File.Delete(tempPath);
             }
         }
-    }
-
-    private static ApplicationBindingValidationResult ValidateDocument(ApplicationBindingDocument? document)
-    {
-        if (document is null)
-        {
-            return ApplicationBindingValidationResult.Invalid("application-bindings.json is empty.");
-        }
-
-        if (document.SchemaVersion != ApplicationBindingConstants.SchemaVersion)
-        {
-            return ApplicationBindingValidationResult.Invalid("application-bindings.json has unsupported schemaVersion.");
-        }
-
-        if (document.Bindings is null)
-        {
-            return ApplicationBindingValidationResult.Invalid("application-bindings.json bindings are required.");
-        }
-
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var binding in document.Bindings)
-        {
-            var validation = ApplicationBindingValidator.ValidateBinding(binding, requireAbsoluteExeExists: false);
-            if (!validation.IsValid)
-            {
-                return validation;
-            }
-
-            if (!ids.Add(binding.ApplicationId))
-            {
-                return ApplicationBindingValidationResult.Invalid(
-                    "application-bindings.json contains duplicate applicationId values.");
-            }
-        }
-
-        return ApplicationBindingValidationResult.Valid(string.Empty);
     }
 
     private ApplicationBindingStoreWriteResult InvalidCandidate(ApplicationBindingValidationResult validation)

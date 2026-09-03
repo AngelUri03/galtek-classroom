@@ -1729,3 +1729,45 @@
 ### Commit sugerido
 
 `feat(agent): add local application bindings`
+
+## 2026-09-03 - Prompt 17B
+
+### Realizado
+
+- Implementado `OPEN_APPLICATION(applicationId)` productivo del lado Agent/Session sin endpoint ni batch Master.
+- Extendidos Protobuf v1 y bindings generados con `OpenApplicationOperationParameters.applicationId`, `OPEN_APPLICATION_V1` y errores remotos de aplicacion.
+- Movidos contratos puros de application bindings a `GaltekClassroom.Agent.Shared`: `ApplicationBinding`, `ApplicationLaunchType`, `ApplicationBindingCatalogDocument`, `ApplicationBindingValidator` y converter JSON.
+- Conservados en Service `ApplicationBindingStore`, mutaciones, ACL y CLI administrativa.
+- Agregado `OpenApplicationOperationHandler` con preflight local: valida `applicationId`, carga catalogo, exige binding existente/enabled, valida estructura y no envia Session Command ante input/catologo/binding invalido.
+- Extendidos `SessionCommandClient` y `SessionCommandProtocol` con `OPEN_APPLICATION` que transporta solo `openApplication.applicationId`.
+- Agregado `SessionApplicationResolver` read-only/on-demand en Session Agent: no crea, no repara, no escribe ni cachea el catalogo.
+- Implementada resolucion `ABSOLUTE_EXE` con revalidacion y `File.Exists` al momento de ejecucion.
+- Implementada resolucion `APP_PATHS` segura: solo HKLM App Paths, valor default, Registry64/Registry32 cuando aplica; conflicto entre vistas falla cerrado.
+- Agregado `WindowsApplicationLauncher` con `CreateProcessW`, `lpApplicationName` absoluto, `lpCommandLine = null`, sin argumentos, sin handles heredados y cierre inmediato de process/thread handles tras success.
+- Actualizado mapping Java minimo para conocer `OPEN_APPLICATION`, `OPEN_APPLICATION_V1`, parametros tipados y errores, sin implementar dispatch batch/controller Master.
+- Agregadas pruebas dirigidas de contrato, Session Command, resolver, App Paths, launcher, handler, dedupe y mapping Java.
+- Actualizada documentacion de bindings, protocolos, arquitectura, modelo funcional, reglas, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se implemento endpoint/batch Master `OPEN_APPLICATION`; queda para 17C.
+- No se agrego UI, argumentos, documentos, URLs para aplicaciones, working directory configurable, environment configurable, shell, PowerShell, `cmd`, `runas`, UAC intencional, URI/protocol handlers, shortcuts, MSI, UWP/MSIX/AUMID ni auto-discovery.
+- No se consulto HKCU App Paths, PATH, Program Files, Start Menu, WindowsApps, uninstall keys, discos, procesos ni Registry real en pruebas.
+- No se lanzo ninguna aplicacion real en tests automatizados.
+- No se agregaron timers, polling, watchers, heartbeat data, writes idle ni process monitoring.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~OpenApplication|FullyQualifiedName~SessionCommand|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 20 pruebas Session y 105 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Manual validation pendiente
+
+- En PC descartable: probar binding `ABSOLUTE_EXE`, binding `APP_PATHS` HKLM real, binding disabled, executable removido y Session Agent no disponible.
+- Verificar app visible en sesion del usuario, Service sin launch en Session 0, sin UAC intencional, sin path desde Master/Service command y sin retry automatico en duplicado incierto.
+
+### Commit sugerido
+
+`feat(agent): open authorized local applications`
