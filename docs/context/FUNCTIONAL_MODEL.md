@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`, Prompt 17A agrega el catalogo local `application-bindings.json`, Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo Agent-side, Prompt 17C agrega dispatch batch Master para `OPEN_APPLICATION`, Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo Agent-side mediante Session Agent y `BlockInput`, Prompt 18B1 agrega autorizacion local read-only de proposito unico para `UNLOCK_INPUT` recovery desde Master sin exigir Commercial License local activa, y Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT`/`UNLOCK_INPUT`.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`, Prompt 17A agrega el catalogo local `application-bindings.json`, Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo Agent-side, Prompt 17C agrega dispatch batch Master para `OPEN_APPLICATION`, Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo Agent-side mediante Session Agent y `BlockInput`, Prompt 18B1 agrega autorizacion local read-only de proposito unico para `UNLOCK_INPUT` recovery desde Master sin exigir Commercial License local activa, Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT`/`UNLOCK_INPUT`, y Prompt 19A agrega el nucleo interno de Credential Vault local cifrado para passwords Windows/Google escolares de la profesora sin UI ni endpoints.
 
 ## Principio de producto
 
@@ -281,9 +281,10 @@ Reglas:
 
 - El Master no almacena passwords de estas cuentas en `classroom.db`.
 - El Master no envia passwords en comandos normales.
-- La UI futura nunca recibe passwords.
+- La UI no recibe passwords por defecto. La unica excepcion futura sera `REVEAL CREDENTIAL` explicito, una credencial a la vez, despues de autorizacion Master normal y sesion de vault valida.
 - Logs nunca deben mostrar passwords ni material equivalente.
-- La credencial real futura pertenece al Agent Service del Client.
+- La profesora puede conservar una copia consultable de passwords Windows escolares en el Credential Vault cifrado del Master, separada de SQLite y separada de comandos normales.
+- La credencial real futura usada por login/provisioning en el Client pertenece al Agent Service del Client.
 - El almacenamiento futuro del secreto debe protegerse con mecanismos seguros de Windows.
 - Los comandos remotos futuros solo enviaran `accountId` logico como `PRIMARY` o `SECONDARY`.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar sesion.
@@ -638,6 +639,8 @@ BROWSER_REAUTH_REQUIRED
 
 Galtek Classroom no debe copiar directamente archivos como `Login Data`, `Cookies` o `Local State` ni extraer secretos. La portabilidad futura debe usar cuentas sincronizadas, perfiles administrados o mecanismos oficiales.
 
+Las passwords Google escolares pueden guardarse solo dentro del Credential Vault cifrado del Master como credenciales `GOOGLE_ACCOUNT` visibles para la profesora mediante reveal explicito. Esto no autoriza browser automation, Chrome password extraction, cookies, tokens, `Login Data`, `Local State`, autofill ni auto-login.
+
 La portabilidad real de sesiones Google/Chrome puede requerir mecanismo seguro/oficial y reautenticacion. No prometer portabilidad copiando perfiles Chrome crudos.
 
 Persistencia Prompt 08:
@@ -662,7 +665,7 @@ Puede servir para futuras acciones como:
 OPEN_URL browserProfileId = MASTER_PRIMARY
 ```
 
-Galtek no almacena passwords ni cookies.
+Galtek no almacena passwords ni cookies en BrowserProfile ni MasterBrowserProfile; las passwords Google escolares pertenecen unicamente al Credential Vault cifrado.
 
 Persistencia Prompt 08:
 

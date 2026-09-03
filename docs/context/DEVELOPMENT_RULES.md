@@ -69,7 +69,8 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Rebinding de Master siempre debe ser explicito.
 - El Master no debe almacenar passwords de cuentas Windows administradas en `classroom.db`.
 - El Master no debe enviar passwords en comandos normales.
-- La UI nunca debe recibir passwords ni secretos de cuentas administradas.
+- La UI no recibe passwords por defecto. La unica excepcion es una operacion explicita de Credential Vault Reveal despues de MasterAccessGuard + vault unlock valido; el secreto se entrega unicamente para la credencial solicitada y nunca se persiste en estado normal de UI.
+- Las passwords Google escolares pueden almacenarse unicamente dentro de Credential Vault cifrado y nunca dentro de BrowserProfile, SQLite, logs, Cookies, Login Data o Local State.
 - Los logs nunca deben mostrar passwords ni material equivalente.
 - Los comandos futuros de cuentas Windows administradas deben enviar solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - La credencial real futura pertenece al Agent Service del Client y debe protegerse con mecanismos seguros de Windows.
@@ -203,6 +204,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Minimizar PII: guardar solo datos necesarios para aula, alumno, workspace, perfiles y operaciones.
 - No persistir passwords, cookies, tokens, cache protegido ni secretos de navegador.
 - No persistir credenciales ni passwords de cuentas Windows administradas en `classroom.db`.
+- No persistir passwords Windows o Google escolares fuera de `credential-vault.dat` cifrado.
 - No persistir `MasterWindowsBinding` en `classroom.db`; la autoridad final del SID autorizado es el Agent Service.
 - Consultas de listados deben ser batch-friendly; evitar N+1 para classroom, group, devices, assignments y targets batch.
 - Bootstrap y snapshot deben devolver modelos de lectura agregados para la UI, no entidades de persistencia.

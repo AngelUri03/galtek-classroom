@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19A agrega en el Master Backend el nucleo interno Java-only de Credential Vault local cifrado para credenciales escolares de la profesora. La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\Master\credential-vault.dat`, usando el mismo resolver/override del Master data directory. El archivo guarda un envelope JSON versionado con header tecnico minimo y el documento logico completo cifrado mediante AES-256-GCM; la master password separada deriva una KEK con PBKDF2-HMAC-SHA256 y solo envuelve un DEK aleatorio de 256 bits. La boveda no se crea en startup, queda locked tras restart, permite una sola sesion temporal in-memory con expiracion lazy de 5 minutos, CRUD interno, reveal de una credencial a la vez y cambio de master password por re-wrap del DEK. No agrega UI, endpoints HTTP, Protobuf, gRPC, Client credential store, login Windows, browser automation ni SQLite migrations.
+
 Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT` y `UNLOCK_INPUT`. Expone endpoints separados `POST /api/classrooms/{classroomId}/input-control/lock` y `POST /api/classrooms/{classroomId}/input-control/unlock`, ambos con request estricta solo de `targetDeviceIds`. `lock` usa `MasterAccessGuard` y `unlock` usa `MasterUnlockAccessGuard`; ambos guards corren antes de leer Classroom, Devices, bindings, trust o SQLite escolar. El Master congela preflight por Device con binding, trust `PAIRED` no `REVOKED`, conexion gRPC/mTLS `ONLINE` y capability `INPUT_CONTROL_V1`, persiste una unica `BatchOperation` antes del fanout y envia operaciones tipadas sin parametros funcionales. No agrega UI, overlay, lock status, retry automatico, reconciliacion, Protobuf, Local IPC ni cambios Agent.
 
 Prompt 18B1 agrega una ruta local read-only y recovery-safe para autorizar `UNLOCK_INPUT` desde el Master aun cuando la Commercial License local del Master no este `ACTIVE`. Local IPC v1 conserva `protocolVersion = 1` y suma `GET_MASTER_UNLOCK_AUTHORIZATION`, calculado exclusivamente por `GaltekClassroom.Agent.Service` con Installation Identity valida, `master-binding.json` existente/valido, `installationId` coincidente y SID real del caller Named Pipe obtenido por impersonation. No lee SID del payload, username, headers ni membresia de Administrators, no exige licencia activa, no lee claims de licencia invalida y no escribe archivos. El Master Backend Java agrega `LocalAgentClient.getMasterUnlockAuthorization()` y `MasterUnlockAccessGuard.requireUnlockAuthorized()` como guard interno de proposito unico para `UNLOCK_INPUT`; no hay fallback desde `MasterAccessGuard`.
@@ -366,6 +368,7 @@ PLANIFICADO:
 - Consulta y cambio masivo de sesion Windows administrada por `accountId` logico.
 - Integracion real de workspaces, navegador, transferencia, wallpaper, proyeccion y auditoria.
 - Auditoria administrativa.
+- UI/API protegida futura para Credential Vault, incluyendo `REVEAL CREDENTIAL` explicito una credencial a la vez.
 
 NO IMPLEMENTADO:
 
@@ -387,6 +390,11 @@ IMPLEMENTADO:
 - SQLite local en archivo `classroom.db`.
 - Ruta productiva por defecto: `<CommonApplicationData>\Galtek\Classroom\Master\classroom.db`.
 - Override de desarrollo/tests: `GALTEK_CLASSROOM_MASTER_DATA_DIR` o `galtek.classroom.master.storage.data-dir`.
+- Credential Vault local cifrado en archivo separado `credential-vault.dat`, dentro del mismo Master data directory.
+- `credential-vault.dat` no usa SQLite y contiene solo header tecnico minimo en plaintext: schema/crypto version, KDF, salt, iterations, nonces y ciphertext/tag.
+- El documento logico cifrado contiene `entries[]` completas: `credentialId`, `credentialType`, `displayName`, `loginIdentifier`, `password`, `createdAtUtc` y `updatedAtUtc`.
+- Tipos iniciales de credencial de vault: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
+- Escritura de vault mediante temp file en el mismo directorio, flush/fsync, move/replace atomico y hardening ACL best-effort encapsulado.
 - Nombre de archivo configurable con `galtek.classroom.master.storage.database-file-name`.
 - Migraciones en `master-backend/src/main/resources/db/migration/sqlite/`.
 - Spring Boot Flyway autoconfiguration deshabilitada; el Master ejecuta Flyway programaticamente para controlar health checks y mapping de errores.
@@ -428,6 +436,7 @@ NO IMPLEMENTADO:
 - Auditoria persistente de acciones administrativas reales.
 - Borrado seguro/retencion configurable de PII.
 - DPAPI/keystore del sistema para private key del Master.
+- UI/API HTTP de Credential Vault, clipboard, export masivo, reset destructivo de vault y provisioning remoto de credenciales.
 
 ## Agent
 
@@ -948,8 +957,10 @@ VIGENTE DESDE AHORA:
 - Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - Los comandos futuros para cuentas administradas solo enviaran `accountId` logico (`PRIMARY`/`SECONDARY`), nunca passwords.
 - El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
-- La UI futura nunca recibira passwords ni secretos de cuentas administradas.
-- Logs no deben mostrar passwords ni material equivalente.
+- La UI no recibe passwords por defecto. La unica excepcion futura es una operacion explicita `REVEAL CREDENTIAL` despues de `MasterAccessGuard.requireAuthorized()`, vault unlock valido y sesion de boveda no expirada; solo se entrega el secreto de la credencial solicitada.
+- Las passwords Windows y Google escolares solo pueden persistirse dentro de `credential-vault.dat` cifrado; nunca en SQLite, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State ni StudentWorkspace metadata.
+- Logs no deben mostrar master password, credential password, DEK, KEK, session token, plaintext vault ni ciphertext completo innecesario.
+- `MasterUnlockAccessGuard` jamas autoriza acceso a Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.
 - La credencial real futura pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar o cambiar sesion Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.

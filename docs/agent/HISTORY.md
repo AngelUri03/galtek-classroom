@@ -1914,3 +1914,35 @@
 ### Commit sugerido
 
 `feat(master): dispatch input control batches`
+
+## 2026-09-03 - Prompt 19A
+
+### Realizado
+
+- Implementado Credential Vault interno Java-only en el Master Backend, sin UI, endpoints HTTP, Protobuf, gRPC ni SQLite migration.
+- Agregado `credential-vault.dat` en el Master data directory, separado de `classroom.db`, usando el resolver/override existente.
+- Agregado envelope JSON versionado con header tecnico minimo y documento logico completo cifrado.
+- Agregado modelo `CredentialVaultEntry` con `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`, metadata cifrada y `password` como secreto.
+- Crypto: PBKDF2-HMAC-SHA256 para KEK con salt/work factor versionados, DEK aleatorio de 256 bits, AES-256-GCM para wrapped DEK y AES-256-GCM para el vault.
+- Agregado `initialize`, `unlock`, `lock`, `list`, `reveal`, `add`, `update`, `remove` y `changeMasterPassword`.
+- Sesion de vault unica, token aleatorio en memoria, expiracion lazy de 5 minutos, invalidacion por nuevo unlock, lock, restart o cambio de master password.
+- `list` devuelve metadata sin password; `reveal` devuelve solo el password de la credencial solicitada.
+- Cambio de master password re-wrappea el DEK y deja intacto el ciphertext de entries si no cambian.
+- Escritura durable con `AtomicFiles`, temp file mismo directorio, fsync, move atomico y ACL best-effort encapsulado.
+- Agregados errores operacionales de Credential Vault y tests dirigidos de crypto, init, sesiones, entries, cambio de password, corrupcion y no secret leak.
+- Actualizada documentacion de arquitectura, modelo funcional, reglas, decisiones, estado y `docs/security/CREDENTIAL_VAULT.md`.
+
+### Cambios descartados
+
+- No se implemento UI, Tauri/React, endpoint HTTP de reveal, clipboard, export masivo, reset destructivo, Client credential store, PRIMARY/SECONDARY binding, Windows login/switch, Google auto-login, Chrome password extraction, cookies/tokens, browser automation, Protobuf, gRPC ni migrations SQLite.
+- No se guardaron passwords en `classroom.db`, BatchOperation, logs, BrowserProfile ni StudentWorkspace metadata.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=CredentialVaultServiceTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): add encrypted credential vault`

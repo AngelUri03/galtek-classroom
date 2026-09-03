@@ -1,5 +1,28 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 19A
+
+- Credential Vault del Master queda implementado como servicio interno Java-only, sin UI, endpoints HTTP, Protobuf, gRPC ni SQLite migration.
+- La fuente de verdad de la boveda es `<CommonApplicationData>\Galtek\Classroom\Master\credential-vault.dat`, usando `GALTEK_CLASSROOM_MASTER_DATA_DIR` / `galtek.classroom.master.storage.data-dir` cuando aplica.
+- `credential-vault.dat` es un envelope JSON versionado (`schemaVersion = 1`, `cryptoVersion = 1`) con header tecnico minimo en plaintext y documento logico completo cifrado.
+- El documento cifrado contiene entries con `credentialId`, `credentialType`, `displayName`, `loginIdentifier`, `password`, `createdAtUtc` y `updatedAtUtc`.
+- Los tipos iniciales son solo `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`; no se agrega password manager generico.
+- La master password de la boveda es separada de Windows, Google, Commercial License, JWT, MasterWindowsBinding y pairing; no se persiste.
+- PBKDF2-HMAC-SHA256 deriva una KEK desde master password + salt aleatorio; AES-256-GCM envuelve un DEK aleatorio de 256 bits; AES-256-GCM cifra el documento de vault con nonce aleatorio por escritura.
+- Cambiar la master password solo re-wrappea el DEK con nuevo salt/KEK/wrappedKey y deja intacto el ciphertext del vault cuando no cambian entries.
+- Archivo ausente devuelve `CREDENTIAL_VAULT_NOT_INITIALIZED`; corrupcion/schema/crypto/ciphertext/documento/IDs duplicados devuelven `CREDENTIAL_VAULT_INVALID`; password incorrecto devuelve `CREDENTIAL_VAULT_UNLOCK_FAILED`.
+- No se crea vault durante startup; `initialize(masterPassword)` es accion explicita y no puede repetirse si el archivo existe.
+- El backend mantiene como maximo una sesion de vault activa, con token aleatorio en memoria, no persistido, invalidado por nuevo unlock, lock explicito, restart o expiracion lazy por 5 minutos de inactividad.
+- `list(sessionToken)` devuelve metadata descifrada sin password; `reveal(sessionToken, credentialId)` devuelve solo el password solicitado.
+- `add`, `update` y `remove` requieren sesion valida; `credentialId` lo genera el backend; `credentialType` no cambia en update.
+- La UI no recibe passwords por defecto. La unica excepcion futura es `REVEAL CREDENTIAL` explicito despues de `MasterAccessGuard`, vault unlock valido y sesion no expirada.
+- Passwords siguen prohibidas en `classroom.db`, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State y StudentWorkspace metadata.
+- Las credenciales Google en vault no autorizan browser automation, Chrome password extraction, cookies/tokens, autofill ni auto-login.
+- Las operaciones normales futuras Windows siguen usando `accountId = PRIMARY/SECONDARY`; Client credential store/provisioning seguro queda pendiente.
+- `MasterUnlockAccessGuard` no autoriza Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.
+- ACL de `credential-vault.dat` queda encapsulado como hardening best-effort; la confidencialidad principal es criptografica.
+- Auditoria persistente de vault queda pendiente; el audit sink actual solo emite eventos sin secretos.
+
 ## 2026-09-03 - Prompt 18B2
 
 - El Master expone endpoints separados `POST /api/classrooms/{classroomId}/input-control/lock` y `POST /api/classrooms/{classroomId}/input-control/unlock`.
@@ -439,7 +462,7 @@
 - Cada Client de alumnos tendra inicialmente dos cuentas Windows administradas logicas: `PRIMARY` y `SECONDARY`.
 - `ManagedWindowsAccount.accountId` debe ser logico y estable; para las cuentas iniciales coincide con `PRIMARY` o `SECONDARY`.
 - El Master no almacena passwords ni credenciales de cuentas Windows administradas en `classroom.db`.
-- El Master no envia passwords en comandos normales y la UI futura nunca recibe passwords.
+- El Master no envia passwords en comandos normales y la UI no recibe passwords por defecto; solo un futuro Credential Vault Reveal explicito puede entregar el password de la credencial solicitada.
 - Logs no deben mostrar passwords ni material equivalente.
 - La credencial real futura de cuentas administradas pertenece al Agent Service del Client.
 - El almacenamiento futuro de esa credencial debe protegerse con mecanismos seguros de Windows.

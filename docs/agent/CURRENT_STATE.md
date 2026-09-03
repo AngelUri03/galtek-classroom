@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 18B2.
+2026-09-03 - Prompt 19A.
 
 ## Estado del proyecto
+
+Prompt 19A implementa en el Master Backend el nucleo seguro interno de una boveda local cifrada de credenciales escolares para la profesora. `credential-vault.dat` vive en el Master data directory, separado de `classroom.db`, y guarda un envelope JSON versionado con el documento logico completo cifrado. La master password de vault no se persiste, PBKDF2-HMAC-SHA256 deriva la KEK, AES-256-GCM envuelve un DEK aleatorio de 256 bits y AES-256-GCM cifra entries completas. La boveda no se crea en startup, queda locked tras restart, permite una sola sesion in-memory con expiracion lazy de 5 minutos, CRUD interno, reveal de una credencial a la vez y cambio de master password por re-wrap del DEK. No agrega UI, endpoints HTTP, Protobuf, gRPC, Client credential store, login Windows, Google automation ni SQLite migrations.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre Network Identity. El Client conserva su Network Identity en `GaltekClassroom.Agent.Service`; el Master Backend agrega una Network Identity propia, private key cifrada fuera de SQLite/JSON plano y trust store local. El pairing requiere intencion explicita, usa challenge/response firmado, expira challenges, bloquea replay, persiste trust en ambos lados y permite revocacion.
 
@@ -96,6 +98,15 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `POST /api/classrooms/{classroomId}/open-application` protegido, envia batch `OPEN_APPLICATION` a Devices explicitamente seleccionados despues de validar `ApplicationDefinition` activa y asociacion Classroom/Application.
 - `POST /api/classrooms/{classroomId}/input-control/lock` protegido por `MasterAccessGuard`, envia batch `LOCK_INPUT` a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` protegido por `MasterUnlockAccessGuard`, envia batch `UNLOCK_INPUT` recovery-safe a Devices explicitamente seleccionados.
+- Credential Vault interno Java-only del Master en `credential-vault.dat`, separado de SQLite y sin endpoints HTTP.
+- Modelo `CredentialVaultEntry` con `credentialId`, `credentialType`, `displayName`, `loginIdentifier`, `password`, `createdAtUtc` y `updatedAtUtc`.
+- Tipos de credencial de vault soportados: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
+- Crypto de vault: PBKDF2-HMAC-SHA256 con salt/work factor versionados, DEK aleatorio de 256 bits, AES-256-GCM para wrapped DEK y AES-256-GCM para documento cifrado completo.
+- `CredentialVaultService.initialize(masterPassword)` crea la boveda explicitamente; archivo ausente devuelve `CREDENTIAL_VAULT_NOT_INITIALIZED` y no se crea durante startup.
+- `unlock(masterPassword)` valida el vault completo y crea una unica sesion temporal; password incorrecto devuelve `CREDENTIAL_VAULT_UNLOCK_FAILED`.
+- Sesiones de vault: token aleatorio en memoria, una activa como maximo, invalidada por nuevo unlock, lock explicito, restart o expiracion lazy de 5 minutos.
+- `list(sessionToken)` devuelve metadata descifrada sin password; `reveal(sessionToken, credentialId)` devuelve solo el password solicitado.
+- `add`, `update`, `remove` y `changeMasterPassword` requieren sesion valida; `changeMasterPassword` re-wrappea el DEK y no re-encripta entries si no cambian.
 - `LOCK_INPUT` y `UNLOCK_INPUT` productivos Agent-side llegan por `OperationRequest` tipado y no transportan payload funcional.
 - `INPUT_CONTROL_V1` se anuncia en `ClientHello` desde el Agent.
 - `LockInputOperationHandler` y `UnlockInputOperationHandler` envian solo Session Command tipado; el Agent Service nunca llama `BlockInput`.
@@ -375,7 +386,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `POWER_CONTROL_UNAVAILABLE` no es retryable; `POWER_CONTROL_FAILED` representa fallo operacional potencialmente transitorio.
 - `students/batch` permite parcialidad por fila; un alumno invalido no cancela los demas.
 - `assignments/batch` preflight completo antes de writes; `TARGET_OCCUPIED` no reemplaza automaticamente.
-- El Master no almacena ni envia passwords de cuentas Windows administradas; la UI no recibe secretos.
+- El Master no almacena passwords de cuentas Windows administradas en `classroom.db` ni los envia en comandos normales.
+- La UI no recibe passwords por defecto; la unica excepcion futura sera Credential Vault Reveal explicito despues de `MasterAccessGuard`, vault unlock valido y sesion de vault no expirada, entregando solo una credencial.
+- Las passwords Google escolares pueden almacenarse solo dentro de Credential Vault cifrado, nunca en BrowserProfile, SQLite, logs, Cookies, Login Data o Local State.
+- `MasterUnlockAccessGuard` no autoriza Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.
 - Los comandos futuros de cuentas administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir targets `NO_CHANGE`, `SUCCESS` y `FAILED`; el retry posterior solo aplica a fallidos retryable.
 - El hardware objetivo real queda documentado: Master i5 8a gen aprox./16 GB DDR4/SSD 256 GB; Clients renovados aprox. 10 i5 6a gen/8 GB DDR4/SSD 256 GB; Clients legacy aprox. 16 con hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y CPUs Core 2 Duo / Celeron / AMD antiguos.
@@ -447,6 +461,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - No aceptar executable paths, comandos, argumentos, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria desde el Master para abrir aplicaciones.
 - No implementar `OPEN_APPLICATION` real sin resolver antes `applicationId` contra el catalogo local seguro del Client.
 - No agregar auto-discovery, Program Files scans, Start Menu scans, Registry polling, WMI, process scans, filesystem watchers ni heartbeat data para application bindings.
+- No crear endpoint HTTP `GET /passwords`, reveal masivo, export de passwords, reset destructivo de vault, Client credential store, provisioning remoto ni Google browser automation como parte de 19A.
 - No borrar working copies locales para completar sync o move.
 - No modelar YouTube como screen share obligatorio.
 - No hacer commits automaticamente.
@@ -458,6 +473,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `license.dat` no se cifra localmente en esta fase.
 - `classroom.db` no tiene cifrado at-rest, backup/restore automatico ni politica de retencion/borrado seguro de PII.
 - `master-network-identity.key` y `master-network-identity.protector` son almacenamiento separado y cifrado minimo para desarrollo/local; no son hardening productivo final.
+- ACL de `credential-vault.dat` es hardening best-effort encapsulado; la confidencialidad principal depende de master password + crypto.
 - Los certificados TLS actuales son self-signed de corta vida emitidos en memoria desde Network Identity; falta ciclo de vida productivo de certificados y rotacion operacional.
 - La validacion productiva con Service Control Manager, Task Scheduler y CLI elevada depende de ejecutar en un entorno con permisos administrativos.
 - La creacion real de la llave CNG de Network Identity requiere el contexto del Service como `LocalSystem` o una consola elevada; una prueba manual desde shell no elevado devuelve acceso denegado.
@@ -465,6 +481,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=CredentialVaultServiceTest" test` en `master-backend`: correcto, pruebas dirigidas de init, no plaintext, unlock, tamper AES-GCM, corrupcion, sesiones lazy, CRUD, reveal, cambio de master password, no secret leak y performance conceptual superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~MasterAuthorizationServiceTests|FullyQualifiedName~LocalIpcRequestHandlerTests|FullyQualifiedName~SessionCommandProtocolTests|FullyQualifiedName~LocalIpcFramingTests|FullyQualifiedName~LocalIpcServerTests"` en `agent`: correcto, 58 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
 - `mvn -q "-Dtest=MasterUnlockAccessGuardTest,MasterAccessGuardTest,WindowsNamedPipeLocalAgentClientTest,LocalIpcFramingTest" test` en `master-backend`: correcto.
 - `mvn -q "-Dtest=InputControlDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto, rutas, request estricta, split de guards, preflight, batch/fanout, mapping de errores de input y ausencia de status query superados.
@@ -516,4 +534,6 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 18 cerrada: 18A implemento input control Agent/Session, 18B1 agrego autorizacion local recovery-safe y 18B2 agrego dispatch batch Master. Siguiente fase solo si hay necesidad real: UI futura o una nueva capacidad operativa separada; no crear 18C por inercia.
+Fase 19A deja lista la primitive segura interna del Credential Vault. El siguiente paso recomendado, Prompt 19B, es implementar el binding local seguro de los slots Windows administrados PRIMARY/SECONDARY en cada Client. La API/UI del Credential Vault se mantiene pendiente hasta existir la superficie React/Tauri que realmente la consuma; no se expone reveal por HTTP anticipadamente.
+
+El CredentialVaultService interno puede ser reutilizado posteriormente por provisioning administrativo sin requerir un endpoint HTTP de secretos.
