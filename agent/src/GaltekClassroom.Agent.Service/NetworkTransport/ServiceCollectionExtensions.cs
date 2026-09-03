@@ -3,6 +3,7 @@ using GaltekClassroom.Agent.Service.Applications;
 using Microsoft.Extensions.DependencyInjection;
 using GaltekClassroom.Agent.Service.BrowserPolicy;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.InputControl;
 using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Power;
 
@@ -36,10 +37,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BrowserNavigationPolicyApplyService>();
         services.AddSingleton<BrowserDownloadPolicyApplyService>();
         services.AddSingleton<AppliedBrowserPolicyEvaluator>();
+        services.AddSingleton<RemoteOperationLicensePolicy>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, OpenApplicationOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, OpenUrlOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, LockInputOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, UnlockInputOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserPolicyOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserDownloadPolicyOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();

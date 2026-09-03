@@ -143,7 +143,8 @@ static ISessionCommandServer CreateSessionCommandServer()
             new UnavailableSessionCommandCallerVerifier(),
             new UnavailableUrlLauncher(),
             new UnavailableSessionApplicationResolver(),
-            new UnavailableWindowsApplicationLauncher());
+            new UnavailableWindowsApplicationLauncher(),
+            new WindowsInputBlockCoordinator(new UnavailableWindowsInputBlockApi()));
     }
 
     return new SessionCommandServer(
@@ -153,5 +154,6 @@ static ISessionCommandServer CreateSessionCommandServer()
         new SessionApplicationResolver(
             new SessionApplicationResolverOptions(GaltekDataDirectory.Resolve()),
             new WindowsAppPathsRegistry()),
-        new WindowsApplicationLauncher());
+        new WindowsApplicationLauncher(),
+        new WindowsInputBlockCoordinator(new WindowsInputBlockApi()));
 }

@@ -116,6 +116,8 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No disenar trabajo principal del alumno directamente sobre share SMB.
 - `REMOVABLE_STORAGE` es destino logico futuro autorizado, no una ruta libre.
 - Una distribucion grande, thumbnails o inventario no deben bloquear operaciones `CRITICAL` como `UNLOCK_INPUT` o `STOP_PROJECTION`.
+- `LOCK_INPUT` y `UNLOCK_INPUT` deben ejecutarse fisicamente solo en `GaltekClassroom.Agent.Session` mediante `User32.dll BlockInput(BOOL)` y un owner thread dedicado; el Agent Service/Session 0 nunca debe llamar `BlockInput`.
+- `UNLOCK_INPUT` es recovery-safe y no debe bloquearse por Commercial License inactiva, pero esa excepcion no salta mTLS, pairing trust, Device authorization ni autenticacion Session Command.
 - `OPEN_URL` y `OPEN_WEB_CONTENT` deben preferir ejecucion local en el Client; no convertir YouTube en screen share por default.
 - El endpoint Master `POST /api/classrooms/{classroomId}/open-url` debe seguir aceptando solo `url` y `targetDeviceIds`, con `MasterAccessGuard` antes de cualquier lectura escolar y safety estructural global antes de crear `BatchOperation`.
 - Para `OPEN_URL` batch, el Master debe resolver una sola policy efectiva por target con `accountType = null` (`ANY` solamente), derivar `groupId` desde assignment actual y evaluar `EXACT_URL` directamente con `BrowserNavigationPolicyEvaluator`; no aplicar `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` a `OPEN_URL` concreto.

@@ -224,6 +224,18 @@ public sealed class OpenApplicationOperationHandlerTests : IDisposable
             OpenApplicationCalls.Add(applicationId);
             return Task.FromResult(_result);
         }
+
+        public Task<SessionCommandClientResult> LockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
+
+        public Task<SessionCommandClientResult> UnlockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
     }
 
     private sealed class MutableClock : ISystemClock

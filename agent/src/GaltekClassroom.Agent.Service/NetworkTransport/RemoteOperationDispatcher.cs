@@ -11,6 +11,7 @@ public sealed class RemoteOperationDispatcher
     private readonly RemoteOperationOptions _options;
     private readonly ISystemClock _clock;
     private readonly ILicenseStateProvider? _licenseStateProvider;
+    private readonly RemoteOperationLicensePolicy _licensePolicy;
     private readonly ConcurrentDictionary<string, OperationState> _operations = new(StringComparer.Ordinal);
     private int _dispatchCount;
 
@@ -18,7 +19,8 @@ public sealed class RemoteOperationDispatcher
         IEnumerable<IRemoteOperationHandler> handlers,
         RemoteOperationOptions options,
         ISystemClock clock,
-        ILicenseStateProvider? licenseStateProvider = null)
+        ILicenseStateProvider? licenseStateProvider = null,
+        RemoteOperationLicensePolicy? licensePolicy = null)
     {
         ArgumentNullException.ThrowIfNull(handlers);
         ArgumentNullException.ThrowIfNull(options);
@@ -30,6 +32,7 @@ public sealed class RemoteOperationDispatcher
         _options = options;
         _clock = clock;
         _licenseStateProvider = licenseStateProvider;
+        _licensePolicy = licensePolicy ?? RemoteOperationLicensePolicy.Default;
     }
 
     public async Task<RemoteOperationDispatchResult> DispatchAsync(
@@ -114,7 +117,9 @@ public sealed class RemoteOperationDispatcher
                 startedAt);
         }
 
-        if (_licenseStateProvider is not null && !_licenseStateProvider.CurrentState.Active)
+        if (_licenseStateProvider is not null
+            && _licensePolicy.RequiresActiveCommercialLicense(request.OperationType)
+            && !_licenseStateProvider.CurrentState.Active)
         {
             return Result(
                 request,

@@ -236,6 +236,8 @@ public static class ClassroomOperationErrorCodes
     public const string ApplicationDisabled = "APPLICATION_DISABLED";
     public const string ApplicationExecutableNotFound = "APPLICATION_EXECUTABLE_NOT_FOUND";
     public const string ApplicationLaunchFailed = "APPLICATION_LAUNCH_FAILED";
+    public const string InputLockFailed = "INPUT_LOCK_FAILED";
+    public const string InputUnlockFailed = "INPUT_UNLOCK_FAILED";
     public const string InvalidFile = "INVALID_FILE";
     public const string InvalidFolderName = "INVALID_FOLDER_NAME";
     public const string InvalidDestination = "INVALID_DESTINATION";
@@ -295,4 +297,5 @@ public static class ClassroomCapabilities
     public const string OpenUrlV1 = "OPEN_URL_V1";
     public const string BrowserNavigationPolicyV1 = "BROWSER_NAVIGATION_POLICY_V1";
     public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";
+    public const string InputControlV1 = "INPUT_CONTROL_V1";
 }

@@ -270,6 +270,62 @@ public sealed class SessionCommandClientTests
         Assert.Equal(SessionCommandErrorCodes.SessionCommandResultUnknown, result.ErrorCode);
     }
 
+    [Theory]
+    [InlineData(SessionCommandTypes.LockInput)]
+    [InlineData(SessionCommandTypes.UnlockInput)]
+    public async Task InputControlAsync_WhenServerIsValid_SendsTypedCommandWithoutPayload(string commandType)
+    {
+        var sessionId = Random.Shared.Next(920_001, 970_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = ObserveInputControlAndEchoSuccessAsync(
+            sessionId,
+            commandType,
+            cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = commandType == SessionCommandTypes.LockInput
+            ? await client.LockInputAsync(cancellation.Token)
+            : await client.UnlockInputAsync(cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task LockInputAsync_WhenResponseTimesOutAfterSend_ReturnsResultUnknownAndDoesNotRetry()
+    {
+        var sessionId = Random.Shared.Next(970_001, 1_020_000);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var serverTask = AcceptWithoutRespondingAsync(sessionId, cancellation.Token);
+        var client = CreateClient(
+            InteractiveSessionResolution.Success(sessionId),
+            new RecordingServerVerifier(verified: true));
+
+        var result = await client.LockInputAsync(cancellation.Token);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionCommandResultUnknown, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnlockInputAsync_WhenNoInteractiveSession_ReturnsUnavailable()
+    {
+        var verifier = new RecordingServerVerifier(verified: true);
+        var client = CreateClient(
+            InteractiveSessionResolution.Unavailable(SessionCommandErrorCodes.SessionAgentUnavailable),
+            verifier);
+
+        var result = await client.UnlockInputAsync(CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SessionCommandErrorCodes.SessionAgentUnavailable, result.ErrorCode);
+        Assert.Equal(0, verifier.Calls);
+    }
+
     [Fact]
     public async Task OpenUrlAsync_DoesNotFallbackToLocalIpcV1()
     {
@@ -391,6 +447,28 @@ public sealed class SessionCommandClientTests
         Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("workingDirectory", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("commandLine", json, StringComparison.OrdinalIgnoreCase);
+        await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
+    }
+
+    private static async Task ObserveInputControlAndEchoSuccessAsync(
+        int sessionId,
+        string commandType,
+        CancellationToken cancellationToken)
+    {
+        await using var server = CreateServer(sessionId);
+        await server.WaitForConnectionAsync(cancellationToken);
+        var request = await ReadRequestAsync(server, cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        Assert.Equal(commandType, request.CommandType);
+        Assert.Null(request.OpenUrl);
+        Assert.Null(request.OpenApplication);
+        Assert.DoesNotContain("payload", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("keyCodes", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("keyboardOnly", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mouseOnly", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("duration", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("timeout", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
         await WriteResponseAsync(server, SessionCommandResponse.Success(request.RequestId), cancellationToken);
     }
 

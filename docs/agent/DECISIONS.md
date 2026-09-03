@@ -1,5 +1,26 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 18A
+
+- `LOCK_INPUT` y `UNLOCK_INPUT` quedan implementados productivamente solo del lado Client; endpoint/batch Master queda pendiente para 18B.
+- El contrato remoto conserva `protocolVersion = 1`; `LOCK_INPUT` y `UNLOCK_INPUT` son `NetworkOperationType` explicitos sin payload funcional.
+- `INPUT_CONTROL_V1` se anuncia porque existen handlers Service, comandos Session, coordinador Session y API nativa productiva.
+- Session Command v1 agrega `LOCK_INPUT` y `UNLOCK_INPUT` sin campos funcionales. No transporta key list, keyboardOnly, mouseOnly, duration, timeout configurable, message, command, shell, arguments, username ni SID.
+- Local IPC v1 `GaltekClassroom.Agent.v1` permanece read-only y no agrega operaciones de input control.
+- El Agent Service corre como LocalSystem/Session 0 y nunca llama `BlockInput`; solo valida/dispatcha y envia Session Command tipado al Session Agent.
+- El Session Agent es la autoridad fisica de input control y usa exclusivamente `User32.dll BlockInput(BOOL)`.
+- `WindowsInputBlockCoordinator` garantiza que `BlockInput(TRUE)` y `BlockInput(FALSE)` se llamen desde el mismo owner thread. No llama la API nativa desde continuations async del pipe.
+- El worker de input se crea lazy al primer `LOCK_INPUT`; estado desbloqueado normal mantiene cero threads extra, cero polling, cero timers, cero hooks y cero writes.
+- `LOCK_INPUT` repetido usa el owner thread existente para reassertar `BlockInput(TRUE)`; no crea segundo worker ni stack de locks.
+- `UNLOCK_INPUT` sin lock Galtek activo es success idempotente; con lock activo senaliza al owner thread para llamar `BlockInput(FALSE)` y terminar.
+- Si `BlockInput(FALSE)` falla, se devuelve `INPUT_UNLOCK_FAILED`, pero el worker termina igualmente para favorecer el fail-safe de Windows.
+- `CTRL+ALT+DEL` queda como escape nativo de Windows. Galtek no intenta bloquear Secure Attention Sequence, Task Manager, Winlogon, account switching ni recovery fisico.
+- El input lock es efimero: no existe `input-lock-state.json`, journal, PID/threadId persistido, startup lock ni reconstruccion tras crash/reboot.
+- `LOCK_INPUT` requiere Commercial License `ACTIVE` mediante el gate del dispatcher.
+- `UNLOCK_INPUT` es recovery-safe y no se bloquea por licencia expirada/inactiva/no resuelta, pero sigue exigiendo mTLS, Master identity esperado, trust `PAIRED`, no `REVOKED`, Device correcto y Session Command autenticado.
+- `SESSION_COMMAND_RESULT_UNKNOWN` se preserva si el Service ya envio `LOCK_INPUT`/`UNLOCK_INPUT` al Session Agent y se pierde la respuesta; no hay retry automatico.
+- 18A no implementa endpoint Master, batch Master, UI, overlay, timeout de lock, lease, keyboard-only/mouse-only, hooks, drivers, `SendInput`, shell, PowerShell, `cmd`, WMI ni bloqueo de `CTRL+ALT+DEL`.
+
 ## 2026-09-03 - Prompt 17C
 
 - `POST /api/classrooms/{classroomId}/open-application` queda implementado como endpoint batch-first del Master Backend; no existe endpoint individual por Device.
@@ -129,7 +150,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -239,11 +260,11 @@
 - Un Client `PAIRED + ONLINE` sin Device queda disponible para registro; un Client `PAIRED + Device` queda registrado; un Client `REVOKED` nunca es registrable ni administrable.
 - `device_network_bindings` persiste el vinculo vigente entre Device y Network Identity, con indices unicos parciales para un Device vigente por Network Identity y una Network Identity vigente por Device.
 - SQLite no reemplaza `paired-clients.json`: el trust `PAIRED`/`REVOKED` sigue siendo autoridad de pairing.
-- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
+- `ClientHello` solo anuncia capabilities tipadas realmente soportadas: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1`, `BROWSER_DOWNLOAD_POLICY_V1` e `INPUT_CONTROL_V1`.
 - Capabilities desconocidas se ignoran y ninguna capability concede autorizacion.
 - El heartbeat no escribe SQLite cada 15 segundos; presencia viva queda principalmente en `ClientConnectionRegistry`.
 - El framework `OperationRequest`/`OperationAccepted`/`OperationResult` no admite shell, PowerShell, `cmd`, rutas ejecutables arbitrarias, argumentos arbitrarios ni JSON generico de comandos.
-- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion, descarga y `applicationId` cuando aplica. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
+- El Agent deduplica operaciones por `operationId`; la comparacion de duplicados incluye los parametros tipados de navegacion, descarga y `applicationId` cuando aplica. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers reales en el Agent y cualquier operacion que continue sin handler devuelve `OPERATION_NOT_IMPLEMENTED`.
 - El Master envia `SHUTDOWN`/`RESTART` con el mismo `operationId` de `BatchOperation` a cada Agent objetivo y correlaciona resultados por `(deviceId, operationId)`, no solo por `operationId`.
 - `OperationAccepted` significa reconocimiento del Agent y nunca cuenta como `SUCCESS`; solo `OperationResult SUCCESS` completa exitosamente un target.
 - Si una request remota ya fue enviada y falta `OperationResult` por timeout, stream cerrado o desconexion, el Master registra `OPERATION_RESULT_UNKNOWN` como `FAILED` no retryable para no asumir exito ni reintentar power control automaticamente.

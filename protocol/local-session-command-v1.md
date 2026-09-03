@@ -4,7 +4,7 @@
 
 Local Session Command v1 is the dedicated local channel used by `GaltekClassroom.Agent.Service` to send explicit interactive-session commands to `GaltekClassroom.Agent.Session`.
 
-Prompt 16B implements `OPEN_URL` as the first visible interactive-session action. Prompt 17B implements `OPEN_APPLICATION(applicationId)` for authorized local applications. The Agent Service never opens visible UI from Session 0; it sends typed commands to the Session Agent, and the Session Agent performs the interactive-session action.
+Prompt 16B implements `OPEN_URL` as the first visible interactive-session action. Prompt 17B implements `OPEN_APPLICATION(applicationId)` for authorized local applications. Prompt 18A implements `LOCK_INPUT` and `UNLOCK_INPUT` for keyboard/mouse input control. The Agent Service never opens visible UI from Session 0 and never calls `BlockInput`; it sends typed commands to the Session Agent, and the Session Agent performs the interactive-session action.
 
 ## Separation from Local IPC v1
 
@@ -124,6 +124,28 @@ For `OPEN_APPLICATION`, the request uses an explicit typed field:
 
 The Service-to-Session command carries only `applicationId`. It never carries an executable path, command line, arguments, working directory, shell verb, shortcut, URI, environment, `runas` flag or generic payload. The Session Agent reads and validates `application-bindings.json` again before resolving a local executable.
 
+For `LOCK_INPUT`, the request has no functional payload:
+
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "uuid",
+  "commandType": "LOCK_INPUT"
+}
+```
+
+For `UNLOCK_INPUT`, the request has no functional payload:
+
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "uuid",
+  "commandType": "UNLOCK_INPUT"
+}
+```
+
+These commands never carry key lists, keyboard-only/mouse-only modes, duration, timeout, message, shell command, executable path, arguments, username or SID.
+
 ## Response
 
 ```json
@@ -147,6 +169,8 @@ Implemented:
 - `CHANNEL_PING`
 - `OPEN_URL`
 - `OPEN_APPLICATION`
+- `LOCK_INPUT`
+- `UNLOCK_INPUT`
 
 `CHANNEL_PING` proves the authenticated channel works. It does not open windows, launch processes, open a browser, read files, write registry, change browser policy, switch sessions or show UI.
 
@@ -163,6 +187,14 @@ For `APP_PATHS`, only the default value under HKLM App Paths is used, checking R
 `OPEN_APPLICATION` launches via `CreateProcessW` with `lpApplicationName` set to the resolved absolute `.exe`, `lpCommandLine = null`, no inherited handles and working directory set to the executable parent directory. It does not use ShellExecute, `cmd.exe`, PowerShell, `runas`, UAC elevation, arguments, URI handlers, shortcuts, MSI, process monitoring or `WaitForExit`.
 
 `OPEN_APPLICATION SUCCESS` means Windows accepted process creation for the authorized local executable. It does not mean the app finished starting, displayed a window, became foreground, remained running or responded.
+
+`LOCK_INPUT` and `UNLOCK_INPUT` use the Session Agent as the physical authority inside the interactive session. They call only `User32.dll BlockInput(BOOL)` through a lazy dedicated coordinator thread. Windows requires the same thread that successfully called `BlockInput(TRUE)` to call `BlockInput(FALSE)`, so command handlers never call the native API directly from arbitrary async continuations.
+
+`LOCK_INPUT` creates the worker only on the first real lock, calls `BlockInput(TRUE)` on that worker thread and keeps it alive while the Galtek lock is active. A repeated lock is processed on the same owner thread and reasserts `BlockInput(TRUE)` to recover from Windows releasing input after `CTRL+ALT+DEL`.
+
+`UNLOCK_INPUT` without an active Galtek lock succeeds idempotently and does not call the native API. With an active lock, the same owner thread calls `BlockInput(FALSE)` and then terminates. If native unlock fails, the command reports `INPUT_UNLOCK_FAILED`, but the worker still terminates so Windows can apply its thread-exit fail-safe.
+
+`CTRL+ALT+DEL` remains a Windows safety escape. Galtek does not attempt to block Secure Attention Sequence, Task Manager, Winlogon, account switching, or physical recovery paths.
 
 Unknown commands are rejected. They are never interpreted as executable strings.
 
@@ -200,10 +232,12 @@ Initial internal error codes:
 - `APPLICATION_DISABLED`
 - `APPLICATION_EXECUTABLE_NOT_FOUND`
 - `APPLICATION_LAUNCH_FAILED`
+- `INPUT_LOCK_FAILED`
+- `INPUT_UNLOCK_FAILED`
 
 User-facing or remotely surfaced messages must not expose stack traces, SIDs, PIDs, full binary paths, ACLs or token details.
 
-If the Service cannot reach a Session Agent before sending `OPEN_URL` or `OPEN_APPLICATION`, the remote operation maps to `SESSION_AGENT_UNAVAILABLE`. If the Service already sent the visible command and then loses or times out waiting for the response, the remote operation maps to `SESSION_COMMAND_RESULT_UNKNOWN` because the URL or application may already have opened. The client must not retry automatically.
+If the Service cannot reach a Session Agent before sending `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT` or `UNLOCK_INPUT`, the remote operation maps to `SESSION_AGENT_UNAVAILABLE`. If the Service already sent the command and then loses or times out waiting for the response, the remote operation maps to `SESSION_COMMAND_RESULT_UNKNOWN` because the action may already have happened. The client must not retry automatically.
 
 ## Performance
 
@@ -220,3 +254,5 @@ The channel adds:
 - no healthy `INFO` log spam.
 
 Service-side session resolution and server verification run only when the Service sends an interactive command.
+
+When input is unlocked, input control adds zero worker threads. During an active Galtek lock, exactly one dedicated worker thread waits on blocking primitives for `LOCK_INPUT`/`UNLOCK_INPUT` decisions; there is no busy loop.

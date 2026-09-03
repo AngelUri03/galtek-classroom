@@ -1803,3 +1803,48 @@
 ### Commit sugerido
 
 `feat(master): dispatch open application batches`
+
+## 2026-09-03 - Prompt 18A
+
+### Realizado
+
+- Implementado `LOCK_INPUT` y `UNLOCK_INPUT` productivo del lado Client sin endpoint/batch Master.
+- Actualizado Protobuf v1 con `INPUT_CONTROL_V1`, `INPUT_LOCK_FAILED` e `INPUT_UNLOCK_FAILED`; `LOCK_INPUT`/`UNLOCK_INPUT` conservan `protocolVersion = 1` y no llevan payload funcional.
+- Agregada `RemoteOperationLicensePolicy`: todas las operaciones requieren Commercial License activa por default; unica excepcion vigente `UNLOCK_INPUT`.
+- Registrados `LockInputOperationHandler` y `UnlockInputOperationHandler` en el Agent Service; ambos envian Session Command tipado y nunca llaman APIs de input.
+- Extendidos `SessionCommandClient` y `SessionCommandProtocol` con `LOCK_INPUT`/`UNLOCK_INPUT` sin payload funcional.
+- Agregado `WindowsInputBlockCoordinator` en Session Agent con `IWindowsInputBlockApi` testeable y worker dedicado lazy para cumplir same-thread ownership de `BlockInput(TRUE)`/`BlockInput(FALSE)`.
+- Implementada API productiva `WindowsInputBlockApi` con `User32.dll BlockInput(BOOL)` exclusivamente.
+- Session Agent cleanup solicita unlock desde el coordinator en shutdown y espera de forma acotada.
+- `LOCK_INPUT` repetido reasserta en el mismo owner thread; `UNLOCK_INPUT` sin lock activo es success idempotente.
+- Si native unlock falla se reporta `INPUT_UNLOCK_FAILED`, pero el worker termina para favorecer recovery por salida de thread/proceso.
+- Actualizado mapping Java minimo para `INPUT_CONTROL_V1`, `LOCK_INPUT`, `UNLOCK_INPUT`, `INPUT_LOCK_FAILED` e `INPUT_UNLOCK_FAILED`.
+- Documentado input control, thread ownership, estado efimero, `CTRL+ALT+DEL` como escape, excepcion de licencia de unlock, incertidumbre sin retry y validacion manual pendiente.
+
+### Cambios descartados
+
+- No se implemento endpoint Master, batch Master, UI, overlay, mensaje en pantalla, timeout/lease/duration de lock, keyboard-only, mouse-only, hooks globales, drivers, filtros, Raw Input interception, `SendInput`, `SendKeys`, shell, PowerShell, `cmd`, WMI, bloqueo de `CTRL+ALT+DEL`, Task Manager ni persistence de lock.
+- No se agrego `LOCK_INPUT` ni `UNLOCK_INPUT` a Local IPC v1.
+- No se hicieron pruebas reales con `BlockInput(TRUE)` sobre la PC de desarrollo.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~InputBlock|FullyQualifiedName~InputControl|FullyQualifiedName~SessionCommand|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 35 pruebas Session y 84 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Manual validation pendiente
+
+- En PC descartable: `LOCK_INPUT` bloquea teclado/mouse en aplicaciones normales.
+- `UNLOCK_INPUT` restaura input.
+- `LOCK_INPUT -> Agent Service restart -> UNLOCK_INPUT` conserva desbloqueo posible porque Session Agent conserva owner thread.
+- `LOCK_INPUT -> Session Agent terminate` libera input por fail-safe de Windows.
+- `LOCK_INPUT -> CTRL+ALT+DEL` libera input por escape nativo.
+- `LOCK_INPUT` posterior a `CTRL+ALT+DEL` reasserta en owner thread.
+- Con licencia Client expirada: `LOCK_INPUT` falla por licencia y `UNLOCK_INPUT` llega al handler.
+
+### Commit sugerido
+
+`feat(agent): add recoverable input control`

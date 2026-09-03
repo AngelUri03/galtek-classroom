@@ -220,6 +220,18 @@ public sealed class OpenUrlOperationHandlerTests
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(_result);
         }
+
+        public Task<SessionCommandClientResult> LockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
+
+        public Task<SessionCommandClientResult> UnlockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
     }
 
     private sealed record OpenUrlCall(string OperationId, string Url);

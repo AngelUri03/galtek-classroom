@@ -45,47 +45,58 @@ public sealed class SessionCommandServer : ISessionCommandServer
     private readonly IUrlLauncher _urlLauncher;
     private readonly ISessionApplicationResolver _applicationResolver;
     private readonly IWindowsApplicationLauncher _applicationLauncher;
+    private readonly IInputBlockCoordinator _inputBlockCoordinator;
 
     public SessionCommandServer(
         ISessionCommandPipeStreamFactory pipeStreamFactory,
         ISessionCommandCallerVerifier callerVerifier,
         IUrlLauncher? urlLauncher = null,
         ISessionApplicationResolver? applicationResolver = null,
-        IWindowsApplicationLauncher? applicationLauncher = null)
+        IWindowsApplicationLauncher? applicationLauncher = null,
+        IInputBlockCoordinator? inputBlockCoordinator = null)
     {
         _pipeStreamFactory = pipeStreamFactory;
         _callerVerifier = callerVerifier;
         _urlLauncher = urlLauncher ?? new UnavailableUrlLauncher();
         _applicationResolver = applicationResolver ?? new UnavailableSessionApplicationResolver();
         _applicationLauncher = applicationLauncher ?? new UnavailableWindowsApplicationLauncher();
+        _inputBlockCoordinator = inputBlockCoordinator ?? new WindowsInputBlockCoordinator(new UnavailableWindowsInputBlockApi());
     }
 
     public async Task RunAsync(int sessionId, CancellationToken cancellationToken)
     {
         var pipeName = SessionCommandProtocol.PipeNameForSession(sessionId);
 
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            await using var pipe = _pipeStreamFactory.CreateServerStream(pipeName);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await using var pipe = _pipeStreamFactory.CreateServerStream(pipeName);
 
-            try
-            {
-                await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
-                await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                    await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (IOException)
+                {
+                }
+                catch (JsonException)
+                {
+                }
+                catch (SessionCommandFramingException)
+                {
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (IOException)
-            {
-            }
-            catch (JsonException)
-            {
-            }
-            catch (SessionCommandFramingException)
-            {
-            }
+        }
+        finally
+        {
+            _ = await _inputBlockCoordinator.CleanupAsync(TimeSpan.FromSeconds(2))
+                .ConfigureAwait(false);
         }
     }
 
@@ -115,6 +126,7 @@ public sealed class SessionCommandServer : ISessionCommandServer
                 _urlLauncher,
                 _applicationResolver,
                 _applicationLauncher,
+                _inputBlockCoordinator,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException)
@@ -150,6 +162,7 @@ public sealed class SessionCommandServer : ISessionCommandServer
             urlLauncher,
             new UnavailableSessionApplicationResolver(),
             new UnavailableWindowsApplicationLauncher(),
+            new WindowsInputBlockCoordinator(new UnavailableWindowsInputBlockApi()),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -158,11 +171,13 @@ public sealed class SessionCommandServer : ISessionCommandServer
         IUrlLauncher urlLauncher,
         ISessionApplicationResolver applicationResolver,
         IWindowsApplicationLauncher applicationLauncher,
+        IInputBlockCoordinator inputBlockCoordinator,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(urlLauncher);
         ArgumentNullException.ThrowIfNull(applicationResolver);
         ArgumentNullException.ThrowIfNull(applicationLauncher);
+        ArgumentNullException.ThrowIfNull(inputBlockCoordinator);
 
         if (request is null)
         {
@@ -201,11 +216,46 @@ public sealed class SessionCommandServer : ISessionCommandServer
                     applicationResolver,
                     applicationLauncher,
                     cancellationToken).ConfigureAwait(false);
+            case SessionCommandTypes.LockInput:
+                return await HandleInputBlockAsync(requestId, inputBlockCoordinator.LockAsync, cancellationToken)
+                    .ConfigureAwait(false);
+            case SessionCommandTypes.UnlockInput:
+                return await HandleInputBlockAsync(requestId, inputBlockCoordinator.UnlockAsync, cancellationToken)
+                    .ConfigureAwait(false);
             default:
                 return SessionCommandResponse.Error(
                     requestId,
                     SessionCommandErrorCodes.SessionCommandNotSupported);
         }
+    }
+
+    public static async Task<SessionCommandResponse> HandleAsync(
+        SessionCommandRequest? request,
+        IUrlLauncher urlLauncher,
+        ISessionApplicationResolver applicationResolver,
+        IWindowsApplicationLauncher applicationLauncher,
+        CancellationToken cancellationToken)
+    {
+        return await HandleAsync(
+            request,
+            urlLauncher,
+            applicationResolver,
+            applicationLauncher,
+            new WindowsInputBlockCoordinator(new UnavailableWindowsInputBlockApi()),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<SessionCommandResponse> HandleInputBlockAsync(
+        string requestId,
+        Func<CancellationToken, Task<InputBlockResult>> command,
+        CancellationToken cancellationToken)
+    {
+        var result = await command(cancellationToken).ConfigureAwait(false);
+        return result.Succeeded
+            ? SessionCommandResponse.Success(requestId)
+            : SessionCommandResponse.Error(
+                requestId,
+                result.ErrorCode ?? SessionCommandErrorCodes.SessionChannelInvalidResponse);
     }
 
     private static async Task<SessionCommandResponse> HandleOpenApplicationAsync(

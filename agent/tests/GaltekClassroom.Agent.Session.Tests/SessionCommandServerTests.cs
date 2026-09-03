@@ -238,6 +238,63 @@ public sealed class SessionCommandServerTests
     }
 
     [Fact]
+    public async Task HandleAsync_WhenLockInputArrives_UsesInputBlockCoordinator()
+    {
+        var coordinator = RecordingInputBlockCoordinator.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateInputControlRequest(SessionCommandTypes.LockInput),
+            RecordingUrlLauncher.Success(),
+            RecordingApplicationResolver.Success(@"C:\Tools\Word.exe"),
+            RecordingApplicationLauncher.Success(),
+            coordinator,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Success, response.Status);
+        Assert.Equal(1, coordinator.LockCalls);
+        Assert.Equal(0, coordinator.UnlockCalls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenUnlockInputArrives_UsesInputBlockCoordinator()
+    {
+        var coordinator = RecordingInputBlockCoordinator.Success();
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateInputControlRequest(SessionCommandTypes.UnlockInput),
+            RecordingUrlLauncher.Success(),
+            RecordingApplicationResolver.Success(@"C:\Tools\Word.exe"),
+            RecordingApplicationLauncher.Success(),
+            coordinator,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Success, response.Status);
+        Assert.Equal(1, coordinator.UnlockCalls);
+        Assert.Equal(0, coordinator.LockCalls);
+    }
+
+    [Theory]
+    [InlineData(SessionCommandTypes.LockInput, SessionCommandErrorCodes.InputLockFailed)]
+    [InlineData(SessionCommandTypes.UnlockInput, SessionCommandErrorCodes.InputUnlockFailed)]
+    public async Task HandleAsync_WhenInputControlFails_ReturnsStructuredFailure(
+        string commandType,
+        string expectedErrorCode)
+    {
+        var coordinator = RecordingInputBlockCoordinator.Failure(expectedErrorCode);
+
+        SessionCommandResponse response = await SessionCommandServer.HandleAsync(
+            CreateInputControlRequest(commandType),
+            RecordingUrlLauncher.Success(),
+            RecordingApplicationResolver.Success(@"C:\Tools\Word.exe"),
+            RecordingApplicationLauncher.Success(),
+            coordinator,
+            CancellationToken.None);
+
+        Assert.Equal(SessionCommandStatuses.Failed, response.Status);
+        Assert.Equal(expectedErrorCode, response.ErrorCode);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenCallerIsUnauthorized_RejectsConnection()
     {
         var sessionId = Random.Shared.Next(20_000, 70_000);
@@ -342,6 +399,24 @@ public sealed class SessionCommandServerTests
     }
 
     [Fact]
+    public async Task RunAsync_WhenCancelled_CleansUpInputBlockCoordinator()
+    {
+        var sessionId = Random.Shared.Next(270_001, 320_000);
+        using var cancellation = new CancellationTokenSource();
+        var coordinator = RecordingInputBlockCoordinator.Success();
+        var server = new SessionCommandServer(
+            new TestPipeStreamFactory(),
+            new StaticCallerVerifier(authorized: true),
+            inputBlockCoordinator: coordinator);
+
+        var serverTask = server.RunAsync(sessionId, cancellation.Token);
+        cancellation.Cancel();
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, coordinator.CleanupCalls);
+    }
+
+    [Fact]
     [SupportedOSPlatform("windows")]
     public void ProductivePipeSecurity_AllowsOnlyLocalSystemClientAndDoesNotUseCurrentUserOnly()
     {
@@ -421,6 +496,15 @@ public sealed class SessionCommandServerTests
             {
                 ApplicationId = applicationId
             }
+        };
+    }
+
+    private static SessionCommandRequest CreateInputControlRequest(string commandType)
+    {
+        return new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = commandType
         };
     }
 
@@ -552,6 +636,54 @@ public sealed class SessionCommandServerTests
             cancellationToken.ThrowIfCancellationRequested();
             ExecutablePaths.Add(executablePath);
             return Task.FromResult(_result);
+        }
+    }
+
+    private sealed class RecordingInputBlockCoordinator : IInputBlockCoordinator
+    {
+        private readonly InputBlockResult _result;
+
+        private RecordingInputBlockCoordinator(InputBlockResult result)
+        {
+            _result = result;
+        }
+
+        public int LockCalls { get; private set; }
+
+        public int UnlockCalls { get; private set; }
+
+        public int CleanupCalls { get; private set; }
+
+        public static RecordingInputBlockCoordinator Success()
+        {
+            return new RecordingInputBlockCoordinator(InputBlockResult.Success());
+        }
+
+        public static RecordingInputBlockCoordinator Failure(string errorCode)
+        {
+            return new RecordingInputBlockCoordinator(errorCode == SessionCommandErrorCodes.InputLockFailed
+                ? InputBlockResult.LockFailed()
+                : InputBlockResult.UnlockFailed());
+        }
+
+        public Task<InputBlockResult> LockAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LockCalls++;
+            return Task.FromResult(_result);
+        }
+
+        public Task<InputBlockResult> UnlockAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            UnlockCalls++;
+            return Task.FromResult(_result);
+        }
+
+        public Task<InputBlockResult> CleanupAsync(TimeSpan timeout)
+        {
+            CleanupCalls++;
+            return Task.FromResult(InputBlockResult.Success());
         }
     }
 }

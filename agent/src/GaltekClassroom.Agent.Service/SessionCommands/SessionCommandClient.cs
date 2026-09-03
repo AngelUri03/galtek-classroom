@@ -35,6 +35,10 @@ public interface ISessionCommandClient
     Task<SessionCommandClientResult> OpenApplicationAsync(
         string applicationId,
         CancellationToken cancellationToken);
+
+    Task<SessionCommandClientResult> LockInputAsync(CancellationToken cancellationToken);
+
+    Task<SessionCommandClientResult> UnlockInputAsync(CancellationToken cancellationToken);
 }
 
 public sealed class SessionCommandClient : ISessionCommandClient
@@ -120,6 +124,30 @@ public sealed class SessionCommandClient : ISessionCommandClient
                 {
                     ApplicationId = validation.NormalizedValue!
                 }
+            },
+            cancellationToken,
+            unknownIfRequestWasSent: true);
+    }
+
+    public Task<SessionCommandClientResult> LockInputAsync(CancellationToken cancellationToken)
+    {
+        return SendAsync(
+            new SessionCommandRequest
+            {
+                RequestId = Guid.NewGuid().ToString("D"),
+                CommandType = SessionCommandTypes.LockInput
+            },
+            cancellationToken,
+            unknownIfRequestWasSent: true);
+    }
+
+    public Task<SessionCommandClientResult> UnlockInputAsync(CancellationToken cancellationToken)
+    {
+        return SendAsync(
+            new SessionCommandRequest
+            {
+                RequestId = Guid.NewGuid().ToString("D"),
+                CommandType = SessionCommandTypes.UnlockInput
             },
             cancellationToken,
             unknownIfRequestWasSent: true);

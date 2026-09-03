@@ -69,6 +69,31 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void dispatchSendsInputControlOperationWithoutParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(snapshot, OperationType.LOCK_INPUT, "batch-lock", "device-1").orElseThrow();
+        gateway.dispatch(snapshot, OperationType.UNLOCK_INPUT, "batch-unlock", "device-1").orElseThrow();
+
+        assertThat(observer.values()).hasSize(2);
+        OperationRequest lockRequest = observer.values().get(0).getOperationRequest();
+        OperationRequest unlockRequest = observer.values().get(1).getOperationRequest();
+        assertThat(lockRequest.getOperationType()).isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_LOCK_INPUT);
+        assertThat(unlockRequest.getOperationType()).isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_UNLOCK_INPUT);
+        assertThat(lockRequest.hasOpenApplication()).isFalse();
+        assertThat(lockRequest.hasOpenUrl()).isFalse();
+        assertThat(lockRequest.hasApplyBrowserPolicy()).isFalse();
+        assertThat(lockRequest.hasApplyBrowserDownloadPolicy()).isFalse();
+        assertThat(unlockRequest.hasOpenApplication()).isFalse();
+        assertThat(unlockRequest.hasOpenUrl()).isFalse();
+        assertThat(unlockRequest.hasApplyBrowserPolicy()).isFalse();
+        assertThat(unlockRequest.hasApplyBrowserDownloadPolicy()).isFalse();
+    }
+
+    @Test
     void dispatchSendsTypedBrowserNavigationPolicyParameters() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
@@ -219,6 +244,25 @@ class MasterRemoteOperationGatewayTest {
                 NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED,
                 ErrorCode.APPLICATION_LAUNCH_FAILED,
                 true);
+    }
+
+    @Test
+    void operationResultMapsInputControlErrorsWithoutTextParsing() {
+        RemoteOperationOutcome lockOutcome = MasterRemoteOperationGateway.outcomeFromResult(failed(
+                "batch-lock",
+                "PC01",
+                NetworkOperationType.NETWORK_OPERATION_TYPE_LOCK_INPUT,
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_INPUT_LOCK_FAILED));
+        RemoteOperationOutcome unlockOutcome = MasterRemoteOperationGateway.outcomeFromResult(failed(
+                "batch-unlock",
+                "PC01",
+                NetworkOperationType.NETWORK_OPERATION_TYPE_UNLOCK_INPUT,
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED));
+
+        assertThat(lockOutcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(lockOutcome.errorCode()).isEqualTo(ErrorCode.INPUT_LOCK_FAILED);
+        assertThat(unlockOutcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(unlockOutcome.errorCode()).isEqualTo(ErrorCode.INPUT_UNLOCK_FAILED);
     }
 
     @Test

@@ -103,6 +103,30 @@ public sealed class SessionCommandProtocolTests
         Assert.DoesNotContain("uri", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(SessionCommandTypes.LockInput)]
+    [InlineData(SessionCommandTypes.UnlockInput)]
+    public void InputControlRequestJson_UsesTypedCommandWithoutFunctionalPayload(string commandType)
+    {
+        var request = new SessionCommandRequest
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            CommandType = commandType
+        };
+
+        var json = JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Contains($"\"commandType\":\"{commandType}\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("payload", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("keyCodes", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("keyboardOnly", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mouseOnly", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("duration", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("timeout", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("command\":", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("arguments", json, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void LocalIpcV1_RemainsReadOnlyOperationsOnly()
     {
@@ -118,6 +142,8 @@ public sealed class SessionCommandProtocolTests
         Assert.DoesNotContain(SessionCommandTypes.ChannelPing, operations);
         Assert.DoesNotContain("OPEN_URL", operations);
         Assert.DoesNotContain("OPEN_APPLICATION", operations);
+        Assert.DoesNotContain("LOCK_INPUT", operations);
+        Assert.DoesNotContain("UNLOCK_INPUT", operations);
         Assert.DoesNotContain("EXECUTE_COMMAND", operations);
     }
 }

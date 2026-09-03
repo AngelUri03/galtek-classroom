@@ -85,6 +85,9 @@ public enum ErrorCode {
     APPLICATION_EXECUTABLE_NOT_FOUND(ErrorCategory.APPLICATION, false),
     APPLICATION_LAUNCH_FAILED(ErrorCategory.APPLICATION, true),
 
+    INPUT_LOCK_FAILED(ErrorCategory.OPERATION, true),
+    INPUT_UNLOCK_FAILED(ErrorCategory.OPERATION, true),
+
     INVALID_FILE(ErrorCategory.CONTENT, false),
     INVALID_FOLDER_NAME(ErrorCategory.CONTENT, false),
     INVALID_DESTINATION(ErrorCategory.CONTENT, false),

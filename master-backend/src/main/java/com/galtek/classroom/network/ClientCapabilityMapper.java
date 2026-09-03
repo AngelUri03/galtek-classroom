@@ -37,6 +37,7 @@ public final class ClientCapabilityMapper {
             case NETWORK_CAPABILITY_OPEN_URL_V1 -> DeviceCapability.OPEN_URL_V1;
             case NETWORK_CAPABILITY_BROWSER_NAVIGATION_POLICY_V1 -> DeviceCapability.BROWSER_NAVIGATION_POLICY_V1;
             case NETWORK_CAPABILITY_BROWSER_DOWNLOAD_POLICY_V1 -> DeviceCapability.BROWSER_DOWNLOAD_POLICY_V1;
+            case NETWORK_CAPABILITY_INPUT_CONTROL_V1 -> DeviceCapability.INPUT_CONTROL_V1;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

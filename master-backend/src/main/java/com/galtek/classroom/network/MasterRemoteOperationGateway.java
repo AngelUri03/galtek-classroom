@@ -410,6 +410,8 @@ public class MasterRemoteOperationGateway {
             case NETWORK_OPERATION_ERROR_CODE_APPLICATION_EXECUTABLE_NOT_FOUND ->
                     ErrorCode.APPLICATION_EXECUTABLE_NOT_FOUND;
             case NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED -> ErrorCode.APPLICATION_LAUNCH_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_INPUT_LOCK_FAILED -> ErrorCode.INPUT_LOCK_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED -> ErrorCode.INPUT_UNLOCK_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -486,6 +488,10 @@ public class MasterRemoteOperationGateway {
                     "Application executable was not found on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED ->
                     "Windows did not accept the application launch request.";
+            case NETWORK_OPERATION_ERROR_CODE_INPUT_LOCK_FAILED ->
+                    "Windows did not confirm input lock on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED ->
+                    "Windows did not confirm input unlock on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->
@@ -505,6 +511,8 @@ public class MasterRemoteOperationGateway {
 
     private NetworkOperationType toNetworkOperationType(OperationType operationType) {
         return switch (operationType) {
+            case LOCK_INPUT -> NetworkOperationType.NETWORK_OPERATION_TYPE_LOCK_INPUT;
+            case UNLOCK_INPUT -> NetworkOperationType.NETWORK_OPERATION_TYPE_UNLOCK_INPUT;
             case SHUTDOWN -> NetworkOperationType.NETWORK_OPERATION_TYPE_SHUTDOWN;
             case RESTART -> NetworkOperationType.NETWORK_OPERATION_TYPE_RESTART;
             case OPEN_APPLICATION -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION;

@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 17C.
+2026-09-03 - Prompt 18A.
 
 ## Estado del proyecto
 
@@ -50,6 +50,8 @@ Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agen
 
 Prompt 17C implementa dispatch batch Master para `OPEN_APPLICATION`. Expone `POST /api/classrooms/{classroomId}/open-application`, protegido por `MasterAccessGuard`, con request estricta `applicationId + targetDeviceIds`. El Master valida `ApplicationDefinition` activa persistida y asociacion aula/aplicacion antes de crear batch, congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION`, reutiliza `MasterRemoteOperationGateway` con `OpenApplicationOperationParameters.applicationId` y preserva errores locales del Agent por Device. No modifica Agent, Session Agent, Protobuf, bindings, App Paths, Registry, filesystem, `CreateProcessW` ni UI.
 
+Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo del lado Client sin endpoint/batch Master. El Agent Service recibe `OperationRequest` tipado, pasa por `RemoteOperationDispatcher`, mantiene licencia comercial activa para `LOCK_INPUT` y aplica una excepcion estricta recovery-safe solo para `UNLOCK_INPUT`; luego envia Session Command v1 tipado. El Session Agent ejecuta `User32.dll BlockInput(BOOL)` desde un `WindowsInputBlockCoordinator` con worker dedicado lazy que conserva ownership del thread para lock/unlock, libera en shutdown acotado y no persiste estado. No hay UI, overlay, hooks, drivers, SendInput, shell, timeout configurable, retry automatico ni bloqueo de `CTRL+ALT+DEL`.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -58,7 +60,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real ni distribucion real.
+El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real, distribucion real ni endpoint/batch Master para input control.
 
 ## Implementado
 
@@ -86,6 +88,16 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `POST /api/classrooms/{classroomId}/browser-download-policies/apply` protegido, aplica la policy de descarga efectiva persistida a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/open-url` protegido, envia batch `OPEN_URL` a Devices explicitamente seleccionados despues de safety global y policy efectiva por target.
 - `POST /api/classrooms/{classroomId}/open-application` protegido, envia batch `OPEN_APPLICATION` a Devices explicitamente seleccionados despues de validar `ApplicationDefinition` activa y asociacion Classroom/Application.
+- `LOCK_INPUT` y `UNLOCK_INPUT` productivos Agent-side llegan por `OperationRequest` tipado y no transportan payload funcional.
+- `INPUT_CONTROL_V1` se anuncia en `ClientHello` desde el Agent.
+- `LockInputOperationHandler` y `UnlockInputOperationHandler` envian solo Session Command tipado; el Agent Service nunca llama `BlockInput`.
+- Session Command v1 soporta `LOCK_INPUT` y `UNLOCK_INPUT` sin payload, sin key list, keyboardOnly, mouseOnly, duration, timeout, message, command, shell ni argumentos.
+- `WindowsInputBlockCoordinator` en Session Agent usa un worker dedicado lazy para llamar `BlockInput(TRUE)` y `BlockInput(FALSE)` en el mismo Managed Thread, procesar locks repetidos en el owner thread y terminar tras unlock.
+- Input control normal desbloqueado agrega 0 threads extra, 0 timers, 0 polling, 0 hooks, 0 scans y 0 writes.
+- `UNLOCK_INPUT` sin lock activo es idempotente y exitoso; con lock activo desbloquea desde el owner thread y termina el worker.
+- Si `BlockInput(FALSE)` falla se reporta `INPUT_UNLOCK_FAILED`, pero el worker termina igualmente para favorecer el fail-safe de Windows por salida de thread/proceso.
+- `CTRL+ALT+DEL` queda documentado como escape nativo de Windows; Galtek no bloquea Secure Attention Sequence, Task Manager ni Winlogon.
+- `LOCK_INPUT` exige Commercial License `ACTIVE`; `UNLOCK_INPUT` no se bloquea por estado de licencia, pero conserva mTLS, trust `PAIRED`, no `REVOKED`, Device correcto y Session Command autenticado.
 - `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` es la fuente de verdad local del Client para `applicationId -> launch target`.
 - `OPEN_APPLICATION` productivo Agent-side llega por `OperationRequest` tipado y usa `OpenApplicationOperationParameters.applicationId` como unico input funcional remoto.
 - `OPEN_APPLICATION_V1` se anuncia en `ClientHello` desde el Agent.
@@ -238,8 +250,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
 - Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
-- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
-- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler salvo `UNLOCK_INPUT` recovery-safe y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
+- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
 - `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
 - `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
@@ -445,6 +457,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~InputBlock|FullyQualifiedName~InputControl|FullyQualifiedName~SessionCommand|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 35 pruebas Session y 84 pruebas Service superadas.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~OpenApplication|FullyQualifiedName~SessionCommand|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 20 pruebas Session y 105 pruebas Service superadas.
 - `mvn -q "-Dtest=OpenApplicationDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto, request estricta, autorizacion de app, preflight, batch/fanout, mapping de errores de aplicacion, incertidumbre y ausencia de status query `OPEN_APPLICATION` superados.
 - `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto; Flyway sigue con 5 migraciones y `OPEN_APPLICATION` ya era valido en el CHECK.
@@ -487,4 +503,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Fase 17 cerrada. Siguiente fase recomendada: elegir una nueva capacidad de aula no cubierta todavia, manteniendo el patron batch-first y sin convertir el Master en canal de ejecucion arbitraria.
+Prompt 18A cerrado. Siguiente fase recomendada: Prompt 18B para endpoint/batch Master de `LOCK_INPUT`/`UNLOCK_INPUT`, manteniendo `UNLOCK_INPUT` como recovery-safe, sin retry automatico y sin agregar UI/overlay salvo que una fase posterior lo pida explicitamente.

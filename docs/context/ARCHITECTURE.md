@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 18A implementa `LOCK_INPUT` y `UNLOCK_INPUT` productivos del lado Client sin endpoint/batch Master. El Protobuf v1 conserva `protocolVersion = 1`, agrega `INPUT_CONTROL_V1` y errores `INPUT_LOCK_FAILED`/`INPUT_UNLOCK_FAILED`; las operaciones no llevan payload funcional. El Agent Service recibe `OperationRequest`, pasa por `RemoteOperationDispatcher`, aplica Commercial License activa para `LOCK_INPUT` y una excepcion recovery-safe estricta para `UNLOCK_INPUT`, y envia Session Command v1 tipado. El Session Agent ejecuta el control fisico mediante `User32.dll BlockInput(BOOL)` desde un `WindowsInputBlockCoordinator` con worker dedicado lazy para cumplir ownership de thread lock/unlock. No hay UI, overlay, endpoint Master, batch Master, retry automatico, hooks, drivers, SendInput, shell ni persistencia de lock.
+
 Prompt 17C implementa dispatch batch end-to-end de `OPEN_APPLICATION(applicationId)` desde el Master Backend. Expone `POST /api/classrooms/{classroomId}/open-application`, protegido por `MasterAccessGuard`, con request estricta de `applicationId` y `targetDeviceIds`. El Master resuelve una `ApplicationDefinition` activa persistida, exige que este autorizada en el Classroom por `classroom_applications`, congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del fanout y usa `MasterRemoteOperationGateway` con `OpenApplicationOperationParameters.applicationId`. No modifica Agent, Session Agent, Protobuf, `ApplicationBinding`, resolucion de App Paths ni `CreateProcessW`.
 
 Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent. El Protobuf v1 agrega `OpenApplicationOperationParameters.applicationId`, capability `OPEN_APPLICATION_V1` y errores de aplicacion. El Agent Service hace preflight logico contra `application-bindings.json`, pero no lanza procesos ni envia paths; manda un Session Command `OPEN_APPLICATION` que conserva solo `applicationId`. El Session Agent vuelve a leer y validar el catalogo on-demand, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only (Registry64/Registry32, sin HKCU ni PATH) y lanza mediante `CreateProcessW` con ruta absoluta en `lpApplicationName`, `lpCommandLine = null`, sin argumentos, sin elevacion y sin monitoring.
@@ -62,7 +64,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master local y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI, captura ni bloqueo de input.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI ni captura. El input control ya es productivo del lado Client desde Prompt 18A; su endpoint/batch Master sigue pendiente para 18B.
 
 ## Modelo operativo Master/Client
 
@@ -481,13 +483,13 @@ IMPLEMENTADO:
 - La validacion del certificado del Master usa pinning de public key contra `authorized-masters.json`, no CA global, IP, MAC ni hostname.
 - `ClientHello` transporta `networkIdentityId`, `installationId`, fingerprint, public SPKI, version de Agent y capabilities tipadas; no transporta secretos.
 - `ClientHello.device_id` queda como campo compatible pero el Master no lo usa como identidad; el `deviceId` persistente lo genera el Master al registrar el Device.
-- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`.
+- `ClientCapabilityProvider` anuncia `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1`, `BROWSER_DOWNLOAD_POLICY_V1` e `INPUT_CONTROL_V1`.
 - Heartbeat periodico default cada 15 segundos y reconexion con backoff `2s, 5s, 10s, 30s`.
 - Reconexion con jitter acotado: jitter inicial default hasta 2 segundos y jitter por retry default hasta 1 segundo, sin quitar el backoff base.
 - El heartbeat del Agent conserva el stream TLS/mTLS persistente y ya no relee `authorized-masters.json` en cada ciclo; los `OperationRequest` revalidan trust antes de cualquier accion.
 - Los retries repetidos de conexion gRPC se registran en `DEBUG` tras el primer warning para evitar spam de retry.
 - `MasterConnectionStateTracker` mantiene estado local `CONNECTING`, `ONLINE` y `OFFLINE` derivado del stream autenticado.
-- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers productivos y cualquier operacion sin handler sigue devolviendo `OPERATION_NOT_IMPLEMENTED`.
+- `RemoteOperationDispatcher` del Agent deduplica por `operationId`, aplica timeout y devuelve `OperationResult` estructurado; `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` tienen handlers productivos y cualquier operacion sin handler sigue devolviendo `OPERATION_NOT_IMPLEMENTED`.
 - `RemoteOperationDispatcher.TryGetCompletedResult` permite consultar read-only el resultado completado retenido por dedupe/cache, sin ejecutar handlers ni renovar retencion.
 - `PowerOperationReceiptStore` persiste en `power-operation-receipts.json` receipts acotados solo para `SHUTDOWN`/`RESTART` aceptados por Windows: `operationId`, `operationType`, `targetDeviceId`, `acceptedAtUtc` y `SUCCESS`.
 - `OperationStatusQuery` en el Agent valida el stream Master/trust vigente y responde `KNOWN` desde cache/receipt o `UNKNOWN`; nunca crea un `OperationRequest`, nunca llama handlers y nunca modifica Windows.
@@ -496,7 +498,7 @@ IMPLEMENTADO:
 - Power control usa countdown fijo de 10 segundos, mensaje constante, `forceAppsClosed=false` y no acepta payload arbitrario, `force=true`, timeout arbitrario ni mensajes enviados por Master.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud; si Windows no la acepta se devuelve `FAILED` con `POWER_CONTROL_UNAVAILABLE` o `POWER_CONTROL_FAILED`.
 - Si Windows acepta `SHUTDOWN`/`RESTART` pero falla la persistencia del receipt, el Agent conserva el `OperationResult SUCCESS` normal y registra warning seguro; la falta de receipt solo limita reconciliacion futura tras reboot.
-- `RemoteOperationDispatcher` rechaza ejecucion de handlers cuando Commercial License todavia no esta activa, preservando el bloqueo comercial aunque la validacion completa se difiera fuera del startup critico.
+- `RemoteOperationDispatcher` rechaza ejecucion de handlers cuando Commercial License todavia no esta activa, preservando el bloqueo comercial aunque la validacion completa se difiera fuera del startup critico. La unica excepcion vigente es `UNLOCK_INPUT`, porque reduce control y debe funcionar como recovery; esta excepcion no omite mTLS, trust, Device authorization ni el canal Session Command autenticado.
 - Genera Machine Code Base64 en modo de desarrollo con `--machine-code`.
 - Valida licencias JWT firmadas con RSA / RS256.
 - Rechaza algoritmos distintos a RS256 antes de confiar en el token.

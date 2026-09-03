@@ -13,7 +13,8 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.OpenApplicationV1,
         NetworkCapability.OpenUrlV1,
         NetworkCapability.BrowserNavigationPolicyV1,
-        NetworkCapability.BrowserDownloadPolicyV1
+        NetworkCapability.BrowserDownloadPolicyV1,
+        NetworkCapability.InputControlV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

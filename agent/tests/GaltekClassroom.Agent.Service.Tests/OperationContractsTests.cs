@@ -11,6 +11,8 @@ public sealed class OperationContractsTests
     {
         var operations = ConstantValues(typeof(ClassroomOperationTypes));
 
+        Assert.Contains(ClassroomOperationTypes.LockInput, operations);
+        Assert.Contains(ClassroomOperationTypes.UnlockInput, operations);
         Assert.Contains(ClassroomOperationTypes.Shutdown, operations);
         Assert.Contains(ClassroomOperationTypes.Restart, operations);
         Assert.Contains(ClassroomOperationTypes.OpenApplication, operations);
@@ -147,6 +149,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.ApplicationDisabled, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.ApplicationExecutableNotFound, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.ApplicationLaunchFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.InputLockFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.InputUnlockFailed, errorCodes);
     }
 
     [Fact]
@@ -202,6 +206,45 @@ public sealed class OperationContractsTests
             "OPEN_APPLICATION_V1",
             ClassroomCapabilities.OpenApplicationV1);
         Assert.True(Enum.IsDefined(NetworkCapability.OpenApplicationV1));
+    }
+
+    [Fact]
+    public void InputControlRemoteContract_IsTypedOperationWithoutPayload()
+    {
+        var lockRequest = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.LockInput,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1"
+        };
+        var unlockRequest = lockRequest.Clone();
+        unlockRequest.OperationId = Guid.NewGuid().ToString("D");
+        unlockRequest.OperationType = NetworkOperationType.UnlockInput;
+
+        Assert.Equal(NetworkOperationType.LockInput, lockRequest.OperationType);
+        Assert.Equal(OperationRequest.OperationParametersOneofCase.None, lockRequest.OperationParametersCase);
+        Assert.Equal(NetworkOperationType.UnlockInput, unlockRequest.OperationType);
+        Assert.Equal(OperationRequest.OperationParametersOneofCase.None, unlockRequest.OperationParametersCase);
+
+        var requestProperties = typeof(OperationRequest)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Command", requestProperties);
+        Assert.DoesNotContain("Arguments", requestProperties);
+        Assert.DoesNotContain("Payload", requestProperties);
+        Assert.DoesNotContain("Duration", requestProperties);
+        Assert.DoesNotContain("KeyCodes", requestProperties);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeInputControlV1()
+    {
+        Assert.Equal(
+            "INPUT_CONTROL_V1",
+            ClassroomCapabilities.InputControlV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.InputControlV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

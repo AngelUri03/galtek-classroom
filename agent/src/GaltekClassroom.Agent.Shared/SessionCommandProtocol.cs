@@ -27,6 +27,8 @@ public static class SessionCommandTypes
     public const string ChannelPing = "CHANNEL_PING";
     public const string OpenUrl = "OPEN_URL";
     public const string OpenApplication = "OPEN_APPLICATION";
+    public const string LockInput = "LOCK_INPUT";
+    public const string UnlockInput = "UNLOCK_INPUT";
 }
 
 public static class SessionCommandStatuses
@@ -53,6 +55,8 @@ public static class SessionCommandErrorCodes
     public const string ApplicationDisabled = "APPLICATION_DISABLED";
     public const string ApplicationExecutableNotFound = "APPLICATION_EXECUTABLE_NOT_FOUND";
     public const string ApplicationLaunchFailed = "APPLICATION_LAUNCH_FAILED";
+    public const string InputLockFailed = "INPUT_LOCK_FAILED";
+    public const string InputUnlockFailed = "INPUT_UNLOCK_FAILED";
 }
 
 public sealed record SessionCommandRequest

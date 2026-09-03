@@ -586,6 +586,18 @@ public sealed class BrowserPolicyAgentTests
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(SessionCommandClientResult.Success());
         }
+
+        public Task<SessionCommandClientResult> LockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(SessionCommandClientResult.Success());
+        }
+
+        public Task<SessionCommandClientResult> UnlockInputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(SessionCommandClientResult.Success());
+        }
     }
 
     private sealed class MutableClock : ISystemClock

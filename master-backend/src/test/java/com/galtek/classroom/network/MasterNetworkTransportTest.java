@@ -266,6 +266,28 @@ class MasterNetworkTransportTest {
     }
 
     @Test
+    void inputControlCapabilityIsMappedFromClientHello() throws Exception {
+        Fixture fixture = createFixture("input-control-capability");
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+
+        requests.onNext(helloEnvelope(client, "PC01", List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
+                NetworkCapability.NETWORK_CAPABILITY_INPUT_CONTROL_V1), null));
+
+        assertThat(fixture.registry.find(client.descriptor().clientNetworkIdentityId()))
+                .get()
+                .satisfies(snapshot -> assertThat(snapshot.capabilities())
+                        .contains(
+                                DeviceCapability.HEARTBEAT_V1,
+                                DeviceCapability.OPERATION_FRAMEWORK_V1,
+                                DeviceCapability.INPUT_CONTROL_V1));
+    }
+
+    @Test
     void operationResultOnAcceptedStreamCompletesPendingDispatch() throws Exception {
         Fixture fixture = createFixture("operation-result-routing");
         TestClientIdentity client = TestClientIdentity.create("PC01");
