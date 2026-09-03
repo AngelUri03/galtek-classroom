@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Los apply endpoints no aceptan URLs/commands, Java no escribe registry y 16F2 no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -315,6 +315,68 @@ Errores relevantes:
 - `403 <authorization.status>`: Master local no autorizado.
 - `404 CLASSROOM_NOT_FOUND`: aula inexistente.
 - Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `URL_BLOCKED_BY_POLICY`, `INVALID_URL`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
+
+## Open Application
+
+`POST /api/classrooms/{classroomId}/open-application`
+
+Endpoint protegido por `MasterAccessGuard`. Ejecuta una sola operacion batch remota tipada `OPEN_APPLICATION` sobre Devices explicitos del aula.
+
+Request:
+
+```json
+{
+  "applicationId": "conejito-lector",
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- Solo se aceptan `applicationId` y `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
+- `applicationId` es obligatorio, no blank y se interpreta como identidad logica exacta del catalogo Master.
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados.
+- No se aceptan `executablePath`, `appPathExecutableName`, `launchType`, `arguments`, `command`, `commandLine`, `workingDirectory`, `shell`, PowerShell, `cmd`, scripts, URI, shortcut, registry path, `runAs`, elevacion, `force`, timeout, `accountType`, `studentId`, `groupId` ni payload libre.
+
+Autorizacion de aplicacion:
+
+- El Master resuelve `applicationId` contra una `ApplicationDefinition` activa persistida.
+- La aplicacion debe estar asociada/autorizada al Classroom solicitado mediante `classroom_applications`.
+- Si la aplicacion no existe, esta inactiva/archivada o no esta autorizada en esa aula, se rechaza la request completa con `APPLICATION_NOT_ALLOWED` antes de crear `BatchOperation` y sin enviar a ningun Device.
+- `displayName` no es identidad y nunca se usa como fallback.
+- `availability` y `launchPolicy` no agregan enforcement en 17C porque no existe una regla vigente de dominio/tests que bloquee launch por esos campos.
+
+Preflight y dispatch:
+
+- El Device debe pertenecer al aula solicitada.
+- El Device debe tener binding vigente con Network Identity.
+- El trust debe estar `PAIRED` y no estar `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `OPEN_APPLICATION_V1`.
+- No se exige `SESSION_AGENT_AVAILABLE`; si el Agent no puede hablar con el Session Agent, devuelve `SESSION_AGENT_UNAVAILABLE` como resultado por target.
+- El Master congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del primer send y usa el mismo `operationId` para todos los Agents.
+- El gateway envia `OperationType.OPEN_APPLICATION` con `OpenApplicationOperationParameters { application_id = applicationId }`; no usa payload JSON generico ni transporte nuevo.
+
+Semantica de resultados:
+
+- `SUCCESS` significa solo que Windows acepto crear el proceso correspondiente al binding local autorizado. No implica ventana visible, foreground, app cargada, app viva, instancia unica ni interaccion del alumno.
+- `OperationAccepted ACCEPTED` no marca `SUCCESS`; solo `OperationResult SUCCESS`.
+- `OPERATION_RESULT_UNKNOWN` significa que Master envio `OperationRequest` al Agent pero no recibio `OperationResult`.
+- `SESSION_COMMAND_RESULT_UNKNOWN` significa que el Agent envio `OPEN_APPLICATION` al Session Agent pero perdio/expiro la respuesta.
+- No hay retry automatico ni reconciliacion/status query para `OPEN_APPLICATION`.
+
+Respuesta: misma forma de batch que `open-url`, con `type = OPEN_APPLICATION`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body faltante, `applicationId` blank, targets vacios/duplicados o campos no soportados.
+- `403 <authorization.status>`: Master local no autorizado.
+- `403 APPLICATION_NOT_ALLOWED`: app inexistente, inactiva o no autorizada para el Classroom.
+- `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `APPLICATION_BINDINGS_INVALID`, `APPLICATION_BINDING_NOT_FOUND`, `APPLICATION_BINDING_INVALID`, `APPLICATION_DISABLED`, `APPLICATION_EXECUTABLE_NOT_FOUND`, `APPLICATION_LAUNCH_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
 
 ## Reconcile Power Operation
 
@@ -821,8 +883,9 @@ El batch hace preflight de todo el lote antes de escribir y detecta conflictos i
 
 - `GET /api/applications`
 - `GET /api/classrooms/{id}/applications`
+- `POST /api/classrooms/{id}/open-application`
 
-La API solo lista catalogo existente y aplicaciones autorizadas por aula. No ejecuta aplicaciones y no acepta rutas arbitrarias.
+Los endpoints `GET` solo listan catalogo existente y aplicaciones autorizadas por aula. `open-application` ejecuta dispatch batch remoto solo por `applicationId` logico autorizado; no acepta rutas arbitrarias ni consulta bindings locales por Device.
 
 ## Operations
 

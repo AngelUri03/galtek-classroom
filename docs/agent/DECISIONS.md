@@ -1,5 +1,23 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 17C
+
+- `POST /api/classrooms/{classroomId}/open-application` queda implementado como endpoint batch-first del Master Backend; no existe endpoint individual por Device.
+- La request acepta solo `applicationId` y `targetDeviceIds`; campos como paths, executable names, launch types, argumentos, command line, working directory, shell, PowerShell, `cmd`, Registry, account/student/group context, force, timeout o payload libre se rechazan como `INVALID_REQUEST`.
+- `MasterAccessGuard.requireAuthorized()` se ejecuta antes de leer Classroom, `ApplicationDefinition`, asociacion aula/aplicacion, Devices, bindings de red o datos escolares.
+- El Master resuelve el `applicationId` contra una `ApplicationDefinition` activa persistida y exige asociacion `Classroom -> ApplicationDefinition`; si no existe, esta inactiva o no esta autorizada para el aula, se rechaza la request completa con `APPLICATION_NOT_ALLOWED` antes de crear batch y sin fanout.
+- `displayName` no es identidad de aplicacion y no se usa como fallback. El `applicationId` enviado al Agent es el `applicationId` persistido/resuelto.
+- `availability` y `launchPolicy` quedan sin enforcement adicional en 17C porque no hay regla vigente de dominio/tests que bloquee launch por esos campos.
+- El Master no valida `ApplicationBinding` por Device, no consulta inventario remoto, no lee Registry/filesystem del Client y no intenta saber si la app esta instalada localmente.
+- El preflight por target exige Device del aula, binding de red vigente, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS autenticada `ONLINE` y capability `OPEN_APPLICATION_V1`; no exige `SESSION_AGENT_AVAILABLE`.
+- Se persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del fanout, con payload minimo de auditoria `schemaVersion` + `applicationId`; no se persisten paths, launch types, argumentos, Registry, PID ni datos de binding local.
+- `MasterRemoteOperationGateway` reutiliza el transporte existente y envia parametros tipados `OpenApplicationOperationParameters.applicationId`; no hay gRPC service nuevo, Protobuf nuevo ni payload JSON remoto.
+- `OperationAccepted ACCEPTED` no marca exito; solo `OperationResult SUCCESS` cambia el target a `SUCCESS`.
+- `APPLICATION_BINDINGS_INVALID`, `APPLICATION_BINDING_NOT_FOUND`, `APPLICATION_BINDING_INVALID`, `APPLICATION_DISABLED`, `APPLICATION_EXECUTABLE_NOT_FOUND` y `APPLICATION_LAUNCH_FAILED` se preservan como resultados por Device.
+- `OPERATION_RESULT_UNKNOWN` y `SESSION_COMMAND_RESULT_UNKNOWN` se conservan como incertidumbres distintas. No hay retry automatico ni `OperationStatusQuery`/reconciliacion para `OPEN_APPLICATION`.
+- SQLite no requirio V6: el CHECK vigente de `batch_operations.operation_type` ya aceptaba `OPEN_APPLICATION`.
+- Prompt 17 queda cerrado: 17A catalogo local, 17B ejecucion Agent/Session, 17C dispatch batch Master.
+
 ## 2026-09-03 - Prompt 17B
 
 - `OPEN_APPLICATION` queda implementado productivamente solo del lado Agent/Session; el endpoint/batch Master queda pendiente para 17C.
@@ -111,7 +129,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.
@@ -435,5 +453,5 @@
 - Archivos criticos del Master y Agent deben escribirse con temp file en el mismo directorio, flush/fsync y move/replace atomico cuando aplique.
 - Clasificacion futura de durabilidad: `EPHEMERAL` para heartbeat/presencia/preview/telemetria en memoria, `NORMAL` para metadata reconstruible o recuperable y `CRITICAL_DURABLE` para cambios que no deben confirmarse antes de durabilidad suficiente.
 - Boot, Session Agent startup, `ClientHello`, pairing, registration, reconnect, heartbeat y `DEVICE_ONLINE` no disparan captura, proyeccion, thumbnails, filesystem sync, inventario pesado ni scans recursivos.
-- Una operacion remota sin ACK o sin `OperationResult` confirmado no cuenta como `SUCCESS`; requiere reconciliacion posterior.
+- Una operacion remota sin ACK o sin `OperationResult` confirmado no cuenta como `SUCCESS`; debe conservarse como incertidumbre y solo reconciliarse cuando exista un mecanismo seguro y explicitamente soportado para ese tipo de operacion.
 - Reconexiones masivas usan backoff y jitter acotado, manteniendo conexion saliente iniciada por el Client.

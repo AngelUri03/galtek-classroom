@@ -1,6 +1,6 @@
 # Application bindings locales
 
-Prompt 17A agrega la fuente de verdad local del Client para vincular un `applicationId` logico Galtek con una aplicacion abrible en ese equipo. Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent: el Master/Protobuf y el Session Command siguen transportando solo `applicationId`; el Service y el Session Agent resuelven localmente el binding antes de lanzar.
+Prompt 17A agrega la fuente de verdad local del Client para vincular un `applicationId` logico Galtek con una aplicacion abrible en ese equipo. Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent. Prompt 17C agrega dispatch batch desde el Master: el Master/Protobuf y el Session Command siguen transportando solo `applicationId`; el Service y el Session Agent resuelven localmente el binding antes de lanzar.
 
 ## Separacion de conceptos
 
@@ -9,6 +9,8 @@ Prompt 17A agrega la fuente de verdad local del Client para vincular un `applica
 `ApplicationBinding` vive en el Client y describe como ese equipo encuentra localmente una aplicacion por `applicationId`.
 
 El Master solo puede enviar `applicationId` para `OPEN_APPLICATION`. Nunca debe enviar `executablePath`, command line, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria.
+
+En el Master, `ApplicationDefinition` activa y la relacion `Classroom -> ApplicationDefinition` son la autoridad logica para permitir el batch. El Master no consulta si cada PC tiene binding local, ejecutable real, App Paths o instalacion; esos errores se conservan como resultados por Device enviados por el Agent.
 
 ## Archivo
 
@@ -63,6 +65,8 @@ No soportados en 17A: MSIX, UWP AUMID, URI/protocol, shortcut/LNK, BAT/CMD/PS1/V
 JSON invalido, schema desconocido, duplicados, launch type desconocido o campos incompatibles producen `APPLICATION_BINDINGS_INVALID`. El Agent preserva el archivo y no adopta parcialmente entradas buenas.
 
 ## OPEN_APPLICATION productivo
+
+Desde 17C, `POST /api/classrooms/{classroomId}/open-application` crea una sola `BatchOperation` `OPEN_APPLICATION` para Devices explicitos. La request acepta solo `applicationId` y `targetDeviceIds`, rechaza campos extra y persiste payload minimo con `applicationId`. El preflight Master exige Device del aula, binding de red, trust `PAIRED`, no `REVOKED`, conexion `ONLINE` autenticada y capability `OPEN_APPLICATION_V1`; no exige `SESSION_AGENT_AVAILABLE`.
 
 `OPEN_APPLICATION` llega como `OperationRequest` tipado con `OpenApplicationOperationParameters.applicationId`. El Agent Service valida el `applicationId`, carga `application-bindings.json`, exige catalogo valido, binding existente y `enabled = true`, valida la estructura local y envia al Session Agent un Session Command `OPEN_APPLICATION` que tambien contiene solo `applicationId`.
 

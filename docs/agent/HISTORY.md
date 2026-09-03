@@ -1771,3 +1771,35 @@
 ### Commit sugerido
 
 `feat(agent): open authorized local applications`
+
+## 2026-09-03 - Prompt 17C
+
+### Realizado
+
+- Implementado `POST /api/classrooms/{classroomId}/open-application` en el Master Backend como dispatch batch-first de `OPEN_APPLICATION(applicationId)`.
+- Agregado `OpenApplicationController` y `OpenApplicationDispatchService`, reutilizando `MasterAccessGuard`, storage guard, `DeviceRepository`, `DeviceNetworkBindingRepository`, `MasterPairingService`, `ClientConnectionRegistry`, `BatchOperationService` y `MasterRemoteOperationGateway`.
+- Agregado lookup activo `ApplicationDefinitionRepository.findActiveById` para rechazar `ApplicationDefinition` inexistente o archivada/inactiva antes de crear batch.
+- La request acepta solo `applicationId` y `targetDeviceIds`; se rechazan paths, executable names, launch types, argumentos, command line, working directory, shell, PowerShell, `cmd`, scripts, URI, shortcut, Registry, account/student/group context, force, timeout y payload libre.
+- Se exige que la `ApplicationDefinition` activa este asociada al Classroom mediante `classroom_applications`; app global existente pero no autorizada en esa aula rechaza la request completa con `APPLICATION_NOT_ALLOWED`, sin batch ni sends.
+- El batch persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del primer send, con payload minimo `{"schemaVersion":1,"applicationId":"..."}` y targets `PENDING` o `FAILED` por preflight.
+- El gateway envia `OpenApplicationOperationParameters.applicationId` tipado y conserva el mismo `operationId` del batch para todos los Agents.
+- El preflight por target exige Device del aula, binding de red vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` y capability `OPEN_APPLICATION_V1`; no exige `SESSION_AGENT_AVAILABLE`.
+- Se preservan por target errores Agent-side de bindings/aplicacion, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN` y `OPERATION_RESULT_UNKNOWN`.
+- Confirmado que SQLite no requiere migracion V6 porque V1/V5 ya aceptan `OPEN_APPLICATION` en `batch_operations.operation_type`.
+- Actualizada documentacion de API, arquitectura, modelo funcional, reglas, application bindings, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se modifico Agent .NET, Session Agent, Protobuf, Session Command, `ApplicationBinding`, resolucion App Paths, Registry, filesystem, `CreateProcessW`, installer ni UI.
+- No se agrego inventario remoto de aplicaciones, query de bindings por Device, discovery, scans, capabilities por app, paths desde Master, argumentos, documents, retry automatico ni reconciliacion/status query para `OPEN_APPLICATION`.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=OpenApplicationDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): dispatch open application batches`

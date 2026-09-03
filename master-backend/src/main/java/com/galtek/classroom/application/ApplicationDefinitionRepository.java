@@ -10,5 +10,7 @@ public interface ApplicationDefinitionRepository {
 
     Optional<ApplicationDefinition> findById(String applicationId);
 
+    Optional<ApplicationDefinition> findActiveById(String applicationId);
+
     List<ApplicationDefinition> findActive();
 }

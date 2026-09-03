@@ -2,7 +2,7 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 17B.
+2026-09-03 - Prompt 17C.
 
 ## Estado del proyecto
 
@@ -48,6 +48,8 @@ Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `a
 
 Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent/Session sin endpoint/batch Master. Protobuf y Session Command transportan solo `applicationId`; el Agent Service valida el binding local y envia el comando tipado, y el Session Agent vuelve a leer/validar `application-bindings.json`, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only y lanza con `CreateProcessW` en la sesion interactiva. No hay argumentos, shell, HKCU App Paths, PATH search, elevacion, monitoring ni retry automatico tras comando enviado.
 
+Prompt 17C implementa dispatch batch Master para `OPEN_APPLICATION`. Expone `POST /api/classrooms/{classroomId}/open-application`, protegido por `MasterAccessGuard`, con request estricta `applicationId + targetDeviceIds`. El Master valida `ApplicationDefinition` activa persistida y asociacion aula/aplicacion antes de crear batch, congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION`, reutiliza `MasterRemoteOperationGateway` con `OpenApplicationOperationParameters.applicationId` y preserva errores locales del Agent por Device. No modifica Agent, Session Agent, Protobuf, bindings, App Paths, Registry, filesystem, `CreateProcessW` ni UI.
+
 Prompt 16A implementa el canal local seguro `Session Command v1` entre `GaltekClassroom.Agent.Service` y `GaltekClassroom.Agent.Session`. El Session Agent sirve un pipe por sesion interactiva (`GaltekClassroom.Agent.SessionCommand.v1.<sessionId>`) derivado de su `Process.SessionId`; el Service resuelve la sesion interactiva con API Windows, verifica el servidor por PID/sesion/ruta productiva antes de enviar y usa request/response tipado con framing de 16 KiB.
 
 Prompt 13 implementa el primer transporte seguro Master-Client: contrato Protobuf v1, servicio gRPC `NetworkConnection.Connect`, TLS/mTLS obligatorio, certificados self-signed de corta vida ligados al trust por fingerprint SPKI, conexion persistente iniciada por el Client, heartbeat, estados `CONNECTING`/`ONLINE`/`OFFLINE` y reconexion con backoff. No redisena Prompt 12.
@@ -83,6 +85,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 - Endpoints protegidos de browser download policies: listar/crear/patch/archive policies y resolver read-only de policy efectiva.
 - `POST /api/classrooms/{classroomId}/browser-download-policies/apply` protegido, aplica la policy de descarga efectiva persistida a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/open-url` protegido, envia batch `OPEN_URL` a Devices explicitamente seleccionados despues de safety global y policy efectiva por target.
+- `POST /api/classrooms/{classroomId}/open-application` protegido, envia batch `OPEN_APPLICATION` a Devices explicitamente seleccionados despues de validar `ApplicationDefinition` activa y asociacion Classroom/Application.
 - `application-bindings.json` en `<CommonApplicationData>\Galtek\Classroom\` es la fuente de verdad local del Client para `applicationId -> launch target`.
 - `OPEN_APPLICATION` productivo Agent-side llega por `OperationRequest` tipado y usa `OpenApplicationOperationParameters.applicationId` como unico input funcional remoto.
 - `OPEN_APPLICATION_V1` se anuncia en `ClientHello` desde el Agent.
@@ -443,6 +446,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 ## Pruebas ejecutadas
 
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ApplicationBinding|FullyQualifiedName~OpenApplication|FullyQualifiedName~SessionCommand|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 20 pruebas Session y 105 pruebas Service superadas.
+- `mvn -q "-Dtest=OpenApplicationDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto, request estricta, autorizacion de app, preflight, batch/fanout, mapping de errores de aplicacion, incertidumbre y ausencia de status query `OPEN_APPLICATION` superados.
+- `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto; Flyway sigue con 5 migraciones y `OPEN_APPLICATION` ya era valido en el CHECK.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
@@ -481,4 +487,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, bloqueo de input
 
 ## Proximo paso recomendado
 
-Siguiente fase recomendada: Prompt 17C puede agregar endpoint/batch Master para `OPEN_APPLICATION`, enviando exclusivamente `applicationId` y sin aceptar rutas, comandos ni argumentos desde HTTP/Master.
+Fase 17 cerrada. Siguiente fase recomendada: elegir una nueva capacidad de aula no cubierta todavia, manteniendo el patron batch-first y sin convertir el Master en canal de ejecucion arbitraria.

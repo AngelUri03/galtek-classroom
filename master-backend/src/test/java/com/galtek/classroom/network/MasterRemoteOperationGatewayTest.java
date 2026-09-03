@@ -194,6 +194,49 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void operationResultMapsApplicationErrorsWithoutTextParsing() {
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDINGS_INVALID,
+                ErrorCode.APPLICATION_BINDINGS_INVALID,
+                false);
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_NOT_FOUND,
+                ErrorCode.APPLICATION_BINDING_NOT_FOUND,
+                false);
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_BINDING_INVALID,
+                ErrorCode.APPLICATION_BINDING_INVALID,
+                false);
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_DISABLED,
+                ErrorCode.APPLICATION_DISABLED,
+                false);
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_EXECUTABLE_NOT_FOUND,
+                ErrorCode.APPLICATION_EXECUTABLE_NOT_FOUND,
+                false);
+        assertApplicationError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED,
+                ErrorCode.APPLICATION_LAUNCH_FAILED,
+                true);
+    }
+
+    @Test
+    void statusQueryDoesNotSupportOpenApplicationReconciliation() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        ClientConnectionSnapshot snapshot = snapshot("PC01", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, new RecordingObserver<>());
+
+        assertThat(gateway.queryStatus(
+                        snapshot,
+                        OperationType.OPEN_APPLICATION,
+                        "batch-open-application",
+                        "PC01"))
+                .isEmpty();
+        assertThat(gateway.pendingStatusQueryCount()).isZero();
+    }
+
+    @Test
     void sameBatchOperationIdIsCorrelatedPerDevice() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         UUID identityA = UUID.randomUUID();
@@ -473,6 +516,22 @@ class MasterRemoteOperationGatewayTest {
                         "download-policy",
                         "PC01",
                         NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY,
+                        networkError));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(expected);
+        assertThat(outcome.errorCode().retryable()).isEqualTo(retryable);
+    }
+
+    private static void assertApplicationError(
+            NetworkOperationErrorCode networkError,
+            ErrorCode expected,
+            boolean retryable) {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "open-application",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION,
                         networkError));
 
         assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);

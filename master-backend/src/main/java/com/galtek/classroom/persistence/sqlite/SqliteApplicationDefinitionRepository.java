@@ -66,6 +66,15 @@ public class SqliteApplicationDefinitionRepository implements ApplicationDefinit
     }
 
     @Override
+    public Optional<ApplicationDefinition> findActiveById(String applicationId) {
+        return SqliteJdbc.optional(
+                jdbcTemplate,
+                "SELECT * FROM application_definitions WHERE application_id = ? AND active = 1",
+                ROW_MAPPER,
+                applicationId);
+    }
+
+    @Override
     public List<ApplicationDefinition> findActive() {
         return jdbcTemplate.query(
                 "SELECT * FROM application_definitions WHERE active = 1 ORDER BY display_name",

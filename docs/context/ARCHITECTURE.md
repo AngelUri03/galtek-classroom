@@ -2,7 +2,9 @@
 
 ## Estado general
 
-Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent sin agregar endpoint/batch Master. El Protobuf v1 agrega `OpenApplicationOperationParameters.applicationId`, capability `OPEN_APPLICATION_V1` y errores de aplicacion. El Agent Service hace preflight logico contra `application-bindings.json`, pero no lanza procesos ni envia paths; manda un Session Command `OPEN_APPLICATION` que conserva solo `applicationId`. El Session Agent vuelve a leer y validar el catalogo on-demand, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only (Registry64/Registry32, sin HKCU ni PATH) y lanza mediante `CreateProcessW` con ruta absoluta en `lpApplicationName`, `lpCommandLine = null`, sin argumentos, sin elevacion y sin monitoring.
+Prompt 17C implementa dispatch batch end-to-end de `OPEN_APPLICATION(applicationId)` desde el Master Backend. Expone `POST /api/classrooms/{classroomId}/open-application`, protegido por `MasterAccessGuard`, con request estricta de `applicationId` y `targetDeviceIds`. El Master resuelve una `ApplicationDefinition` activa persistida, exige que este autorizada en el Classroom por `classroom_applications`, congela solo `applicationId`, persiste una unica `BatchOperation` `OPEN_APPLICATION` antes del fanout y usa `MasterRemoteOperationGateway` con `OpenApplicationOperationParameters.applicationId`. No modifica Agent, Session Agent, Protobuf, `ApplicationBinding`, resolucion de App Paths ni `CreateProcessW`.
+
+Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo del lado Agent. El Protobuf v1 agrega `OpenApplicationOperationParameters.applicationId`, capability `OPEN_APPLICATION_V1` y errores de aplicacion. El Agent Service hace preflight logico contra `application-bindings.json`, pero no lanza procesos ni envia paths; manda un Session Command `OPEN_APPLICATION` que conserva solo `applicationId`. El Session Agent vuelve a leer y validar el catalogo on-demand, resuelve `ABSOLUTE_EXE` o `APP_PATHS` HKLM-only (Registry64/Registry32, sin HKCU ni PATH) y lanza mediante `CreateProcessW` con ruta absoluta en `lpApplicationName`, `lpCommandLine = null`, sin argumentos, sin elevacion y sin monitoring.
 
 Prompt 17A agrega en `GaltekClassroom.Agent.Service` el catalogo local seguro `application-bindings.json` para resolver en el Client `applicationId -> target local` en una futura operacion `OPEN_APPLICATION`. El catalogo vive en `<CommonApplicationData>\Galtek\Classroom\`, usa escritura durable, ACL local, configuracion CLI elevada y soporta solo `APP_PATHS` y `ABSOLUTE_EXE`. No agrega launch de procesos, Protobuf, Session Command, endpoint Master, batch dispatch, auto-discovery, scans, polling ni rutas ejecutables desde el Master.
 
@@ -42,7 +44,7 @@ Prompt 14 registra Clients paired como Devices persistentes del Master sin redis
 
 Prompt 13 implementa el primer transporte real y seguro Master-Client sobre el trust de Prompt 12. El Client inicia una conexion persistente saliente hacia el Master mediante gRPC/Protobuf v1 sobre TLS/mTLS obligatorio. Los certificados son self-signed de corta vida y se validan por pinning del fingerprint `SubjectPublicKeyInfo` ya persistido por pairing; no existe CA global que autorice instalaciones arbitrarias.
 
-El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control, `OPEN_URL` y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay endpoint/batch Master para `OPEN_APPLICATION`, mDNS ni discovery real.
+El alcance de red vigente incluye `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, mensajes de framework `OperationRequest`/`OperationAccepted`/`OperationResult`, consulta read-only de status y dispatch batch Master para power control, `OPEN_URL`, `OPEN_APPLICATION` y apply de browser policies. El Agent ya ejecuta `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` cuando llegan por ese framework seguro. No hay mDNS ni discovery real.
 
 Prompt 12 implementa pairing criptografico Master-Client sobre las Network Identities ya existentes. El Master tiene una Network Identity propia con metadata publica en `master-network-identity.json` y private key cifrada fuera de SQLite/JSON plano; el Client conserva su `network-identity.json` publico y private key en Windows CNG/KSP de maquina. El pairing usa challenge/response firmado, requiere intencion explicita, persiste trust en ambos lados y permite revocacion.
 
@@ -158,7 +160,7 @@ VIGENTE DESDE PROMPT 14.4:
 - SQLite conserva WAL/SHM y usa su propio recovery; Galtek no borra ni recrea `classroom.db`, `classroom.db-wal` o `classroom.db-shm` ante marker de apagado no limpio.
 - Archivos criticos JSON/dat se escriben via temp file en el mismo directorio, flush/fsync y move/replace atomico cuando corresponde.
 - Boot, `ClientHello`, pairing, registration, reconnect y heartbeat no disparan captura, proyeccion, thumbnails, filesystem sync, inventario pesado ni operaciones visuales automaticas.
-- Operacion remota sin ACK o sin resultado confirmado no se considera `SUCCESS`; queda como incertidumbre recuperable que exige reconciliacion.
+- Operacion remota sin ACK o sin resultado confirmado no se considera `SUCCESS`; debe conservarse como incertidumbre y solo reconciliarse cuando exista un mecanismo seguro y explicitamente soportado para ese tipo de operacion.
 - Boot storm se mitiga con reconexion Client saliente, backoff acotado y jitter inicial/retry pequeno para evitar reconexiones perfectamente sincronizadas.
 
 Clasificacion futura de durabilidad:
@@ -211,6 +213,7 @@ IMPLEMENTADO:
   - `POST /api/classrooms/{classroomId}/devices/register`.
   - `POST /api/classrooms/{classroomId}/power-control`.
   - `POST /api/classrooms/{classroomId}/open-url`.
+  - `POST /api/classrooms/{classroomId}/open-application`.
   - `GET /api/classrooms/{classroomId}/browser-policies`.
   - `POST /api/classrooms/{classroomId}/browser-policies`.
   - `POST /api/classrooms/{classroomId}/browser-policies/apply`.
@@ -671,7 +674,7 @@ IMPLEMENTADO:
 - Estado real de conexion `CONNECTING`, `ONLINE` y `OFFLINE` derivado de streams autenticados.
 - Framework Protobuf compatible para `OperationRequest`, `OperationAccepted`, `OperationResult`, `OperationStatusQuery` y `OperationStatusReport`, con `operationId`, `targetDeviceId`, `protocolVersion` y resultados tipados.
 - El Agent deduplica `OperationRequest` por `operationId`; `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` usan handlers productivos reales, y cualquier operacion no implementada devuelve `OPERATION_NOT_IMPLEMENTED`.
-- El Master despacha `SHUTDOWN`/`RESTART` batch con el mismo `operationId` para todos los Devices objetivo y correlaciona por `(deviceId, operationId)`.
+- El Master despacha `SHUTDOWN`/`RESTART`, `OPEN_URL`, `OPEN_APPLICATION` y apply de browser policies batch con el mismo `operationId` para todos los Devices objetivo y correlaciona por `(deviceId, operationId)`.
 - `OperationAccepted` no equivale a exito; `OperationResult SUCCESS` es la unica confirmacion exitosa del target.
 - El resultado incierto posterior al envio se registra como `OPERATION_RESULT_UNKNOWN`, `FAILED`, no retryable; reconciliacion pregunta por el resultado original y conserva `UNKNOWN` si no hay evidencia.
 - Timeout de heartbeat default 45 segundos en el Master.
