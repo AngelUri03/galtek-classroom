@@ -1,5 +1,26 @@
 # Decisiones vigentes
 
+## 2026-09-03 - Prompt 18B2
+
+- El Master expone endpoints separados `POST /api/classrooms/{classroomId}/input-control/lock` y `POST /api/classrooms/{classroomId}/input-control/unlock`.
+- No existe endpoint generico `/input-control` con `type` controlado por request.
+- Ambos endpoints aceptan solo `targetDeviceIds`; campos como `type`, `duration`, `timeout`, `message`, `keyboardOnly`, `mouseOnly`, `command`, `arguments`, `shell`, `accountType`, `studentId`, `groupId` y `payload` se rechazan.
+- `lock` llama `MasterAccessGuard.requireAuthorized()` antes de leer Classroom, Devices, bindings, trust o SQLite escolar.
+- `unlock` llama `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer Classroom, Devices, bindings, trust o SQLite escolar.
+- `MasterUnlockAccessGuard` solo habilita el flujo `UNLOCK_INPUT`; no autoriza `LOCK_INPUT` ni otras acciones administrativas.
+- `InputControlDispatchService` tiene entradas publicas explicitas para lock/unlock y no expone API publica para despachar un `OperationType` arbitrario.
+- El preflight Master exige Device del aula, binding vigente, Network Identity esperada, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS `ONLINE` y capability `INPUT_CONTROL_V1`.
+- El preflight no exige `SESSION_AGENT_AVAILABLE` y no consulta Student, Group ni DeviceAssignment.
+- El Master no evalua Commercial License del Client; los handlers Agent-side conservan `LOCK_INPUT` con licencia activa y `UNLOCK_INPUT` recovery-safe.
+- Cada request crea una sola `BatchOperation` antes del fanout, con targets listos `PENDING` y fallos de preflight `FAILED`.
+- El payload persistido para input control es minimo (`schemaVersion = 1`) y no almacena duracion, mensaje, usuario, SID, thread, session ni current input state.
+- `MasterRemoteOperationGateway` envia `LOCK_INPUT`/`UNLOCK_INPUT` sin parametros funcionales y mantiene correlacion `(deviceId, operationId)`.
+- `OperationAccepted ACCEPTED` no marca exito; solo `OperationResult SUCCESS`.
+- `INPUT_LOCK_FAILED`, `INPUT_UNLOCK_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` y `OPERATION_RESULT_UNKNOWN` se preservan por target.
+- No hay retry automatico, reconciliacion, `OperationStatusQuery`, lock status endpoint, heartbeat de lock, polling, scheduler, UI, overlay, Protobuf nuevo, Local IPC nuevo ni cambios Agent.
+- SQLite no requiere migration nueva porque los CHECK vigentes de V1/V5 ya permiten `LOCK_INPUT` y `UNLOCK_INPUT`.
+- Fase 18 queda cerrada: 18A Agent/Session, 18B1 autorizacion local recovery-safe, 18B2 dispatch batch Master.
+
 ## 2026-09-03 - Prompt 18B1
 
 - Local IPC v1 suma `GET_MASTER_UNLOCK_AUTHORIZATION` y conserva `protocolVersion = 1`.
@@ -169,7 +190,7 @@
 - Usar React + Tauri para la UI futura del Master, sin Vite.
 - Usar gRPC/Protobuf para comunicacion Master-Agent.
 - El protocolo de red inicial vive en `protocol/network/v1/galtek-classroom-network-v1.proto`.
-- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
+- La comunicacion de red actual contempla conexion/identificacion, estado/heartbeat y framework tipado de operaciones. Las operaciones productivas Agent-side actuales son `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`; el dispatch batch productivo desde Master existe para `SHUTDOWN`, `RESTART`, `OPEN_URL`, `OPEN_APPLICATION`, `LOCK_INPUT`, `UNLOCK_INPUT`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY`.
 - El Client inicia una conexion persistente saliente hacia el Master; no se depende de conexiones entrantes hacia cada PC Client.
 - Usar TLS/mTLS obligatorio y certificados de dispositivo ligados al trust de pairing.
 - Los certificados actuales son self-signed de corta vida y se validan por fingerprint `SubjectPublicKeyInfo` persistido en trust.

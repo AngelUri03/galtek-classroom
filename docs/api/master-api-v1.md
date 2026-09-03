@@ -1,12 +1,18 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`.
 
 Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
-Todos los endpoints de esta API administrativa llaman primero a `MasterAccessGuard`, que consulta `GET_MASTER_AUTHORIZATION` al Agent Service por Named Pipe. El backend no acepta SID, username ni identidad declarada por HTTP.
+Todos los endpoints administrativos normales de esta API llaman primero a `MasterAccessGuard`, que consulta `GET_MASTER_AUTHORIZATION` al Agent Service por Named Pipe. El backend no acepta SID, username ni identidad declarada por HTTP.
+
+Unica excepcion actual:
+
+- `POST /api/classrooms/{classroomId}/input-control/unlock` usa `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer datos escolares, crear batch o enviar a Clients.
+- Esa excepcion solo permite solicitar `UNLOCK_INPUT` recovery-safe; no autoriza `LOCK_INPUT`, power control, `OPEN_URL`, `OPEN_APPLICATION`, browser policies, CRUD, assignments, registro de Devices ni acciones futuras.
+- No hay fallback entre `MasterAccessGuard` y `MasterUnlockAccessGuard`.
 
 Endpoints publicos de diagnostico que no usan `MasterAccessGuard`:
 
@@ -377,6 +383,77 @@ Errores relevantes:
 - `403 APPLICATION_NOT_ALLOWED`: app inexistente, inactiva o no autorizada para el Classroom.
 - `404 CLASSROOM_NOT_FOUND`: aula inexistente.
 - Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `APPLICATION_BINDINGS_INVALID`, `APPLICATION_BINDING_NOT_FOUND`, `APPLICATION_BINDING_INVALID`, `APPLICATION_DISABLED`, `APPLICATION_EXECUTABLE_NOT_FOUND`, `APPLICATION_LAUNCH_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
+
+## Input Control
+
+`POST /api/classrooms/{classroomId}/input-control/lock`
+
+`POST /api/classrooms/{classroomId}/input-control/unlock`
+
+Son endpoints separados por diseno porque usan guards distintos. No existe endpoint generico `/input-control` con `type` en la request.
+
+Request para ambos:
+
+```json
+{
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- Solo se acepta `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados.
+- No se aceptan `type`, `lock`, `unlock`, `duration`, `timeout`, `lease`, `message`, `keyboardOnly`, `mouseOnly`, `keyCodes`, `force`, `accountType`, `studentId`, `groupId`, `command`, `arguments`, `shell` ni `payload`.
+- El tipo de operacion viene exclusivamente de la ruta HTTP.
+
+Autorizacion:
+
+- `/input-control/lock` ejecuta `MasterAccessGuard.requireAuthorized()` antes de leer Classroom, Devices, bindings, trust o SQLite escolar.
+- `/input-control/unlock` ejecuta `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer Classroom, Devices, bindings, trust o SQLite escolar.
+- `unlock` puede seguir disponible cuando la Commercial License local del Master no esta `ACTIVE`, siempre que Installation Identity, Master Windows Binding y SID real del caller sean validos.
+- `MasterUnlockAccessGuard` no permite ninguna accion distinta de `UNLOCK_INPUT`.
+
+Preflight por target:
+
+- El Device debe existir y pertenecer al aula solicitada.
+- El Device debe tener binding de red vigente.
+- La Network Identity debe coincidir con el binding esperado.
+- El trust debe estar `PAIRED` y no `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `INPUT_CONTROL_V1`.
+- No se exige `SESSION_AGENT_AVAILABLE`; la disponibilidad real del Session Agent se confirma durante ejecucion y puede devolver `SESSION_AGENT_UNAVAILABLE`.
+
+Batch y dispatch:
+
+- Cada request crea una sola `BatchOperation`.
+- `lock` persiste `operationType = LOCK_INPUT`.
+- `unlock` persiste `operationType = UNLOCK_INPUT`.
+- La operacion se persiste antes del primer send, con targets listos en `PENDING` y fallos de preflight en `FAILED`.
+- Se usa el mismo `operationId` para todos los Agents y la correlacion vigente `(deviceId, operationId)`.
+- El payload persistido es minimo (`schemaVersion = 1`) y no contiene parametros funcionales, duracion, mensaje, usuario, SID, thread, session ni estado de input.
+- El gateway envia `OperationType.LOCK_INPUT` o `OperationType.UNLOCK_INPUT` sin parametros Protobuf funcionales.
+
+Semantica:
+
+- `LOCK_INPUT SUCCESS` significa que el Agent/Session Agent reporto que Windows confirmo el bloqueo solicitado en ese momento. No significa bloqueo persistente, overlay, lease, que `CTRL+ALT+DEL` no pueda liberarlo ni estado durable actual.
+- `UNLOCK_INPUT SUCCESS` significa que no habia lock Galtek activo o que Windows confirmo el desbloqueo desde el owner thread. No descarta bloqueos de terceros.
+- `OperationAccepted ACCEPTED` no marca `SUCCESS`; solo `OperationResult SUCCESS`.
+- Si el Master envio la operacion y no obtuvo `OperationResult`, el target queda `OPERATION_RESULT_UNKNOWN`.
+- Si el Agent perdio la respuesta del Session Agent, se preserva `SESSION_COMMAND_RESULT_UNKNOWN`.
+- No hay retry automatico, reconciliacion, `OperationStatusQuery`, lock status endpoint, heartbeat de lock ni polling.
+
+Respuesta: misma forma de batch que `open-application`, con `type = LOCK_INPUT` o `type = UNLOCK_INPUT`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body faltante, targets vacios/duplicados/blank o campos no soportados.
+- `403 <authorization.status>`: guard local correspondiente falla.
+- `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `INPUT_LOCK_FAILED`, `INPUT_UNLOCK_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_FAILED`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
 
 ## Reconcile Power Operation
 

@@ -1883,3 +1883,34 @@
 ### Commit sugerido
 
 `feat(master): add unlock recovery authorization`
+
+## 2026-09-03 - Prompt 18B2
+
+### Realizado
+
+- Agregados endpoints separados `POST /api/classrooms/{classroomId}/input-control/lock` y `POST /api/classrooms/{classroomId}/input-control/unlock`.
+- `lock` usa `MasterAccessGuard`; `unlock` usa `MasterUnlockAccessGuard`; ambos corren antes de leer datos escolares.
+- Agregado `InputControlDispatchService` con entradas explicitas para `dispatchLock` y `dispatchUnlock`, reutilizando preflight/fanout privado solo para `LOCK_INPUT` y `UNLOCK_INPUT`.
+- Request estricta solo con `targetDeviceIds`; se rechazan campos extra y targets vacios, blank o duplicados.
+- Preflight por target: Device del aula, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE` e `INPUT_CONTROL_V1`.
+- No se exige `SESSION_AGENT_AVAILABLE`, no se consulta Student/Group/assignment y no se evalua licencia comercial del Client en Master.
+- Cada request persiste una unica `BatchOperation` antes del primer send, con payload minimo `{"schemaVersion":1}`.
+- Gateway reutilizado con `OperationType.LOCK_INPUT`/`UNLOCK_INPUT` sin parametros funcionales; mismo `operationId` por batch.
+- Se preservan errores Agent y estados inciertos por target, sin retry automatico ni reconciliacion/status query.
+- SQLite no requirio migration nueva porque V1/V5 ya permiten `LOCK_INPUT` y `UNLOCK_INPUT`.
+- Documentada semantica efimera de lock, `CTRL+ALT+DEL`, ausencia de current lock state y cierre de Fase 18.
+
+### Cambios descartados
+
+- No se modifico Agent, Session Agent, Protobuf, Local IPC, `BlockInput`, input coordinator, C# ni .NET.
+- No se agrego UI, overlay, mensaje en pantalla, status endpoint, heartbeat/polling de lock, scheduler, retry automatico, reconciliacion, lease, timeout, duration, keyboard-only ni mouse-only.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=InputControlDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): dispatch input control batches`

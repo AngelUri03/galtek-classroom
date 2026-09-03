@@ -4,6 +4,15 @@ Prompt 18A implements Agent-side `LOCK_INPUT` and `UNLOCK_INPUT` without Master 
 
 Prompt 18B1 adds a local read-only Master unlock authorization primitive for future recovery-safe `UNLOCK_INPUT` dispatch. It does not add the Master endpoint, batch operation, gRPC dispatch, UI, overlay or input-control persistence.
 
+Prompt 18B2 adds the Master batch dispatch endpoints:
+
+```text
+POST /api/classrooms/{classroomId}/input-control/lock
+POST /api/classrooms/{classroomId}/input-control/unlock
+```
+
+There is no generic `/input-control` endpoint with a request-controlled `type`.
+
 ## Flow
 
 ```text
@@ -67,17 +76,52 @@ The response is intentionally minimal:
 
 It must not expose SID, JWT, `LicenseState`, raw claims, roles, full `installationId`, binding path, ACLs, username or key material. Any uncertainty about identity, binding, SID resolution, impersonation or IPC caller fails closed with `authorized=false`.
 
-In Java, `MasterUnlockAccessGuard.requireUnlockAuthorized()` is separate from `MasterAccessGuard.requireAuthorized()`. It must only protect actions that reduce control and have been explicitly declared recovery-safe. Currently that is only the future `UNLOCK_INPUT`. There is no fallback between guards.
+In Java, `MasterUnlockAccessGuard.requireUnlockAuthorized()` is separate from `MasterAccessGuard.requireAuthorized()`. It must only protect actions that reduce control and have been explicitly declared recovery-safe. Currently that is only `UNLOCK_INPUT`. There is no fallback between guards.
 
-## Not Implemented Through 18B1
+The Master endpoints keep the split structural:
 
-- Master endpoint or batch dispatch.
-- BatchOperation `LOCK_INPUT` or `UNLOCK_INPUT`.
-- Master gRPC dispatch for input control.
+- `/input-control/lock` calls `MasterAccessGuard.requireAuthorized()` before reading Classroom, Devices, bindings, trust or SQLite school data.
+- `/input-control/unlock` calls `MasterUnlockAccessGuard.requireUnlockAuthorized()` before reading Classroom, Devices, bindings, trust or SQLite school data.
+- Passing `MasterUnlockAccessGuard` only permits `UNLOCK_INPUT`; it does not authorize lock, power control, URL/application launch, browser policy apply, CRUD, assignments or registration.
+
+## Master Batch Dispatch
+
+Both endpoints accept only:
+
+```json
+{
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+The body is required. `targetDeviceIds` is required, non-empty, non-blank and duplicate-free. Extra fields are rejected, including `type`, `duration`, `timeout`, `message`, `keyboardOnly`, `mouseOnly`, `command`, `arguments`, `shell`, `accountType`, `studentId`, `groupId` and `payload`.
+
+Preflight is per target and batch-friendly:
+
+- Device exists and belongs to the Classroom.
+- Current network binding exists.
+- Network Identity matches the binding.
+- Trust is `PAIRED` and not `REVOKED`.
+- Authenticated gRPC/mTLS connection is `ONLINE`.
+- Capability `INPUT_CONTROL_V1` is present.
+
+The Master does not require `SESSION_AGENT_AVAILABLE` in preflight and does not evaluate the Client Commercial License. Agent-side 18A preserves the productive rules: `LOCK_INPUT` requires active Client license; `UNLOCK_INPUT` remains recovery-safe.
+
+Each request creates one `BatchOperation` before fanout. Ready targets start as `PENDING`; preflight failures are persisted as `FAILED`. The same batch `operationId` is sent to all ready Agents using `OperationType.LOCK_INPUT` or `OperationType.UNLOCK_INPUT` with no functional Protobuf parameters. The persisted payload is minimal (`schemaVersion = 1`) and does not store duration, reason, message, SID, user, thread, session or current input state.
+
+`OperationAccepted ACCEPTED` is not success. Only `OperationResult SUCCESS` marks a target `SUCCESS`. Agent errors such as `INPUT_LOCK_FAILED`, `INPUT_UNLOCK_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` and `OPERATION_RESULT_UNKNOWN` are preserved per target.
+
+## Not Implemented Through 18B2
+
 - UI or overlay.
 - Message on screen.
 - Keyboard-only or mouse-only modes.
 - Duration, lease, timeout, automatic unlock timer or persistent lock.
+- Lock status endpoint, lock heartbeat, persisted current lock state or status query.
+- Automatic retry, resend, reconciliation or auto-unlock scheduler.
 - Global hooks, keyboard filters, drivers, Raw Input interception, `SendInput`, `SendKeys`, shell, PowerShell, `cmd`, WMI or process suspension.
 - Blocking `CTRL+ALT+DEL` or Task Manager.
 

@@ -54,7 +54,8 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - IP, MAC y hostname no autorizan administracion.
 - Una licencia MASTER valida no crea pairing ni trust con Clients.
 - La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
-- Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares.
+- Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares, salvo la unica excepcion actual y explicita: `POST /api/classrooms/{classroomId}/input-control/unlock`.
+- `POST /api/classrooms/{classroomId}/input-control/unlock` debe llamar a `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer datos escolares y solo puede despachar `UNLOCK_INPUT` recovery-safe. Esta excepcion no se generaliza a otros "recovery endpoints" ni autoriza acciones distintas.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
 - `GET_MASTER_UNLOCK_AUTHORIZATION` es una operacion Local IPC v1 read-only interna para recovery-safe `UNLOCK_INPUT`; no debe exponerse como endpoint publico ni reutilizarse como permiso administrativo general.
 - La autorizacion local de unlock recovery la calcula solo el Agent Service con Installation Identity valida, Master Windows Binding valido, `installationId` coincidente y SID real del caller Named Pipe. No usar SID de JSON, username, headers, parametros ni membresia de Administrators.
