@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19C implementa en el Agent Service del Client `GET_WINDOWS_SESSION_STATE` productivo y read-only. La autoridad es la sesion asociada a la consola fisica por `WTSGetActiveConsoleSessionId()`, no procesos, username, foreground window, WMI, Registry, perfiles ni Session Agent. Si la consola no tiene usuario, se devuelve `NO_SESSION`; si el SID real del `TokenUser` de la sesion fisica coincide con el binding local `PRIMARY` o `SECONDARY`, se devuelve `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`; si hay un usuario real con SID no administrado o sin bindings configurados, se devuelve `OTHER_SESSION_ACTIVE`; condiciones transitorias o no confiables devuelven `UNKNOWN` o error estructurado `WINDOWS_SESSION_UNKNOWN`. El resultado remoto usa `WindowsSessionStateResult` tipado y no expone SID, username, accountReference ni sessionId. La capability `WINDOWS_SESSION_STATE_V1` se anuncia por `ClientCapabilityProvider`. No agrega UI, endpoint/batch Master, heartbeat state, polling, Local IPC, Session Command, Session Agent dependency, browser policy integration, passwords, credential store, login/logoff/switch ni writes.
+
 Prompt 19B agrega en cada Client la fuente de verdad local `managed-windows-accounts.json` para vincular los slots logicos exactos `PRIMARY` y `SECONDARY` con cuentas Windows reales por SID. El documento vive en `<CommonApplicationData>\Galtek\Classroom\`, usa el data directory/override vigente del Agent, queda ligado al `installationId`, se escribe con `DurableFileWriter` y ACL restringida a `LocalSystem`/`Builtin Administrators`, y falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID` ante corrupcion, schema desconocido, mismatch de instalacion, slots duplicados, accountId desconocido, SID invalido o SID compartido. El binding guarda solo `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`; no guarda passwords, hashes, credentialId, tokens, profile paths ni session data. La CLI local administrativa agrega list/bind/remove con replace explicito y mutaciones elevadas. No agrega Local IPC, Protobuf, gRPC, Session Agent, browser policy integration, Credential Vault integration, DPAPI, Client credential store, login/logoff/switch ni Java productivo.
 
 Prompt 19A agrega en el Master Backend el nucleo interno Java-only de Credential Vault local cifrado para credenciales escolares de la profesora. La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\Master\credential-vault.dat`, usando el mismo resolver/override del Master data directory. El archivo guarda un envelope JSON versionado con header tecnico minimo y el documento logico completo cifrado mediante AES-256-GCM; la master password separada deriva una KEK con PBKDF2-HMAC-SHA256 y solo envuelve un DEK aleatorio de 256 bits. La boveda no se crea en startup, queda locked tras restart, permite una sola sesion temporal in-memory con expiracion lazy de 5 minutos, CRUD interno, reveal de una credencial a la vez y cambio de master password por re-wrap del DEK. No agrega UI, endpoints HTTP, Protobuf, gRPC, Client credential store, login Windows, browser automation ni SQLite migrations.
@@ -951,7 +953,7 @@ NO IMPLEMENTADO:
 - Logs persistentes en disco.
 - DPAPI/ACL hardening avanzado para `license.dat`.
 - Almacenamiento seguro futuro de credenciales `PRIMARY`/`SECONDARY`.
-- Integracion de `managed-windows-accounts.json` con browser policies, Local IPC, Protobuf, Windows Session State, login/logoff/switch o Credential Vault.
+- Integracion de `managed-windows-accounts.json` con browser policies, Local IPC, Protobuf, login/logoff/switch o Credential Vault.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
@@ -966,6 +968,13 @@ VIGENTE DESDE AHORA:
 - Power control debe usar API nativa Windows y no `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts, `Process.Start`, `SendKeys` ni elevacion de procesos.
 - Power control no fuerza cierre de aplicaciones en esta version y `SUCCESS` significa que Windows acepto la solicitud, no que el apagado/reinicio ya concluyo.
 - Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- `GET_WINDOWS_SESSION_STATE` ya existe Agent-side como snapshot remoto read-only y on-demand de la consola fisica; no se consulta en heartbeat ni startup.
+- `GET_WINDOWS_SESSION_STATE` usa SID del token real de la consola fisica para clasificar contra `managed-windows-accounts.json`; nunca mapea por username ni `accountReference`.
+- `WTSGetActiveConsoleSessionId()` es la autoridad inicial. `0xFFFFFFFF` y Session 0 se tratan como `UNKNOWN`.
+- `WTSUserName` puede usarse solo como senal auxiliar de presencia de login: vacio significa `NO_SESSION`; nunca se envia, persiste ni compara contra bindings.
+- `WTSQueryUserToken` se usa desde LocalSystem con `SeTcbPrivilege` habilitado de forma acotada, solo para leer `TokenUser`; el token se cierra siempre.
+- Sesiones locked siguen clasificandose por el usuario logueado; sesiones RDP o disconnected historicas no sustituyen automaticamente la consola fisica.
+- El resultado remoto de `GET_WINDOWS_SESSION_STATE` contiene solo `WindowsSessionStateResult.state`, sin SID, username, domain, accountReference ni sessionId.
 - Los comandos futuros para cuentas administradas solo enviaran `accountId` logico (`PRIMARY`/`SECONDARY`), nunca passwords.
 - El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
 - La UI no recibe passwords por defecto. La unica excepcion futura es una operacion explicita `REVEAL CREDENTIAL` despues de `MasterAccessGuard.requireAuthorized()`, vault unlock valido y sesion de boveda no expirada; solo se entrega el secreto de la credencial solicitada.

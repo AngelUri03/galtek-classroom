@@ -15,6 +15,7 @@ import com.galtek.classroom.network.v1.OperationResult;
 import com.galtek.classroom.network.v1.OperationStatusKnowledge;
 import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
+import com.galtek.classroom.network.v1.WindowsSessionState;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -354,6 +355,21 @@ public class MasterRemoteOperationGateway {
 
     public static RemoteOperationOutcome outcomeFromResult(OperationResult result) {
         if (result.getStatus() == OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS) {
+            if (result.getOperationType() == NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE) {
+                if (!result.hasWindowsSessionState()
+                        || result.getWindowsSessionState().getState()
+                        == WindowsSessionState.WINDOWS_SESSION_STATE_UNSPECIFIED
+                        || result.getWindowsSessionState().getState() == WindowsSessionState.UNRECOGNIZED) {
+                    return RemoteOperationOutcome.failed(
+                            ErrorCode.WINDOWS_SESSION_UNKNOWN,
+                            "Agent reported invalid Windows session state.");
+                }
+
+                return RemoteOperationOutcome.success(
+                        "Agent reported Windows session state.",
+                        result.getWindowsSessionState().getState());
+            }
+
             return RemoteOperationOutcome.success("Agent reported operation success.");
         }
 
@@ -412,6 +428,9 @@ public class MasterRemoteOperationGateway {
             case NETWORK_OPERATION_ERROR_CODE_APPLICATION_LAUNCH_FAILED -> ErrorCode.APPLICATION_LAUNCH_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_INPUT_LOCK_FAILED -> ErrorCode.INPUT_LOCK_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED -> ErrorCode.INPUT_UNLOCK_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID ->
+                    ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN -> ErrorCode.WINDOWS_SESSION_UNKNOWN;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -492,6 +511,10 @@ public class MasterRemoteOperationGateway {
                     "Windows did not confirm input lock on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED ->
                     "Windows did not confirm input unlock on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID ->
+                    "Agent reported invalid managed Windows account bindings.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN ->
+                    "Agent could not determine Windows session state.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->
@@ -517,6 +540,7 @@ public class MasterRemoteOperationGateway {
             case RESTART -> NetworkOperationType.NETWORK_OPERATION_TYPE_RESTART;
             case OPEN_APPLICATION -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION;
             case OPEN_URL -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL;
+            case GET_WINDOWS_SESSION_STATE -> NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->
@@ -546,10 +570,22 @@ public class MasterRemoteOperationGateway {
     public record RemoteOperationOutcome(
             TargetExecutionStatus status,
             ErrorCode errorCode,
-            String message) {
+            String message,
+            WindowsSessionState windowsSessionState) {
+
+        public RemoteOperationOutcome(
+                TargetExecutionStatus status,
+                ErrorCode errorCode,
+                String message) {
+            this(status, errorCode, message, null);
+        }
 
         public static RemoteOperationOutcome success(String message) {
             return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message);
+        }
+
+        public static RemoteOperationOutcome success(String message, WindowsSessionState windowsSessionState) {
+            return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message, windowsSessionState);
         }
 
         public static RemoteOperationOutcome failed(ErrorCode errorCode, String message) {

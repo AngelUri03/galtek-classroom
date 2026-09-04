@@ -307,4 +307,5 @@ public static class ClassroomCapabilities
     public const string BrowserNavigationPolicyV1 = "BROWSER_NAVIGATION_POLICY_V1";
     public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";
     public const string InputControlV1 = "INPUT_CONTROL_V1";
+    public const string WindowsSessionStateV1 = "WINDOWS_SESSION_STATE_V1";
 }

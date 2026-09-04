@@ -1979,3 +1979,43 @@
 ### Commit sugerido
 
 `feat(agent): bind managed windows accounts`
+
+## 2026-09-04 - Prompt 19C
+
+### Realizado
+
+- Implementado `GET_WINDOWS_SESSION_STATE` productivo del lado Agent Service como operacion remota read-only y on-demand.
+- Agregado `WindowsConsoleSessionResolver` con autoridad en `WTSGetActiveConsoleSessionId()`: `0xFFFFFFFF` y Session 0 devuelven `UNKNOWN`.
+- `WTSUserName` se usa solo como senal interna de presencia; username vacio produce `NO_SESSION` y nunca mapea identidad.
+- Agregado manejo acotado de LocalSystem + `SeTcbPrivilege` antes de `WTSQueryUserToken`.
+- El token de usuario se usa solo para leer `TokenUser`, convertir el SID y cerrar/liberar handles y buffers nativos.
+- Agregado `WindowsSessionStateService` para comparar SID activo contra `managed-windows-accounts.json`.
+- Mapping implementado: `NO_SESSION`, `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE`, `OTHER_SESSION_ACTIVE` y `UNKNOWN`.
+- Archivo de bindings ausente + usuario real produce `OTHER_SESSION_ACTIVE`; catalogo corrupto/schema/mismatch falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- Agregado handler `GetWindowsSessionStateOperationHandler` registrado en `RemoteOperationDispatcher`.
+- Protobuf v1 agrega `WindowsSessionState`, `WindowsSessionStateResult`, result oneof tipado, `WINDOWS_SESSION_STATE_V1`, `WINDOWS_SESSION_UNKNOWN` y `MANAGED_ACCOUNT_BINDINGS_INVALID`, manteniendo `protocolVersion = 1`.
+- `ClientCapabilityProvider` anuncia `WINDOWS_SESSION_STATE_V1`.
+- Java actualiza mapping minimo de capability, operation type, error codes y resultado tipado interno del gateway; no agrega endpoint ni batch 19C.
+- Agregados tests dirigidos de resolver, SID mapping, locked/disconnected conceptual mediante fake, Protobuf/result privacy, handler, dedupe/licencia y Java mapping.
+- Documentado `docs/windows/WINDOWS_SESSION_STATE.md` y actualizados protocolo, arquitectura, modelo funcional, reglas, decisiones, estado y managed accounts.
+
+### Cambios descartados
+
+- No se implemento password, credential store, DPAPI, provisioning, login, logoff, switch, `CreateProcessAsUser`, Credential Provider, Session Agent changes, Session Command changes, Local IPC changes, heartbeat session state, polling, WMI, process scans, browser policy account integration, Master HTTP endpoint, BatchOperation Master, UI, RDP management, token duplication ni token persistence.
+- No se exponen SID, username, domain, accountReference, sessionId, token handle ni profile path en el resultado remoto.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionState|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport|FullyQualifiedName~ManagedWindowsAccountBindingStore"` en `agent`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Validacion manual pendiente
+
+- En PC descartable: sin usuario `NO_SESSION`; `PRIMARY` `PRIMARY_ACTIVE`; bloqueo de Windows conserva `PRIMARY_ACTIVE`; cambio manual a `SECONDARY` produce `SECONDARY_ACTIVE`; usuario no administrado produce `OTHER_SESSION_ACTIVE`; rename por mismo SID conserva mapping; historica/disconnected de `PRIMARY` no reemplaza consola `SECONDARY`; Session Agent detenido no bloquea la consulta.
+
+### Commit sugerido
+
+`feat(agent): observe managed windows session state`

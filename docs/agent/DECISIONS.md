@@ -1,5 +1,29 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19C
+
+- `GET_WINDOWS_SESSION_STATE` queda implementado productivamente solo del lado Client como operacion remota read-only y on-demand.
+- La autoridad inicial es `WTSGetActiveConsoleSessionId()`, no procesos, `explorer.exe`, foreground window, username, WMI, Registry, perfiles, RDP ni presencia del Session Agent.
+- `0xFFFFFFFF` de `WTSGetActiveConsoleSessionId()` se reporta como `UNKNOWN`; no es evidencia suficiente para `NO_SESSION`.
+- Session 0 se reporta como `UNKNOWN`; nunca representa al alumno.
+- `WTSUserName` puede usarse solo como senal auxiliar de presencia de usuario. Username vacio significa `NO_SESSION`.
+- Username nunca se compara con `accountReference`, nunca mapea `PRIMARY`/`SECONDARY`, nunca se persiste ni se envia al Master.
+- Si hay usuario presente, el SID se obtiene del token real de la sesion fisica con `WTSQueryUserToken` y `GetTokenInformation(TokenUser)`.
+- `WTSQueryUserToken` exige que el Agent Service corra como LocalSystem y habilite `SeTcbPrivilege`; el privilegio se habilita de forma acotada y se restaura/cierra al terminar.
+- El token de usuario se usa solo para leer `TokenUser`; no se duplica, no se persiste, no se envia por red ni se entrega al Session Agent.
+- La clasificacion usa comparacion exacta de SID contra `managed-windows-accounts.json`: `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE`, `OTHER_SESSION_ACTIVE`, `NO_SESSION` o `UNKNOWN`.
+- Archivo de bindings ausente + usuario real produce `OTHER_SESSION_ACTIVE`; archivo ausente + sin usuario produce `NO_SESSION`.
+- Catalogo de bindings corrupto/schema/mismatch falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID` y no permite clasificacion parcial.
+- Renombrar una cuenta no afecta clasificacion si el SID activo coincide con el SID guardado.
+- Una sesion bloqueada sigue clasificandose por la cuenta logueada; no existen estados locked especificos en 19C.
+- Sesiones disconnected o RDP historicas no sustituyen automaticamente la consola fisica.
+- El Protobuf v1 mantiene `protocolVersion = 1`, agrega `WindowsSessionState` y `WindowsSessionStateResult` tipados, `WINDOWS_SESSION_STATE_V1`, `MANAGED_ACCOUNT_BINDINGS_INVALID` y `WINDOWS_SESSION_UNKNOWN`.
+- `OperationResult` de `GET_WINDOWS_SESSION_STATE` contiene solo `WindowsSessionStateResult.state`; no expone SID, username, domain, `accountReference`, `sessionId`, token handle ni profile path.
+- `WINDOWS_SESSION_STATE_UNSPECIFIED` no se interpreta como estado valido.
+- `GET_WINDOWS_SESSION_STATE` conserva Commercial License normal por `RemoteOperationDispatcher`; la unica excepcion recovery-safe sigue siendo `UNLOCK_INPUT`.
+- Dedupe conserva la infraestructura vigente por `operationId`; un duplicate devuelve el resultado cacheado sin reconsultar Windows.
+- No se agrega heartbeat state, polling, timer, startup scan, Local IPC, Session Command, Session Agent dependency, endpoint/batch Master, UI ni browser policy integration.
+
 ## 2026-09-04 - Prompt 19B
 
 - Cada Client persiste el binding local de cuentas Windows administradas en `<CommonApplicationData>\Galtek\Classroom\managed-windows-accounts.json`, usando el data directory/override vigente del Agent.

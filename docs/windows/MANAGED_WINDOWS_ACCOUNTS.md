@@ -127,11 +127,18 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - Local IPC;
 - Session Agent;
 - browser policy integration por `PRIMARY`/`SECONDARY`;
-- Windows Session State;
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
+
+## Uso Desde Windows Session State
+
+Desde Prompt 19C, `GET_WINDOWS_SESSION_STATE` usa estos bindings solo para comparar SID contra el SID real del token de la consola fisica actual.
+
+La comparacion no usa `accountReference` ni username. Si una cuenta se renombra y conserva SID, un token activo con ese SID sigue clasificando como `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`. Si no hay bindings configurados y hay un usuario real, el estado es `OTHER_SESSION_ACTIVE`; si el catalogo existe pero esta corrupto o pertenece a otra instalacion, la operacion falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+
+`managed-windows-accounts.json` sigue sin guardar passwords, tokens, sessionId, profile path ni estado de sesion. `GET_WINDOWS_SESSION_STATE` tampoco escribe este archivo.
 
 ## Validacion Manual Pendiente
 
@@ -149,7 +156,6 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19C: Windows Session State real usando estos SIDs.
 - 19D: Client secure credential store.
 - 19E: provisioning administrativo seguro Master -> Client.
 - 19F: `LOGOFF_WINDOWS_SESSION`.

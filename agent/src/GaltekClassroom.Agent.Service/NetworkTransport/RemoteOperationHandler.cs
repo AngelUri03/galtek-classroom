@@ -14,7 +14,8 @@ public interface IRemoteOperationHandler
 public sealed record RemoteOperationHandlerResult(
     OperationExecutionStatus Status,
     NetworkOperationErrorCode ErrorCode,
-    string Message)
+    string Message,
+    WindowsSessionStateResult? WindowsSessionState = null)
 {
     public static RemoteOperationHandlerResult Success(string message)
     {
@@ -22,6 +23,19 @@ public sealed record RemoteOperationHandlerResult(
             OperationExecutionStatus.Success,
             NetworkOperationErrorCode.Unspecified,
             message);
+    }
+
+    public static RemoteOperationHandlerResult Success(
+        string message,
+        WindowsSessionStateResult windowsSessionState)
+    {
+        ArgumentNullException.ThrowIfNull(windowsSessionState);
+
+        return new RemoteOperationHandlerResult(
+            OperationExecutionStatus.Success,
+            NetworkOperationErrorCode.Unspecified,
+            message,
+            windowsSessionState);
     }
 
     public static RemoteOperationHandlerResult NotImplemented()

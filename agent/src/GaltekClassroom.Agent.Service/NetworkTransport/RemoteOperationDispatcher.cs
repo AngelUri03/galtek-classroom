@@ -152,7 +152,8 @@ public sealed class RemoteOperationDispatcher
                 handlerResult.Status,
                 handlerResult.ErrorCode,
                 handlerResult.Message,
-                startedAt);
+                startedAt,
+                handlerResult.WindowsSessionState);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -190,9 +191,10 @@ public sealed class RemoteOperationDispatcher
         OperationExecutionStatus status,
         NetworkOperationErrorCode errorCode,
         string message,
-        DateTimeOffset startedAt)
+        DateTimeOffset startedAt,
+        WindowsSessionStateResult? windowsSessionState = null)
     {
-        return new OperationResult
+        var result = new OperationResult
         {
             OperationId = request.OperationId ?? string.Empty,
             OperationType = request.OperationType,
@@ -204,6 +206,13 @@ public sealed class RemoteOperationDispatcher
             StartedAtUnixMs = startedAt.ToUnixTimeMilliseconds(),
             CompletedAtUnixMs = _clock.UtcNow.ToUnixTimeMilliseconds()
         };
+
+        if (windowsSessionState is not null)
+        {
+            result.WindowsSessionState = windowsSessionState;
+        }
+
+        return result;
     }
 
     private TimeSpan TimeoutFor(OperationRequest request)

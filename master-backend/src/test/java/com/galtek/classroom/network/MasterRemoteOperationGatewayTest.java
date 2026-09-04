@@ -27,6 +27,8 @@ import com.galtek.classroom.network.v1.OperationResult;
 import com.galtek.classroom.network.v1.OperationStatusKnowledge;
 import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
+import com.galtek.classroom.network.v1.WindowsSessionState;
+import com.galtek.classroom.network.v1.WindowsSessionStateResult;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -91,6 +93,28 @@ class MasterRemoteOperationGatewayTest {
         assertThat(unlockRequest.hasOpenUrl()).isFalse();
         assertThat(unlockRequest.hasApplyBrowserPolicy()).isFalse();
         assertThat(unlockRequest.hasApplyBrowserDownloadPolicy()).isFalse();
+    }
+
+    @Test
+    void dispatchSendsGetWindowsSessionStateWithoutParameters() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.dispatch(snapshot, OperationType.GET_WINDOWS_SESSION_STATE, "batch-session", "device-1")
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE);
+        assertThat(request.hasOpenApplication()).isFalse();
+        assertThat(request.hasOpenUrl()).isFalse();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+        assertThat(request.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .doesNotContain("username", "sid", "sessionId", "accountId", "password");
     }
 
     @Test
@@ -263,6 +287,59 @@ class MasterRemoteOperationGatewayTest {
         assertThat(lockOutcome.errorCode()).isEqualTo(ErrorCode.INPUT_LOCK_FAILED);
         assertThat(unlockOutcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
         assertThat(unlockOutcome.errorCode()).isEqualTo(ErrorCode.INPUT_UNLOCK_FAILED);
+    }
+
+    @Test
+    void operationResultPreservesTypedWindowsSessionState() {
+        RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
+                .setOperationId("batch-session")
+                .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE)
+                .setTargetDeviceId("PC01")
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS)
+                .setWindowsSessionState(WindowsSessionStateResult.newBuilder()
+                        .setState(WindowsSessionState.WINDOWS_SESSION_STATE_SECONDARY_ACTIVE)
+                        .build())
+                .build());
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.SUCCESS);
+        assertThat(outcome.errorCode()).isNull();
+        assertThat(outcome.windowsSessionState())
+                .isEqualTo(WindowsSessionState.WINDOWS_SESSION_STATE_SECONDARY_ACTIVE);
+    }
+
+    @Test
+    void unspecifiedWindowsSessionStateIsNotValidSuccess() {
+        RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
+                .setOperationId("batch-session")
+                .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE)
+                .setTargetDeviceId("PC01")
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS)
+                .setWindowsSessionState(WindowsSessionStateResult.newBuilder()
+                        .setState(WindowsSessionState.WINDOWS_SESSION_STATE_UNSPECIFIED)
+                        .build())
+                .build());
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_UNKNOWN);
+    }
+
+    @Test
+    void operationResultMapsWindowsSessionErrorsWithoutTextParsing() {
+        RemoteOperationOutcome unknown = MasterRemoteOperationGateway.outcomeFromResult(failed(
+                "batch-session",
+                "PC01",
+                NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE,
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN));
+        RemoteOperationOutcome invalidBindings = MasterRemoteOperationGateway.outcomeFromResult(failed(
+                "batch-session-invalid",
+                "PC01",
+                NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE,
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID));
+
+        assertThat(unknown.errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_UNKNOWN);
+        assertThat(invalidBindings.errorCode()).isEqualTo(ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID);
     }
 
     @Test

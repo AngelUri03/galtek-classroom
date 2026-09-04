@@ -79,6 +79,15 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Borrar y recrear el mismo username no autoriza adoptar el SID nuevo; el rebind siempre debe ser explicito.
 - `PRIMARY` y `SECONDARY` no pueden compartir SID.
 - Passwords, hashes, credentialId, tokens, PINs y session data nunca van en `managed-windows-accounts.json`.
+- `WindowsSessionState` se determina por SID del token real de la consola fisica, nunca por username.
+- `WTSUserName` solo puede usarse como senal auxiliar de existencia de login; no es identidad ni authority de mapping.
+- Session 0 nunca representa al alumno.
+- `0xFFFFFFFF` de `WTSGetActiveConsoleSessionId()` es `UNKNOWN`, no evidencia suficiente de `NO_SESSION`.
+- Una sesion bloqueada sigue clasificandose por su cuenta logueada.
+- Las sesiones RDP o disconnected no sustituyen automaticamente la consola fisica.
+- `GET_WINDOWS_SESSION_STATE` es on-demand y nunca debe convertirse en polling, timer, startup scan o heartbeat field.
+- Ningun token, SID, username, domain, `accountReference` ni `sessionId` debe salir en el result remoto de `GET_WINDOWS_SESSION_STATE`.
+- `SESSION_AGENT_AVAILABLE` no es requisito para consultar `WindowsSessionState`.
 - El futuro Client credential store sera separado del binding SID de cuentas administradas.
 - No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.

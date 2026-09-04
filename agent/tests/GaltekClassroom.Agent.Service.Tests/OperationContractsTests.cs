@@ -98,6 +98,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomWindowsSessionStates.NoSession, sessionStates);
         Assert.Contains(ClassroomWindowsSessionStates.PrimaryActive, sessionStates);
         Assert.Contains(ClassroomWindowsSessionStates.SecondaryActive, sessionStates);
+        Assert.Contains(ClassroomWindowsSessionStates.OtherSessionActive, sessionStates);
+        Assert.Contains(ClassroomWindowsSessionStates.Unknown, sessionStates);
         Assert.Contains(ClassroomManagedAccountSwitchActions.NoChange, switchActions);
         Assert.Contains(ClassroomManagedAccountSwitchActions.Logon, switchActions);
         Assert.Contains(ClassroomManagedAccountSwitchActions.Switch, switchActions);
@@ -156,6 +158,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.ApplicationLaunchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.InputLockFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.InputUnlockFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionUnknown, errorCodes);
     }
 
     [Fact]
@@ -270,6 +273,54 @@ public sealed class OperationContractsTests
             "INPUT_CONTROL_V1",
             ClassroomCapabilities.InputControlV1);
         Assert.True(Enum.IsDefined(NetworkCapability.InputControlV1));
+    }
+
+    [Fact]
+    public void WindowsSessionStateRemoteContract_IsTypedAndDoesNotExposeIdentity()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.GetWindowsSessionState,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1"
+        };
+        var result = new OperationResult
+        {
+            OperationId = request.OperationId,
+            OperationType = NetworkOperationType.GetWindowsSessionState,
+            TargetDeviceId = request.TargetDeviceId,
+            ProtocolVersion = "1",
+            Status = OperationExecutionStatus.Success,
+            WindowsSessionState = new WindowsSessionStateResult
+            {
+                State = WindowsSessionState.PrimaryActive
+            }
+        };
+
+        Assert.Equal(OperationRequest.OperationParametersOneofCase.None, request.OperationParametersCase);
+        Assert.Equal(OperationResult.ResultDetailsOneofCase.WindowsSessionState, result.ResultDetailsCase);
+        Assert.Equal(WindowsSessionState.PrimaryActive, result.WindowsSessionState.State);
+
+        var resultProperties = typeof(WindowsSessionStateResult)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("State", resultProperties);
+        Assert.DoesNotContain("WindowsSid", resultProperties);
+        Assert.DoesNotContain("Username", resultProperties);
+        Assert.DoesNotContain("SessionId", resultProperties);
+        Assert.DoesNotContain("AccountReference", resultProperties);
+        Assert.NotEqual(WindowsSessionState.Unspecified, result.WindowsSessionState.State);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeWindowsSessionStateV1()
+    {
+        Assert.Equal(
+            "WINDOWS_SESSION_STATE_V1",
+            ClassroomCapabilities.WindowsSessionStateV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionStateV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

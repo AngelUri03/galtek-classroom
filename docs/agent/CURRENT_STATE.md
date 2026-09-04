@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-04 - Prompt 19B.
+2026-09-04 - Prompt 19C.
 
 ## Estado del proyecto
+
+Prompt 19C implementa en el Agent Service del Client `GET_WINDOWS_SESSION_STATE` productivo, read-only y on-demand. Usa `WTSGetActiveConsoleSessionId()` como autoridad de consola fisica; `0xFFFFFFFF` y Session 0 producen `UNKNOWN`. `WTSUserName` se usa solo como senal auxiliar para distinguir ausencia de login (`NO_SESSION`), nunca como identidad. Cuando hay usuario, el Service debe estar como LocalSystem, habilita `SeTcbPrivilege` de forma acotada, obtiene token con `WTSQueryUserToken`, lee `TokenUser`, convierte el SID con API Windows soportada y cierra/libera token y buffers. El SID activo se compara contra `managed-windows-accounts.json`: `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE`, `OTHER_SESSION_ACTIVE`, `NO_SESSION` o `UNKNOWN`. El resultado remoto es `WindowsSessionStateResult.state` tipado y no expone SID, username, accountReference ni sessionId. Se anuncia `WINDOWS_SESSION_STATE_V1`. No agrega Master endpoint/batch, UI, Local IPC, Session Command, Session Agent dependency, heartbeat state, polling, browser policy integration, passwords, credential store, login/logoff/switch ni writes.
 
 Prompt 19B implementa en el Agent Service del Client el binding local seguro de cuentas Windows administradas. `managed-windows-accounts.json` vive en el data directory del Agent (`<CommonApplicationData>\Galtek\Classroom\` u override), separado de identidades, licencia, trust, application bindings, browser policy state y `credential-vault.dat`. El documento liga los slots exactos `PRIMARY`/`SECONDARY` al `installationId` actual y a cuentas Windows reales por SID; `accountReference` es metadata canonica devuelta por Windows. No guarda passwords, hashes, credentialId, tokens, profile paths ni sesiones. Bind/replace/remove son CLI locales administrativas elevadas; list/status es read-only y reporta `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` o `ACCOUNT_NOT_FOUND`, con `credentialConfigured=false` siempre en 19B. No agrega IPC, Protobuf, gRPC, Session Agent, Java productivo, browser policy enforcement, DPAPI, Client credential store, login/logoff/switch ni Credential Vault integration.
 
@@ -104,6 +106,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `managed-windows-accounts.json` en `<CommonApplicationData>\Galtek\Classroom\` como fuente de verdad local del Client para `PRIMARY`/`SECONDARY` -> Windows SID.
 - Store local `IManagedWindowsAccountBindingStore`/`ManagedWindowsAccountBindingStore` con Load/List/Get/Add/Replace/Remove, escritura durable, verificacion posterior y fail closed.
 - Modelo `ManagedWindowsAccountBinding` con `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`, sin campos de password/credential/token.
+- Operacion remota Agent-side `GET_WINDOWS_SESSION_STATE` registrada en `RemoteOperationDispatcher`.
+- Resolver `IWindowsConsoleSessionResolver`/`WindowsConsoleSessionResolver` basado en consola fisica con WTS, `WTSQueryUserToken`, `TokenUser` y SID real.
+- Servicio `WindowsSessionStateService` que compara SID activo contra los bindings locales `PRIMARY`/`SECONDARY`.
+- Resultado Protobuf tipado `WindowsSessionStateResult.state`, sin SID, username, `accountReference` ni `sessionId`.
+- Capability productiva `WINDOWS_SESSION_STATE_V1` anunciada por `ClientCapabilityProvider`.
 - El documento de managed accounts incluye `schemaVersion = 1`, `installationId` y `bindings`; `installationId` distinto al actual produce `MANAGED_ACCOUNT_BINDINGS_INVALID`.
 - Archivo ausente de managed accounts equivale a ambos slots `NOT_CONFIGURED`; no se crea en startup ni en list.
 - Bind de managed accounts resuelve cuentas con APIs Windows nativas, canonicaliza por SID con lookup inverso y acepta solo `SidTypeUser`.
@@ -495,6 +502,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionState|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport|FullyQualifiedName~ManagedWindowsAccountBindingStore"` en `agent`: correcto, 81 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ManagedWindowsAccount|FullyQualifiedName~WindowsAccountResolver|FullyQualifiedName~AgentCommandLineTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterBindingConfigurationServiceTests"` en `agent`: correcto, 84 pruebas Service y 6 pruebas Session sin coincidencia funcional superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=CredentialVaultServiceTest" test` en `master-backend`: correcto, pruebas dirigidas de init, no plaintext, unlock, tamper AES-GCM, corrupcion, sesiones lazy, CRUD, reveal, cambio de master password, no secret leak y performance conceptual superadas.
@@ -550,6 +561,6 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19B deja listo el binding local seguro por SID de los slots `PRIMARY`/`SECONDARY` en cada Client. El siguiente paso recomendado, Prompt 19C, es implementar Windows Session State real usando esos SIDs sin introducir todavia passwords ni login/switch.
+Fase 19C deja listo `GET_WINDOWS_SESSION_STATE` Agent-side para observar consola fisica y clasificarla por SID contra `PRIMARY`/`SECONDARY`. El siguiente paso recomendado, Prompt 19D, es implementar el Client secure credential store sin introducir todavia login/switch.
 
 El CredentialVaultService interno puede ser reutilizado posteriormente por provisioning administrativo sin requerir un endpoint HTTP de secretos.

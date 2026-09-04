@@ -6,6 +6,7 @@ using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.InputControl;
 using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Power;
+using GaltekClassroom.Agent.Service.WindowsSessions;
 
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
 
@@ -37,6 +38,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BrowserNavigationPolicyApplyService>();
         services.AddSingleton<BrowserDownloadPolicyApplyService>();
         services.AddSingleton<AppliedBrowserPolicyEvaluator>();
+        services.AddSingleton<IWindowsConsoleSessionNativeApi, WindowsConsoleSessionNativeApi>();
+        services.AddSingleton<IWindowsConsoleSessionResolver, WindowsConsoleSessionResolver>();
+        services.AddSingleton<WindowsSessionStateService>();
         services.AddSingleton<RemoteOperationLicensePolicy>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
@@ -46,6 +50,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRemoteOperationHandler, UnlockInputOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserPolicyOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserDownloadPolicyOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, GetWindowsSessionStateOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();
