@@ -138,4 +138,73 @@ public sealed class AgentCommandLineTests
         Assert.False(commandLine.IsValid);
         Assert.Contains("--application-bind-exe requires", commandLine.ErrorMessage);
     }
+
+    [Fact]
+    public void Parse_WhenManagedAccountListIsSelected_UsesListMode()
+    {
+        var commandLine = AgentCommandLine.Parse(["--managed-account-list"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.ManagedAccountList, commandLine.Mode);
+    }
+
+    [Fact]
+    public void Parse_WhenManagedAccountBindWithReplaceIsSelected_CapturesArguments()
+    {
+        var commandLine = AgentCommandLine.Parse([
+            "--managed-account-bind",
+            "PRIMARY",
+            "Primaria",
+            "--replace-managed-account-binding"
+        ]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.ManagedAccountBind, commandLine.Mode);
+        Assert.Equal("PRIMARY", commandLine.ManagedAccountId);
+        Assert.Equal("Primaria", commandLine.ManagedWindowsAccountReference);
+        Assert.True(commandLine.ReplaceManagedAccountBinding);
+    }
+
+    [Fact]
+    public void Parse_WhenManagedAccountRemoveIsSelected_CapturesAccountId()
+    {
+        var commandLine = AgentCommandLine.Parse(["--managed-account-remove", "SECONDARY"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.ManagedAccountRemove, commandLine.Mode);
+        Assert.Equal("SECONDARY", commandLine.ManagedAccountId);
+    }
+
+    [Fact]
+    public void Parse_WhenReplaceManagedAccountBindingHasNoBindCommand_IsInvalid()
+    {
+        var commandLine = AgentCommandLine.Parse(["--replace-managed-account-binding"]);
+
+        Assert.False(commandLine.IsValid);
+        Assert.Contains("--replace-managed-account-binding", commandLine.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_WhenManagedAccountBindHasNoValues_IsInvalid()
+    {
+        var commandLine = AgentCommandLine.Parse(["--managed-account-bind", "PRIMARY"]);
+
+        Assert.False(commandLine.IsValid);
+        Assert.Contains("--managed-account-bind requires", commandLine.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_WhenManagedAccountArgumentsContainPasswordFlag_IsNotAcceptedAsSecretParameter()
+    {
+        var commandLine = AgentCommandLine.Parse([
+            "--managed-account-bind",
+            "PRIMARY",
+            "Primaria",
+            "--password",
+            "secret"
+        ]);
+
+        Assert.False(commandLine.IsValid);
+        Assert.Contains("do not accept password", commandLine.ErrorMessage);
+    }
 }

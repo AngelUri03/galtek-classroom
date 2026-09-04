@@ -74,6 +74,13 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Los logs nunca deben mostrar passwords ni material equivalente.
 - Los comandos futuros de cuentas Windows administradas deben enviar solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - La credencial real futura pertenece al Agent Service del Client y debe protegerse con mecanismos seguros de Windows.
+- `PRIMARY` y `SECONDARY` en cada Client se vinculan a cuentas Windows por SID real en `managed-windows-accounts.json`, no por username.
+- `accountReference` del binding de cuentas administradas es informativa/canonica; no es identidad ni prueba de autorizacion.
+- Borrar y recrear el mismo username no autoriza adoptar el SID nuevo; el rebind siempre debe ser explicito.
+- `PRIMARY` y `SECONDARY` no pueden compartir SID.
+- Passwords, hashes, credentialId, tokens, PINs y session data nunca van en `managed-windows-accounts.json`.
+- El futuro Client credential store sera separado del binding SID de cuentas administradas.
+- No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
@@ -133,7 +140,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No usar regex arbitraria, JavaScript regex ni wildcards libres para reglas URL de administracion escolar.
 - El enforcement productivo de navegacion Chrome/Edge debe usar operaciones tipadas Galtek y `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real; no usar HKLM, extension, proxy, DNS, firewall, hosts, inspeccion HTTPS, shell, polling, browser automation ni matar/reiniciar navegadores para esta funcionalidad.
 - Los endpoints Master que aplican browser policies deben aceptar solo `targetDeviceIds` explicitos y resolver siempre desde la fuente de verdad persistida; no aceptar `policyId`, rules, accountType, URLs, registry paths ni payload arbitrario desde la request de apply.
-- En dispatch Master de browser policies, usar `accountType = null` hasta que exista binding seguro `PRIMARY/SECONDARY -> Windows SID`; esto significa resolver solo policies `ANY`, no inferir `PRIMARY`.
+- En dispatch Master de browser policies, usar `accountType = null` hasta que una fase futura integre explicitamente el binding seguro `PRIMARY/SECONDARY -> Windows SID`; esto significa resolver solo policies `ANY`, no inferir `PRIMARY`.
 - Antes de fanout remoto de browser policies, congelar todos los parametros Protobuf tipados por target y persistir una sola `BatchOperation`; fallos de preflight por target no cancelan targets listos.
 - Las politicas administrativas de descarga de navegador viven en un dominio separado de navegacion. No agregar `DownloadRestrictions`, extension lists ni MIME lists dentro de `BrowserAccessPolicy`, `BrowserPolicyMode`, `BrowserUrlRule` o URL match types.
 - Para descargas de navegador, resolver como maximo una policy efectiva por contexto con la misma precedencia que navegacion: `DEVICE` cuenta especifica, `DEVICE ANY`, `GROUP` cuenta especifica, `GROUP ANY`, `CLASSROOM` cuenta especifica, `CLASSROOM ANY`, o `NO_SPECIAL_RESTRICTIONS` implicito.

@@ -2,7 +2,7 @@
 
 Este documento es obligatorio para agentes futuros antes de disenar funcionalidades operativas de Galtek Classroom.
 
-Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`, Prompt 17A agrega el catalogo local `application-bindings.json`, Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo Agent-side, Prompt 17C agrega dispatch batch Master para `OPEN_APPLICATION`, Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo Agent-side mediante Session Agent y `BlockInput`, Prompt 18B1 agrega autorizacion local read-only de proposito unico para `UNLOCK_INPUT` recovery desde Master sin exigir Commercial License local activa, Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT`/`UNLOCK_INPUT`, y Prompt 19A agrega el nucleo interno de Credential Vault local cifrado para passwords Windows/Google escolares de la profesora sin UI ni endpoints.
+Prompt 07 define el dominio funcional, modelos puros y planners de preflight. Prompt 08 persiste ese dominio en SQLite local para el Master. Prompt 10 expone la primera API administrativa protegida sobre SQLite con bootstrap, snapshot, CRUD escolar, batches de alumnos y assignments de metadata. Prompt 9.6 formaliza cuentas Windows administradas futuras en Clients (`PRIMARY`/`SECONDARY`) y cambio masivo de sesion como dominio puro. Prompt 14.2 fija el modelo operativo real del aula, readiness progresiva, workspace canonico Master/local working copy Client, prioridades y modos de proyeccion como dominio puro. Prompt 14.4 fija resiliencia ante apagones, startup rapido, boot storm y semantica de recovery sin implementar filesystem real, browser automation, UI, login/logoff Windows, USB, captura ni proyeccion. Prompt 15A agrega `SHUTDOWN` y `RESTART` productivos en el Agent sobre el framework seguro existente. Prompt 15B agrega dispatch batch desde Master para esas dos operaciones. Prompt 15C agrega reconciliacion segura de resultados inciertos sin UI, retry automatico ni nuevas operaciones Windows. Prompt 16A agrega el canal local seguro Service -> Session para acciones interactivas futuras, Prompt 16B implementa `OPEN_URL` productivo Agent-side sin endpoint batch Master, sin bloqueo de URLs/descargas y sin UI, Prompt 16C agrega en el Master el modelo persistente de politicas administrativas de navegacion, Prompt 16D agrega enforcement Agent-side para Chrome/Edge usando `URLBlocklist`/`URLAllowlist` en el usuario interactivo real, Prompt 16E1 agrega en el Master el modelo persistente de politicas de descarga de navegador, Prompt 16E2A prepara el contrato tipado y compilador C# puro de descargas, Prompt 16E2B agrega enforcement Agent-side real de descargas mediante `DownloadRestrictions`, Prompt 16F1 agrega dispatch batch Master para aplicar policies de navegacion y descarga persistidas, Prompt 16F2 agrega dispatch batch Master para `OPEN_URL`, Prompt 17A agrega el catalogo local `application-bindings.json`, Prompt 17B implementa `OPEN_APPLICATION(applicationId)` productivo Agent-side, Prompt 17C agrega dispatch batch Master para `OPEN_APPLICATION`, Prompt 18A implementa `LOCK_INPUT`/`UNLOCK_INPUT` productivo Agent-side mediante Session Agent y `BlockInput`, Prompt 18B1 agrega autorizacion local read-only de proposito unico para `UNLOCK_INPUT` recovery desde Master sin exigir Commercial License local activa, Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT`/`UNLOCK_INPUT`, Prompt 19A agrega el nucleo interno de Credential Vault local cifrado para passwords Windows/Google escolares de la profesora sin UI ni endpoints, y Prompt 19B agrega el binding local Client `PRIMARY`/`SECONDARY` -> Windows SID sin passwords ni sesion Windows real.
 
 ## Principio de producto
 
@@ -275,10 +275,21 @@ Campos:
 - `accountReference`: referencia informativa de cuenta local/dominio cuando exista; no es password.
 - `configured`: indica si el slot esta configurado en el Client.
 - `credentialConfigured`: indica si el Client tiene credencial usable.
-- `status`: estado operacional del slot, por ejemplo `READY`, `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` o `UNKNOWN`.
+- `status`: estado operacional del slot, por ejemplo `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED`, `ACCOUNT_NOT_FOUND` o futuro `READY`.
 
 Reglas:
 
+- Desde Prompt 19B, cada Client puede persistir `managed-windows-accounts.json` en `<CommonApplicationData>\Galtek\Classroom\`, ligado al `installationId` actual.
+- La identidad fuerte del binding es `windowsSid`; `accountReference` es metadata canonica/informativa devuelta por Windows.
+- Los slots aceptados son exactamente `PRIMARY` y `SECONDARY`; no hay slots arbitrarios.
+- `PRIMARY` y `SECONDARY` no pueden apuntar al mismo SID.
+- Un nombre corto como `Primaria` se interpreta para bind como cuenta local `<MACHINE>\Primaria` antes de resolver.
+- Bind/replace resuelve con APIs Windows soportadas y acepta solo `SidTypeUser`; grupos, aliases, well-known groups, dominios y computer accounts se rechazan.
+- Renombrar una cuenta conserva el binding si el SID sigue resolviendo; el status puede mostrar la referencia canonica nueva sin reescribir automaticamente el archivo.
+- Borrar una cuenta deja el binding fisico stale y devuelve `ACCOUNT_NOT_FOUND`; recrear el mismo username con SID nuevo no se adopta automaticamente.
+- Rebind a otro SID siempre requiere replace explicito.
+- Archivo ausente equivale a ambos slots `NOT_CONFIGURED`; archivo corrupto/schema/mismatch falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- En Prompt 19B, `credentialConfigured` siempre es `false` y ningun slot devuelve `READY`.
 - El Master no almacena passwords de estas cuentas en `classroom.db`.
 - El Master no envia passwords en comandos normales.
 - La UI no recibe passwords por defecto. La unica excepcion futura sera `REVEAL CREDENTIAL` explicito, una credencial a la vez, despues de autorizacion Master normal y sesion de vault valida.
@@ -291,7 +302,7 @@ Reglas:
 - El mecanismo productivo de login/cambio de usuario debe disenarse despues con integracion soportada por Windows, contemplando Credential Provider.
 - Siempre debe conservarse una via estandar de acceso/recovery de Windows.
 
-Prompt 9.6 solo agrega modelo puro; no implementa passwords, DPAPI, Credential Provider, login/logoff real ni almacenamiento de credenciales.
+Prompt 19B solo agrega el binding local seguro por SID; no implementa passwords, DPAPI, Client credential store, Credential Provider, login/logoff real, switch real, IPC, Protobuf, gRPC, Java API ni browser policy enforcement por `PRIMARY`/`SECONDARY`.
 
 Prompt 14.2 aclara:
 
@@ -999,7 +1010,7 @@ Dentro de una sola policy, gana el filtro mas especifico por host, scheme/port, 
 
 `EXACT_URL` permanece persistible en Master, pero no es enforceable por Chrome/Edge nativo en 16D porque no existe equivalencia general byte-for-byte segura en `URLBlocklist`/`URLAllowlist`. Un apply activo que incluya `EXACT_URL` devuelve `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
 
-`accountScope = ANY` aplica al usuario Windows interactivo actual. `PRIMARY` y `SECONDARY` siguen modelados, pero en 16D devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` porque aun no existe binding productivo `PRIMARY/SECONDARY -> Windows SID`.
+`accountScope = ANY` aplica al usuario Windows interactivo actual. `PRIMARY` y `SECONDARY` siguen modelados, pero el enforcement 16D no consume todavia el binding productivo `PRIMARY/SECONDARY -> Windows SID`, por lo que esos scopes siguen diferidos para una fase futura.
 
 Desde Prompt 16F1, `POST /api/classrooms/{classroomId}/browser-policies/apply` aplica la policy efectiva persistida por target. La request acepta solo `targetDeviceIds` explicitos, obligatorios, no vacios, sin blancos, sin duplicados y sin campos adicionales. El Master usa `accountType = null`, por lo que solo resuelve `ANY`; deriva `groupId` desde el assignment actual del Device hacia su Student; congela los parametros Protobuf tipados antes del fanout; persiste una sola `BatchOperation`; y envia solo a targets que pasan preflight de aula, binding vigente, trust `PAIRED` no `REVOKED`, conexion autenticada `ONLINE` y capability `BROWSER_NAVIGATION_POLICY_V1`. Un `EXACT_URL` habilitado en la policy efectiva bloquea solo ese target con `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` antes de enviar.
 
@@ -1097,7 +1108,7 @@ La policy mas especifica reemplaza completamente a la menos especifica. No se co
 
 Si no existe policy efectiva, el contrato usa `implicit_no_special_restrictions = true` y `restrictionMode = NO_SPECIAL_RESTRICTIONS`; el compilador devuelve `RemoveGaltekPolicy = true` y no produce valor nativo. Si existe una policy explicita `NO_SPECIAL_RESTRICTIONS`, el compilador devuelve `RemoveGaltekPolicy = false` y `NativeDownloadRestrictionsValue = 0`.
 
-`accountScope = ANY` aplica al usuario Windows interactivo real. `PRIMARY` y `SECONDARY` permanecen tipados pero devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta existir binding seguro Managed Account -> Windows SID.
+`accountScope = ANY` aplica al usuario Windows interactivo real. `PRIMARY` y `SECONDARY` permanecen tipados, pero browser policy todavia no consume el binding seguro Managed Account -> Windows SID.
 
 `BROWSER_DOWNLOAD_POLICY_V1` se anuncia en `ClientHello` desde 16E2B porque `ApplyBrowserDownloadPolicyOperationHandler` esta registrado y verifica Registry/state de forma productiva.
 

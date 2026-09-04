@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-03 - Prompt 19A.
+2026-09-04 - Prompt 19B.
 
 ## Estado del proyecto
+
+Prompt 19B implementa en el Agent Service del Client el binding local seguro de cuentas Windows administradas. `managed-windows-accounts.json` vive en el data directory del Agent (`<CommonApplicationData>\Galtek\Classroom\` u override), separado de identidades, licencia, trust, application bindings, browser policy state y `credential-vault.dat`. El documento liga los slots exactos `PRIMARY`/`SECONDARY` al `installationId` actual y a cuentas Windows reales por SID; `accountReference` es metadata canonica devuelta por Windows. No guarda passwords, hashes, credentialId, tokens, profile paths ni sesiones. Bind/replace/remove son CLI locales administrativas elevadas; list/status es read-only y reporta `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` o `ACCOUNT_NOT_FOUND`, con `credentialConfigured=false` siempre en 19B. No agrega IPC, Protobuf, gRPC, Session Agent, Java productivo, browser policy enforcement, DPAPI, Client credential store, login/logoff/switch ni Credential Vault integration.
 
 Prompt 19A implementa en el Master Backend el nucleo seguro interno de una boveda local cifrada de credenciales escolares para la profesora. `credential-vault.dat` vive en el Master data directory, separado de `classroom.db`, y guarda un envelope JSON versionado con el documento logico completo cifrado. La master password de vault no se persiste, PBKDF2-HMAC-SHA256 deriva la KEK, AES-256-GCM envuelve un DEK aleatorio de 256 bits y AES-256-GCM cifra entries completas. La boveda no se crea en startup, queda locked tras restart, permite una sola sesion in-memory con expiracion lazy de 5 minutos, CRUD interno, reveal de una credencial a la vez y cambio de master password por re-wrap del DEK. No agrega UI, endpoints HTTP, Protobuf, gRPC, Client credential store, login Windows, Google automation ni SQLite migrations.
 
@@ -99,6 +101,18 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `POST /api/classrooms/{classroomId}/input-control/lock` protegido por `MasterAccessGuard`, envia batch `LOCK_INPUT` a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` protegido por `MasterUnlockAccessGuard`, envia batch `UNLOCK_INPUT` recovery-safe a Devices explicitamente seleccionados.
 - Credential Vault interno Java-only del Master en `credential-vault.dat`, separado de SQLite y sin endpoints HTTP.
+- `managed-windows-accounts.json` en `<CommonApplicationData>\Galtek\Classroom\` como fuente de verdad local del Client para `PRIMARY`/`SECONDARY` -> Windows SID.
+- Store local `IManagedWindowsAccountBindingStore`/`ManagedWindowsAccountBindingStore` con Load/List/Get/Add/Replace/Remove, escritura durable, verificacion posterior y fail closed.
+- Modelo `ManagedWindowsAccountBinding` con `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`, sin campos de password/credential/token.
+- El documento de managed accounts incluye `schemaVersion = 1`, `installationId` y `bindings`; `installationId` distinto al actual produce `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- Archivo ausente de managed accounts equivale a ambos slots `NOT_CONFIGURED`; no se crea en startup ni en list.
+- Bind de managed accounts resuelve cuentas con APIs Windows nativas, canonicaliza por SID con lookup inverso y acepta solo `SidTypeUser`.
+- Nombres no calificados como `Primaria` se transforman deterministamente a `<MACHINE>\Primaria` antes de resolver.
+- PRIMARY y SECONDARY no pueden compartir SID; username igual recreado con SID nuevo no se adopta automaticamente.
+- Status local de managed accounts: sin binding `NOT_CONFIGURED`; binding + SID User resoluble `CREDENTIAL_NOT_CONFIGURED`; SID no resoluble `ACCOUNT_NOT_FOUND`.
+- CLI local administrativa de managed accounts: `--managed-account-list`, `--managed-account-bind <PRIMARY|SECONDARY> <WINDOWS_ACCOUNT>`, `--managed-account-remove <PRIMARY|SECONDARY>` y `--replace-managed-account-binding`.
+- Mutaciones de managed accounts requieren consola elevada; no autoelevan y no aceptan parametros de password/credential/secret/token/PIN.
+- ACL de `managed-windows-accounts.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales sin read/write explicito.
 - Modelo `CredentialVaultEntry` con `credentialId`, `credentialType`, `displayName`, `loginIdentifier`, `password`, `createdAtUtc` y `updatedAtUtc`.
 - Tipos de credencial de vault soportados: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
 - Crypto de vault: PBKDF2-HMAC-SHA256 con salt/work factor versionados, DEK aleatorio de 256 bits, AES-256-GCM para wrapped DEK y AES-256-GCM para documento cifrado completo.
@@ -415,7 +429,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - Browser policy administrativa queda separada de safety estructural de `OPEN_URL`; una rule `ALLOW` nunca autoriza `file:`, `javascript:`, `data:` ni otros esquemas inseguros.
 - La semantica vigente de browser policy ya no es "`ALLOW` siempre gana": gana el filtro mas especifico por host, scheme/port, path y query; solo ante igual especificidad `ALLOW` gana a `BLOCK`.
 - `EXACT_URL` se persiste en Master, pero 16D lo rechaza como `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE` al aplicar porque Chromium native policy no ofrece equivalencia byte-for-byte general segura.
-- `accountScope = ANY` aplica al usuario interactivo actual; `PRIMARY`/`SECONDARY` devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta existir binding seguro a Windows SID.
+- `accountScope = ANY` aplica al usuario interactivo actual; `PRIMARY`/`SECONDARY` siguen sin integrarse a browser policy aunque ya exista binding local seguro a Windows SID.
 - `PRIMARY` y `SECONDARY` no implican restriccion automatica; una policy por cuenta existe solo si el administrador la crea explicitamente.
 - Si el contexto no conoce cuenta administrada, solo aplican policies `ANY`; no se infiere `PRIMARY`.
 - Las politicas de descarga de navegador quedan separadas de las politicas de navegacion. `DownloadRestrictions` no se agrega a `BrowserAccessPolicy`.
@@ -481,6 +495,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ManagedWindowsAccount|FullyQualifiedName~WindowsAccountResolver|FullyQualifiedName~AgentCommandLineTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterBindingConfigurationServiceTests"` en `agent`: correcto, 84 pruebas Service y 6 pruebas Session sin coincidencia funcional superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=CredentialVaultServiceTest" test` en `master-backend`: correcto, pruebas dirigidas de init, no plaintext, unlock, tamper AES-GCM, corrupcion, sesiones lazy, CRUD, reveal, cambio de master password, no secret leak y performance conceptual superadas.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~MasterAuthorizationServiceTests|FullyQualifiedName~LocalIpcRequestHandlerTests|FullyQualifiedName~SessionCommandProtocolTests|FullyQualifiedName~LocalIpcFramingTests|FullyQualifiedName~LocalIpcServerTests"` en `agent`: correcto, 58 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
@@ -534,6 +550,6 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19A deja lista la primitive segura interna del Credential Vault. El siguiente paso recomendado, Prompt 19B, es implementar el binding local seguro de los slots Windows administrados PRIMARY/SECONDARY en cada Client. La API/UI del Credential Vault se mantiene pendiente hasta existir la superficie React/Tauri que realmente la consuma; no se expone reveal por HTTP anticipadamente.
+Fase 19B deja listo el binding local seguro por SID de los slots `PRIMARY`/`SECONDARY` en cada Client. El siguiente paso recomendado, Prompt 19C, es implementar Windows Session State real usando esos SIDs sin introducir todavia passwords ni login/switch.
 
 El CredentialVaultService interno puede ser reutilizado posteriormente por provisioning administrativo sin requerir un endpoint HTTP de secretos.

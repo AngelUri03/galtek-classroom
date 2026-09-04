@@ -160,6 +160,21 @@ public sealed class MasterBindingConfigurationServiceTests : IDisposable
                 ? WindowsAccountResolution.Resolved(identity)
                 : WindowsAccountResolution.NotFound("account missing");
         }
+
+        public WindowsAccountResolution ResolveSid(string windowsSid)
+        {
+            var identity = _accounts.Values
+                .Append(_currentUser)
+                .Where(candidate => candidate is not null)
+                .FirstOrDefault(candidate => string.Equals(
+                    candidate!.WindowsSid,
+                    windowsSid,
+                    StringComparison.OrdinalIgnoreCase));
+
+            return identity is null
+                ? WindowsAccountResolution.NotFound("sid missing")
+                : WindowsAccountResolution.Resolved(identity);
+        }
     }
 
     private sealed class FakeAdministratorPrivilegeChecker : IAdministratorPrivilegeChecker

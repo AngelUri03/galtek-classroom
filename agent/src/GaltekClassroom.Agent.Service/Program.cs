@@ -4,6 +4,7 @@ using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Master;
+using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
@@ -30,6 +31,7 @@ builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
 builder.Services.AddLocalIpcServices();
 builder.Services.AddSessionCommandServices();
 builder.Services.AddApplicationBindingServices();
+builder.Services.AddManagedWindowsAccountBindingServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
 {
@@ -182,6 +184,38 @@ if (commandLine.Mode is AgentCommandMode.ApplicationBindList
     };
 
     Console.WriteLine(ApplicationBindingConsoleJsonSerializer.SerializeConfigurationResult(result));
+
+    if (!result.Succeeded)
+    {
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
+if (commandLine.Mode is AgentCommandMode.ManagedAccountList
+    or AgentCommandMode.ManagedAccountBind
+    or AgentCommandMode.ManagedAccountRemove)
+{
+    builder.Logging.ClearProviders();
+
+    await using var serviceProvider = builder.Services.BuildServiceProvider();
+    var bindingService = serviceProvider.GetRequiredService<ManagedWindowsAccountBindingConfigurationService>();
+    var result = commandLine.Mode switch
+    {
+        AgentCommandMode.ManagedAccountList => await bindingService.ListAsync(CancellationToken.None),
+        AgentCommandMode.ManagedAccountBind => await bindingService.BindAsync(
+            commandLine.ManagedAccountId ?? string.Empty,
+            commandLine.ManagedWindowsAccountReference ?? string.Empty,
+            commandLine.ReplaceManagedAccountBinding,
+            CancellationToken.None),
+        AgentCommandMode.ManagedAccountRemove => await bindingService.RemoveAsync(
+            commandLine.ManagedAccountId ?? string.Empty,
+            CancellationToken.None),
+        _ => throw new InvalidOperationException("Unsupported managed account binding command.")
+    };
+
+    Console.WriteLine(ManagedWindowsAccountBindingConsoleJsonSerializer.SerializeConfigurationResult(result));
 
     if (!result.Succeeded)
     {

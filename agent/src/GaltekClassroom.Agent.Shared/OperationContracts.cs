@@ -181,6 +181,14 @@ public static class ClassroomManagedWindowsAccountTypes
     public const string Secondary = "SECONDARY";
 }
 
+public static class ClassroomManagedWindowsAccountStatuses
+{
+    public const string NotConfigured = "NOT_CONFIGURED";
+    public const string CredentialNotConfigured = "CREDENTIAL_NOT_CONFIGURED";
+    public const string AccountNotFound = "ACCOUNT_NOT_FOUND";
+    public const string Ready = "READY";
+}
+
 public static class ClassroomWindowsSessionStates
 {
     public const string NoSession = "NO_SESSION";
@@ -243,6 +251,7 @@ public static class ClassroomOperationErrorCodes
     public const string InvalidDestination = "INVALID_DESTINATION";
     public const string ImageInvalid = "IMAGE_INVALID";
     public const string AccountNotConfigured = "ACCOUNT_NOT_CONFIGURED";
+    public const string AccountNotFound = "ACCOUNT_NOT_FOUND";
     public const string ManagedCredentialNotConfigured = "MANAGED_CREDENTIAL_NOT_CONFIGURED";
     public const string WindowsSessionUnknown = "WINDOWS_SESSION_UNKNOWN";
     public const string WindowsLogonFailed = "WINDOWS_LOGON_FAILED";

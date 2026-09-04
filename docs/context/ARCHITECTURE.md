@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19B agrega en cada Client la fuente de verdad local `managed-windows-accounts.json` para vincular los slots logicos exactos `PRIMARY` y `SECONDARY` con cuentas Windows reales por SID. El documento vive en `<CommonApplicationData>\Galtek\Classroom\`, usa el data directory/override vigente del Agent, queda ligado al `installationId`, se escribe con `DurableFileWriter` y ACL restringida a `LocalSystem`/`Builtin Administrators`, y falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID` ante corrupcion, schema desconocido, mismatch de instalacion, slots duplicados, accountId desconocido, SID invalido o SID compartido. El binding guarda solo `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`; no guarda passwords, hashes, credentialId, tokens, profile paths ni session data. La CLI local administrativa agrega list/bind/remove con replace explicito y mutaciones elevadas. No agrega Local IPC, Protobuf, gRPC, Session Agent, browser policy integration, Credential Vault integration, DPAPI, Client credential store, login/logoff/switch ni Java productivo.
+
 Prompt 19A agrega en el Master Backend el nucleo interno Java-only de Credential Vault local cifrado para credenciales escolares de la profesora. La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\Master\credential-vault.dat`, usando el mismo resolver/override del Master data directory. El archivo guarda un envelope JSON versionado con header tecnico minimo y el documento logico completo cifrado mediante AES-256-GCM; la master password separada deriva una KEK con PBKDF2-HMAC-SHA256 y solo envuelve un DEK aleatorio de 256 bits. La boveda no se crea en startup, queda locked tras restart, permite una sola sesion temporal in-memory con expiracion lazy de 5 minutos, CRUD interno, reveal de una credencial a la vez y cambio de master password por re-wrap del DEK. No agrega UI, endpoints HTTP, Protobuf, gRPC, Client credential store, login Windows, browser automation ni SQLite migrations.
 
 Prompt 18B2 agrega dispatch batch Master para `LOCK_INPUT` y `UNLOCK_INPUT`. Expone endpoints separados `POST /api/classrooms/{classroomId}/input-control/lock` y `POST /api/classrooms/{classroomId}/input-control/unlock`, ambos con request estricta solo de `targetDeviceIds`. `lock` usa `MasterAccessGuard` y `unlock` usa `MasterUnlockAccessGuard`; ambos guards corren antes de leer Classroom, Devices, bindings, trust o SQLite escolar. El Master congela preflight por Device con binding, trust `PAIRED` no `REVOKED`, conexion gRPC/mTLS `ONLINE` y capability `INPUT_CONTROL_V1`, persiste una unica `BatchOperation` antes del fanout y envia operaciones tipadas sin parametros funcionales. No agrega UI, overlay, lock status, retry automatico, reconciliacion, Protobuf, Local IPC ni cambios Agent.
@@ -913,12 +915,19 @@ IMPLEMENTADO:
 - Archivo `network-identity.json` para metadata publica de Network Identity.
 - Archivo `authorized-masters.json` para trust persistido de Masters emparejados con el Client.
 - Archivo `application-bindings.json` para vincular `applicationId` logico Galtek con un launch target local configurado por administrador.
+- Archivo `managed-windows-accounts.json` para vincular los slots logicos `PRIMARY`/`SECONDARY` con cuentas Windows reales mediante SID.
 - `application-bindings.json` queda separado de identidad, licencia, Master binding, Network Identity, trust stores y state/journals de browser policy.
+- `managed-windows-accounts.json` queda separado de `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json`, `application-bindings.json`, browser policy state/journals y `credential-vault.dat`.
 - El catalogo local de aplicaciones usa `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
+- El catalogo de cuentas Windows administradas usa `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
 - ACL de `application-bindings.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; `Builtin Users` y `Authenticated Users` solo lectura para compatibilidad read-only futura.
+- ACL de `managed-windows-accounts.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales no reciben read/write.
 - CLI local administrativa: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
+- CLI local administrativa de managed accounts: `--managed-account-list`, `--managed-account-bind <PRIMARY|SECONDARY> <WINDOWS_ACCOUNT>`, `--managed-account-remove <PRIMARY|SECONDARY>` y `--replace-managed-account-binding`.
 - Las mutaciones del catalogo requieren consola elevada; list/read-only no requiere elevacion y no crea ni modifica el archivo.
+- Las mutaciones de managed accounts requieren consola elevada; list/read-only no muta y respeta el ACL vigente.
 - Corrupcion, schema desconocido, duplicados, launch type desconocido o campos incompatibles producen `APPLICATION_BINDINGS_INVALID` sin regeneracion silenciosa ni adopcion parcial.
+- Corrupcion, schema desconocido, `installationId` ausente/mismatch, slots desconocidos/duplicados, SID invalido, SID compartido o campos de secreto producen `MANAGED_ACCOUNT_BINDINGS_INVALID` sin regeneracion silenciosa ni adopcion parcial.
 - `OPEN_APPLICATION` lee el catalogo on-demand desde el Session Agent y conserva `applicationId` como unico input remoto/inter-proceso.
 - `APP_PATHS` se resuelve solo por HKLM App Paths, valor default, vistas Registry64 y Registry32 cuando corresponde; no hay HKCU fallback, PATH search, Program Files scan, Start Menu scan ni discovery.
 - `ABSOLUTE_EXE` se vuelve a validar y se comprueba con `File.Exists` justo antes de launch; si desaparecio devuelve `APPLICATION_EXECUTABLE_NOT_FOUND`.
@@ -929,9 +938,10 @@ IMPLEMENTADO:
 - Escritura de `network-identity.json` mediante archivo temporal, flush y move atomico sin sobrescritura automatica.
 - `license.dat` guarda solo el JWT recibido.
 - `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
+- `managed-windows-accounts.json` no guarda password, hashes de password, credentialId, tokens, credenciales, sessionId, profile path ni membership/admin flag.
 - `network-identity.json` no guarda private key, secretos ni licencia comercial.
 - `authorized-masters.json` no guarda private keys, passwords, JWT ni secretos; guarda public keys/fingerprints y estados de trust.
-- No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client.
+- No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client; el futuro Client credential store sera separado del binding SID.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
 - Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json` ni la llave CNG de Network Identity.
 
@@ -941,6 +951,7 @@ NO IMPLEMENTADO:
 - Logs persistentes en disco.
 - DPAPI/ACL hardening avanzado para `license.dat`.
 - Almacenamiento seguro futuro de credenciales `PRIMARY`/`SECONDARY`.
+- Integracion de `managed-windows-accounts.json` con browser policies, Local IPC, Protobuf, Windows Session State, login/logoff/switch o Credential Vault.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 

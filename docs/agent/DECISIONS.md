@@ -1,5 +1,27 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19B
+
+- Cada Client persiste el binding local de cuentas Windows administradas en `<CommonApplicationData>\Galtek\Classroom\managed-windows-accounts.json`, usando el data directory/override vigente del Agent.
+- Los slots validos son exactamente `PRIMARY` y `SECONDARY`; no se aceptan slots arbitrarios.
+- La identidad fuerte del binding es `windowsSid`; `accountReference` es metadata canonica/informativa devuelta por Windows.
+- El documento incluye `schemaVersion = 1`, `installationId` y `bindings`; si `installationId` no coincide con la Installation Identity actual, falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- Archivo ausente significa ambos slots `NOT_CONFIGURED`; no se crea durante startup ni por list/status.
+- JSON corrupto, schema desconocido, `installationId` ausente/mismatch, `accountId` desconocido, `PRIMARY`/`SECONDARY` duplicado, SID invalido, mismo SID en ambos slots o campos de secreto invalidan todo el catalogo y preservan el archivo.
+- `PRIMARY` y `SECONDARY` no pueden compartir SID.
+- Borrar y recrear una cuenta con el mismo username pero SID nuevo no autoriza adopcion automatica; rebind requiere replace explicito.
+- Renombrar una cuenta no rompe el binding si el SID sigue resolviendo; list/status puede mostrar la referencia canonica nueva sin reescribir el archivo.
+- Bind/replace usa `LookupAccountNameW`, `ConvertSidToStringSidW`, `ConvertStringSidToSidW` y `LookupAccountSidW`; no usa PowerShell, cmd, WMI, `net user`, SAM registry ni scans de perfiles.
+- Un nombre no calificado como `Primaria` se interpreta deterministamente como `<MACHINE>\Primaria` antes de resolver.
+- Solo se aceptan cuentas `SidTypeUser`; grupos, aliases, well-known groups, dominios, computer accounts, invalid/unknown se rechazan.
+- Status local expone ambos slots con `configured`, `accountReference`, `credentialConfigured=false` y `status`.
+- Estados 19B: `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` y `ACCOUNT_NOT_FOUND`; ningun slot devuelve `READY` todavia.
+- CLI local: `--managed-account-list`, `--managed-account-bind <PRIMARY|SECONDARY> <WINDOWS_ACCOUNT>`, `--managed-account-remove <PRIMARY|SECONDARY>` y `--replace-managed-account-binding`.
+- Mutaciones `bind`/`replace`/`remove` requieren consola elevada, no autoelevan y no aceptan parametros de password/credential/secret/token/PIN.
+- `managed-windows-accounts.json` tiene ACL para `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales no reciben read/write explicito.
+- 19B no modifica Local IPC, Protobuf, gRPC, Session Agent, Master Backend Java productivo, browser policy handlers, Credential Vault, DPAPI, Client credential store, login/logoff/switch ni UI.
+- 19B agrega 0 timers, 0 polling, 0 enumeracion de usuarios, 0 WMI, 0 scans y 0 trabajo idle; resolucion SID ocurre solo por bind/replace/list/status on-demand.
+
 ## 2026-09-03 - Prompt 19A
 
 - Credential Vault del Master queda implementado como servicio interno Java-only, sin UI, endpoints HTTP, Protobuf, gRPC ni SQLite migration.
@@ -163,7 +185,7 @@
 
 - Los apply endpoints de browser policies viven en Master y aceptan solo `targetDeviceIds`; la request no puede traer `policyId`, rules, `accountType`, URLs, browser, commands, registry paths, timeout ni payload libre.
 - El Master aplica la fuente de verdad persistida: resuelve una policy efectiva por target desde SQLite y no acepta policies fabricadas en la request.
-- El contexto de dispatch 16F1 usa `accountType = null`, por lo que solo aplican policies `ANY`; `PRIMARY`/`SECONDARY` no se infieren hasta existir binding seguro hacia Windows SID.
+- El contexto de dispatch 16F1 usa `accountType = null`, por lo que solo aplican policies `ANY`; `PRIMARY`/`SECONDARY` no se infieren hasta una fase futura que integre explicitamente el binding seguro hacia Windows SID.
 - El `groupId` de dispatch se deriva del assignment actual `Student -> Device` y del grupo del Student; no se acepta como input del apply endpoint.
 - Todos los parametros Protobuf tipados se congelan antes del fanout remoto; luego se persiste una sola `BatchOperation` y se usa el mismo `operationId` para todos los targets.
 - El preflight de browser policy apply replica power control: aula correcta, binding vigente, trust `PAIRED` no `REVOKED`, conexion autenticada `ONLINE` y capability especifica.
@@ -255,7 +277,7 @@
 - Desde Prompt 16D, el Agent aplica bloqueo real de navegacion en Chrome/Edge solo mediante `URLBlocklist`/`URLAllowlist` en `HKEY_USERS\<SID>` del usuario interactivo real. No usa HKLM para esta funcionalidad.
 - `EXACT_URL` no se compila a native Chromium policy en 16D; si una policy activa lo contiene, el Agent devuelve `BROWSER_POLICY_NOT_NATIVE_ENFORCEABLE`.
 - La semantica vigente de matching es "most specific wins": host, luego scheme/port, luego path, luego query; solo ante igual especificidad `ALLOW` gana a `BLOCK`.
-- `accountScope = ANY` aplica al usuario interactivo real; `PRIMARY` y `SECONDARY` devuelven `BROWSER_ACCOUNT_SCOPE_UNRESOLVED` hasta que exista binding productivo a Windows SID.
+- `accountScope = ANY` aplica al usuario interactivo real; `PRIMARY` y `SECONDARY` no se aplican en browser policy hasta una fase futura que consuma el binding productivo a Windows SID.
 - Galtek solo actualiza registry policy que puede demostrar como propia mediante `browser-navigation-policy-state.json`; desconocidos en HKU o policies relevantes en HKLM producen `BROWSER_POLICY_EXTERNAL_CONFLICT`.
 - `browser-navigation-policy-apply.json` es journal lazy para recovery en el siguiente apply; no hay timer, polling, scan de procesos, scan de browsers ni polling de registry.
 - `APPLY_BROWSER_NAVIGATION_POLICY SUCCESS` significa registry escrito, releido/verificado y state durable confirmado; no significa que Chrome/Edge exista, se reinicie, cierre tabs o refresque cada pagina ya cargada.

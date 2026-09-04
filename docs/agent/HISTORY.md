@@ -1946,3 +1946,36 @@
 ### Commit sugerido
 
 `feat(master): add encrypted credential vault`
+
+## 2026-09-04 - Prompt 19B
+
+### Realizado
+
+- Implementado binding local seguro Client `PRIMARY`/`SECONDARY` -> Windows SID en `managed-windows-accounts.json`.
+- Agregado modelo `ManagedWindowsAccountBinding` con `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`.
+- El documento queda ligado al `installationId` actual y falla cerrado ante mismatch, schema desconocido, JSON corrupto, slots desconocidos/duplicados, SID invalido, SID compartido o campos de secreto.
+- Archivo ausente equivale a ambos slots `NOT_CONFIGURED`; list/status no crea ni modifica el archivo.
+- Agregado store `IManagedWindowsAccountBindingStore`/`ManagedWindowsAccountBindingStore` con Load/List/Get/Add/Replace/Remove, escritura durable con `DurableFileWriter`, ACL local y verificacion posterior.
+- Agregado ACL de archivo con `LocalSystem` y `Builtin Administrators` `FullControl`, sin read/write explicito para usuarios normales.
+- Actualizado `IWindowsAccountResolver`/`WindowsAccountResolver` para usar APIs nativas `LookupAccountNameW`, `LookupAccountSidW`, `ConvertSidToStringSidW` y `ConvertStringSidToSidW`.
+- Bind/replace acepta solo `SidTypeUser`, canonicaliza `accountReference` por lookup inverso y normaliza nombres cortos como `<MACHINE>\Nombre`.
+- Agregado status local de ambos slots con `configured`, `accountReference`, `credentialConfigured=false` y estados `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED` o `ACCOUNT_NOT_FOUND`.
+- Agregada CLI local: `--managed-account-list`, `--managed-account-bind <PRIMARY|SECONDARY> <WINDOWS_ACCOUNT>`, `--managed-account-remove <PRIMARY|SECONDARY>` y `--replace-managed-account-binding`.
+- Mutaciones requieren consola elevada, no autoelevan y no aceptan parametros de password/credential/secret/token/PIN.
+- Agregados tests dirigidos de store, resolver/normalizacion, bind/replace/remove, rename/delete/recreate, status, secretos y CLI.
+- Documentado `docs/windows/MANAGED_WINDOWS_ACCOUNTS.md` y actualizados arquitectura, modelo funcional, reglas, decisiones y estado.
+
+### Cambios descartados
+
+- No se implemento password, password hash, DPAPI, Client credential store, Credential Vault integration, Master HTTP API, Java productivo, Protobuf, gRPC, Local IPC, Session Agent, browser policy integration, Windows Session State, login, logout, switch, Credential Provider, creacion/borrado/renombre de cuentas Windows, scans, WMI, timers ni polling.
+- No se mostro SID por default en salida CLI.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ManagedWindowsAccount|FullyQualifiedName~WindowsAccountResolver|FullyQualifiedName~AgentCommandLineTests|FullyQualifiedName~OperationContractsTests|FullyQualifiedName~MasterBindingConfigurationServiceTests"` en `agent`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`feat(agent): bind managed windows accounts`

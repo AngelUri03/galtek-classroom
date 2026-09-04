@@ -16,7 +16,10 @@ public enum AgentCommandMode
     ApplicationBindAppPath,
     ApplicationBindDisable,
     ApplicationBindEnable,
-    ApplicationBindRemove
+    ApplicationBindRemove,
+    ManagedAccountList,
+    ManagedAccountBind,
+    ManagedAccountRemove
 }
 
 public sealed record AgentCommandLine(
@@ -26,8 +29,11 @@ public sealed record AgentCommandLine(
     string? MasterAccountName,
     string? ApplicationId,
     string? ApplicationTarget,
+    string? ManagedAccountId,
+    string? ManagedWindowsAccountReference,
     bool ReplaceMasterBinding,
     bool ReplaceApplicationBinding,
+    bool ReplaceManagedAccountBinding,
     string? ErrorMessage)
 {
     public bool IsValid => ErrorMessage is null;
@@ -50,6 +56,10 @@ public sealed record AgentCommandLine(
         const string applicationBindEnableArgument = "--application-bind-enable";
         const string applicationBindRemoveArgument = "--application-bind-remove";
         const string replaceApplicationBindingArgument = "--replace-application-binding";
+        const string managedAccountListArgument = "--managed-account-list";
+        const string managedAccountBindArgument = "--managed-account-bind";
+        const string managedAccountRemoveArgument = "--managed-account-remove";
+        const string replaceManagedAccountBindingArgument = "--replace-managed-account-binding";
 
         var mode = AgentCommandMode.Service;
         var hostArgs = new List<string>();
@@ -57,8 +67,11 @@ public sealed record AgentCommandLine(
         string? masterAccountName = null;
         string? applicationId = null;
         string? applicationTarget = null;
+        string? managedAccountId = null;
+        string? managedWindowsAccountReference = null;
         var replaceMasterBinding = false;
         var replaceApplicationBinding = false;
+        var replaceManagedAccountBinding = false;
         string? error = null;
 
         for (var index = 0; index < args.Length; index++)
@@ -219,6 +232,47 @@ public sealed record AgentCommandLine(
                 continue;
             }
 
+            if (string.Equals(argument, managedAccountListArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ManagedAccountList, argument, ref mode, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, managedAccountBindArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ManagedAccountBind, argument, ref mode, ref error);
+
+                if (index + 2 >= args.Length)
+                {
+                    error ??= "--managed-account-bind requires an accountId and Windows account reference.";
+                    continue;
+                }
+
+                managedAccountId = args[++index];
+                managedWindowsAccountReference = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, managedAccountRemoveArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.ManagedAccountRemove, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--managed-account-remove requires an accountId.";
+                    continue;
+                }
+
+                managedAccountId = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, replaceManagedAccountBindingArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                replaceManagedAccountBinding = true;
+                continue;
+            }
+
             hostArgs.Add(argument);
         }
 
@@ -234,6 +288,20 @@ public sealed record AgentCommandLine(
             error ??= "--replace-application-binding can only be used with an application binding command.";
         }
 
+        if (replaceManagedAccountBinding
+            && mode is not AgentCommandMode.ManagedAccountBind)
+        {
+            error ??= "--replace-managed-account-binding can only be used with --managed-account-bind.";
+        }
+
+        if ((mode is AgentCommandMode.ManagedAccountList
+            or AgentCommandMode.ManagedAccountBind
+            or AgentCommandMode.ManagedAccountRemove)
+            && hostArgs.Any(IsSecretLikeArgument))
+        {
+            error ??= "Managed account binding commands do not accept password, credential, secret, token or pin arguments.";
+        }
+
         return new AgentCommandLine(
             mode,
             hostArgs.ToArray(),
@@ -241,8 +309,11 @@ public sealed record AgentCommandLine(
             masterAccountName,
             applicationId,
             applicationTarget,
+            managedAccountId,
+            managedWindowsAccountReference,
             replaceMasterBinding,
             replaceApplicationBinding,
+            replaceManagedAccountBinding,
             error);
     }
 
@@ -259,5 +330,14 @@ public sealed record AgentCommandLine(
         }
 
         currentMode = requestedMode;
+    }
+
+    private static bool IsSecretLikeArgument(string argument)
+    {
+        return argument.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || argument.Contains("credential", StringComparison.OrdinalIgnoreCase)
+            || argument.Contains("secret", StringComparison.OrdinalIgnoreCase)
+            || argument.Contains("token", StringComparison.OrdinalIgnoreCase)
+            || argument.Contains("pin", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -85,12 +85,16 @@ public sealed class OperationContractsTests
     public void ManagedWindowsAccountContracts_ExposeLogicalIdsAndSessionStatesOnly()
     {
         var accountTypes = ConstantValues(typeof(ClassroomManagedWindowsAccountTypes));
+        var accountStatuses = ConstantValues(typeof(ClassroomManagedWindowsAccountStatuses));
         var sessionStates = ConstantValues(typeof(ClassroomWindowsSessionStates));
         var switchActions = ConstantValues(typeof(ClassroomManagedAccountSwitchActions));
 
         Assert.Contains(ClassroomManagedWindowsAccountTypes.Primary, accountTypes);
         Assert.Contains(ClassroomManagedWindowsAccountTypes.Secondary, accountTypes);
         Assert.DoesNotContain("Administrator", accountTypes);
+        Assert.Contains(ClassroomManagedWindowsAccountStatuses.NotConfigured, accountStatuses);
+        Assert.Contains(ClassroomManagedWindowsAccountStatuses.CredentialNotConfigured, accountStatuses);
+        Assert.Contains(ClassroomManagedWindowsAccountStatuses.AccountNotFound, accountStatuses);
         Assert.Contains(ClassroomWindowsSessionStates.NoSession, sessionStates);
         Assert.Contains(ClassroomWindowsSessionStates.PrimaryActive, sessionStates);
         Assert.Contains(ClassroomWindowsSessionStates.SecondaryActive, sessionStates);
@@ -127,6 +131,7 @@ public sealed class OperationContractsTests
         var errorCodes = ConstantValues(typeof(ClassroomOperationErrorCodes));
 
         Assert.Contains(ClassroomOperationErrorCodes.AccountNotConfigured, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.AccountNotFound, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialNotConfigured, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionUnknown, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonFailed, errorCodes);
@@ -151,6 +156,26 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.ApplicationLaunchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.InputLockFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.InputUnlockFailed, errorCodes);
+    }
+
+    [Fact]
+    public void ManagedWindowsAccountBindingModel_DoesNotExposeSecretsOrCredentialIds()
+    {
+        var propertyNames = typeof(ManagedWindowsAccountBinding)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("AccountId", propertyNames);
+        Assert.Contains("WindowsSid", propertyNames);
+        Assert.Contains("AccountReference", propertyNames);
+        Assert.DoesNotContain("Password", propertyNames);
+        Assert.DoesNotContain("PasswordHash", propertyNames);
+        Assert.DoesNotContain("Credential", propertyNames);
+        Assert.DoesNotContain("CredentialId", propertyNames);
+        Assert.DoesNotContain("Token", propertyNames);
+        Assert.DoesNotContain("SessionId", propertyNames);
+        Assert.DoesNotContain("ProfilePath", propertyNames);
     }
 
     [Fact]
