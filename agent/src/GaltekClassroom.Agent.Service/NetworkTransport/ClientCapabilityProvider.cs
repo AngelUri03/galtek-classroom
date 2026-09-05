@@ -16,6 +16,7 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.BrowserDownloadPolicyV1,
         NetworkCapability.InputControlV1,
         NetworkCapability.WindowsSessionStateV1,
+        NetworkCapability.WindowsSessionLogoffV1,
         NetworkCapability.ManagedCredentialProvisioningV1
     ];
 

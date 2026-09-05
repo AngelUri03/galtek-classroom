@@ -14,6 +14,7 @@ import com.galtek.classroom.network.v1.BrowserPolicyMode;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleAction;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleMatchType;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
+import com.galtek.classroom.network.v1.LogoffWindowsSessionOperationParameters;
 import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
@@ -213,6 +214,105 @@ class MasterRemoteOperationGatewayTest {
                         "device-1",
                         ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY,
                         utf16Le("secret"))
+                .orElseThrow();
+
+        RemoteOperationOutcome timeout = gateway.timeout(handle);
+
+        assertThat(timeout.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(timeout.errorCode()).isEqualTo(ErrorCode.OPERATION_RESULT_UNKNOWN);
+        assertThat(gateway.pendingCount()).isZero();
+    }
+
+    @Test
+    void logoffWindowsSessionBuildsTypedExpectedAccountOperationRequest() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.logoffWindowsSession(
+                        snapshot,
+                        "logoff-1",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_LOGOFF_WINDOWS_SESSION);
+        assertThat(request.hasLogoffWindowsSession()).isTrue();
+        assertThat(request.getLogoffWindowsSession().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(request.hasProvisionManagedCredential()).isFalse();
+        assertThat(request.hasOpenApplication()).isFalse();
+        assertThat(request.hasOpenUrl()).isFalse();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+    }
+
+    @Test
+    void logoffWindowsSessionMapsPrimaryAndSecondaryOnly() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.logoffWindowsSession(
+                        snapshot,
+                        "logoff-primary",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                .orElseThrow();
+        gateway.logoffWindowsSession(
+                        snapshot,
+                        "logoff-secondary",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                .orElseThrow();
+
+        assertThat(observer.values().get(0).getOperationRequest().getLogoffWindowsSession().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(observer.values().get(1).getOperationRequest().getLogoffWindowsSession().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY);
+    }
+
+    @Test
+    void logoffWindowsSessionRequestDoesNotContainIdentityPasswordOrSessionSelectors() {
+        LogoffWindowsSessionOperationParameters parameters =
+                LogoffWindowsSessionOperationParameters.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .build();
+
+        assertThat(parameters.getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY);
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .containsExactly("accountId");
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .doesNotContain(
+                        "username",
+                        "sid",
+                        "windowsSid",
+                        "sessionId",
+                        "password",
+                        "force",
+                        "timeout",
+                        "command",
+                        "arguments",
+                        "shell");
+    }
+
+    @Test
+    void logoffWindowsSessionTimeoutReportsUnknownWithoutRetrying() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, new RecordingObserver<>());
+        DispatchHandle handle = gateway.logoffWindowsSession(
+                        snapshot,
+                        "logoff-timeout",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
                 .orElseThrow();
 
         RemoteOperationOutcome timeout = gateway.timeout(handle);
@@ -471,6 +571,26 @@ class MasterRemoteOperationGatewayTest {
         assertManagedCredentialError(
                 NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED,
                 ErrorCode.MANAGED_CREDENTIAL_PROTECTION_FAILED);
+    }
+
+    @Test
+    void operationResultMapsWindowsLogoffErrorsWithoutTextParsing() {
+        assertWindowsLogoffError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED,
+                ErrorCode.WINDOWS_SESSION_CHANGED,
+                false);
+        assertWindowsLogoffError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN,
+                ErrorCode.WINDOWS_SESSION_UNKNOWN,
+                true);
+        assertWindowsLogoffError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGOFF_FAILED,
+                ErrorCode.WINDOWS_LOGOFF_FAILED,
+                true);
+        assertWindowsLogoffError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED,
+                ErrorCode.ACCOUNT_NOT_CONFIGURED,
+                false);
     }
 
     @Test
@@ -803,6 +923,22 @@ class MasterRemoteOperationGatewayTest {
 
         assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
         assertThat(outcome.errorCode()).isEqualTo(expected);
+    }
+
+    private static void assertWindowsLogoffError(
+            NetworkOperationErrorCode networkError,
+            ErrorCode expected,
+            boolean retryable) {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "logoff",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_LOGOFF_WINDOWS_SESSION,
+                        networkError));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(expected);
+        assertThat(outcome.errorCode().retryable()).isEqualTo(retryable);
     }
 
     private static OperationResult success(

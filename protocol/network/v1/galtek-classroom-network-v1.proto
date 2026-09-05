@@ -88,7 +88,12 @@ message OperationRequest {
     ApplyBrowserDownloadPolicyOperationParameters apply_browser_download_policy = 22;
     OpenApplicationOperationParameters open_application = 23;
     ProvisionManagedCredentialOperationParameters provision_managed_credential = 24;
+    LogoffWindowsSessionOperationParameters logoff_windows_session = 25;
   }
+}
+
+message LogoffWindowsSessionOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
 }
 
 message ProvisionManagedCredentialOperationParameters {
@@ -185,6 +190,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_INPUT_CONTROL_V1 = 9;
   NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1 = 10;
   NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 = 11;
+  NETWORK_CAPABILITY_WINDOWS_SESSION_LOGOFF_V1 = 12;
 }
 
 enum NetworkOperationType {
@@ -327,4 +333,6 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND = 42;
   NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID = 43;
   NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED = 44;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED = 45;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGOFF_FAILED = 46;
 }

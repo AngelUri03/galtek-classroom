@@ -88,6 +88,14 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `GET_WINDOWS_SESSION_STATE` es on-demand y nunca debe convertirse en polling, timer, startup scan o heartbeat field.
 - Ningun token, SID, username, domain, `accountReference` ni `sessionId` debe salir en el result remoto de `GET_WINDOWS_SESSION_STATE`.
 - `SESSION_AGENT_AVAILABLE` no es requisito para consultar `WindowsSessionState`.
+- `LOGOFF_WINDOWS_SESSION` nunca cierra una sesion cuyo SID real no coincida con el managed account esperado.
+- Nunca aceptar `sessionId`, username, domain, SID, `accountReference`, password, force, timeout, command, args ni payload arbitrario desde Master para elegir que sesion cerrar.
+- Antes de un logoff destructivo, revalidar inmediatamente `sessionId` y SID real de consola fisica contra el binding esperado.
+- `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente; debe reportarse como mismatch/cambio de sesion.
+- `NO_SESSION` puede ser `SUCCESS` idempotente para `LOGOFF_WINDOWS_SESSION` porque la sesion esperada ya esta ausente.
+- `LOGOFF_WINDOWS_SESSION` no requiere credenciales almacenadas, no consulta DPAPI, no usa Credential Vault y no usa Session Agent.
+- `LOGOFF_WINDOWS_SESSION` no tiene retry automatico ni reconciliacion nueva; si falta `OperationResult`, usar `OPERATION_RESULT_UNKNOWN`.
+- `SUCCESS` de `LOGOFF_WINDOWS_SESSION` significa solicitud `WTSLogoffSession` aceptada, no finalizacion confirmada.
 - El Client credential store es `managed-windows-credentials.dat` y siempre permanece separado del binding SID de cuentas administradas en `managed-windows-accounts.json`.
 - Client credentials nunca van en `managed-windows-accounts.json`.
 - El Client password store usa Windows DPAPI bajo LocalSystem con scope de usuario actual; no usar LocalMachine.

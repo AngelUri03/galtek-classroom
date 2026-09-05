@@ -144,6 +144,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialStoreInvalid, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialProtectionFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionUnknown, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionChanged, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
@@ -329,6 +330,54 @@ public sealed class OperationContractsTests
             "WINDOWS_SESSION_STATE_V1",
             ClassroomCapabilities.WindowsSessionStateV1);
         Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionStateV1));
+    }
+
+    [Fact]
+    public void LogoffWindowsSessionRemoteContract_IsExpectedAccountIdOnly()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.LogoffWindowsSession,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1",
+            LogoffWindowsSession = new LogoffWindowsSessionOperationParameters
+            {
+                AccountId = ManagedWindowsAccountId.Primary
+            }
+        };
+
+        Assert.Equal(NetworkOperationType.LogoffWindowsSession, request.OperationType);
+        Assert.Equal(
+            OperationRequest.OperationParametersOneofCase.LogoffWindowsSession,
+            request.OperationParametersCase);
+        Assert.Equal(ManagedWindowsAccountId.Primary, request.LogoffWindowsSession.AccountId);
+
+        var parameterNames = typeof(LogoffWindowsSessionOperationParameters)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AccountId", parameterNames);
+        Assert.DoesNotContain("Username", parameterNames);
+        Assert.DoesNotContain("Domain", parameterNames);
+        Assert.DoesNotContain("WindowsSid", parameterNames);
+        Assert.DoesNotContain("Sid", parameterNames);
+        Assert.DoesNotContain("SessionId", parameterNames);
+        Assert.DoesNotContain("Password", parameterNames);
+        Assert.DoesNotContain("Force", parameterNames);
+        Assert.DoesNotContain("Timeout", parameterNames);
+        Assert.DoesNotContain("Command", parameterNames);
+        Assert.DoesNotContain("Arguments", parameterNames);
+        Assert.DoesNotContain("Shell", parameterNames);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeWindowsSessionLogoffV1()
+    {
+        Assert.Equal(
+            "WINDOWS_SESSION_LOGOFF_V1",
+            ClassroomCapabilities.WindowsSessionLogoffV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionLogoffV1));
     }
 
     [Fact]

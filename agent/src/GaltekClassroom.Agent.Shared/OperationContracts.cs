@@ -257,6 +257,7 @@ public static class ClassroomOperationErrorCodes
     public const string ManagedCredentialStoreInvalid = "MANAGED_CREDENTIAL_STORE_INVALID";
     public const string ManagedCredentialProtectionFailed = "MANAGED_CREDENTIAL_PROTECTION_FAILED";
     public const string WindowsSessionUnknown = "WINDOWS_SESSION_UNKNOWN";
+    public const string WindowsSessionChanged = "WINDOWS_SESSION_CHANGED";
     public const string WindowsLogonFailed = "WINDOWS_LOGON_FAILED";
     public const string WindowsLogoffFailed = "WINDOWS_LOGOFF_FAILED";
     public const string SessionSwitchFailed = "SESSION_SWITCH_FAILED";
@@ -311,5 +312,6 @@ public static class ClassroomCapabilities
     public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";
     public const string InputControlV1 = "INPUT_CONTROL_V1";
     public const string WindowsSessionStateV1 = "WINDOWS_SESSION_STATE_V1";
+    public const string WindowsSessionLogoffV1 = "WINDOWS_SESSION_LOGOFF_V1";
     public const string ManagedCredentialProvisioningV1 = "MANAGED_CREDENTIAL_PROVISIONING_V1";
 }

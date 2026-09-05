@@ -5,6 +5,7 @@ import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParameters;
 import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
 import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
+import com.galtek.classroom.network.v1.LogoffWindowsSessionOperationParameters;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
 import com.galtek.classroom.network.v1.OpenApplicationOperationParameters;
@@ -92,7 +93,7 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -101,7 +102,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -110,7 +111,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserDownloadPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -119,7 +120,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenUrlOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -128,7 +129,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenApplicationOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null, null, null);
     }
 
     public Optional<DispatchHandle> provisionManagedCredential(
@@ -153,7 +154,32 @@ public class MasterRemoteOperationGateway {
                 null,
                 null,
                 null,
+                null,
                 parameters);
+    }
+
+    public Optional<DispatchHandle> logoffWindowsSession(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId,
+            ManagedWindowsAccountId accountId) {
+        LogoffWindowsSessionOperationParameters parameters =
+                LogoffWindowsSessionOperationParameters.newBuilder()
+                        .setAccountId(accountId == null
+                                ? ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED
+                                : accountId)
+                        .build();
+        return dispatch(
+                snapshot,
+                OperationType.LOGOFF_WINDOWS_SESSION,
+                operationId,
+                targetDeviceId,
+                null,
+                null,
+                null,
+                null,
+                parameters,
+                null);
     }
 
     private Optional<DispatchHandle> dispatch(
@@ -165,6 +191,7 @@ public class MasterRemoteOperationGateway {
             ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters,
             OpenApplicationOperationParameters openApplicationParameters,
             OpenUrlOperationParameters openUrlParameters,
+            LogoffWindowsSessionOperationParameters logoffWindowsSessionParameters,
             ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
@@ -205,6 +232,9 @@ public class MasterRemoteOperationGateway {
             }
             if (openUrlParameters != null) {
                 request.setOpenUrl(openUrlParameters);
+            }
+            if (logoffWindowsSessionParameters != null) {
+                request.setLogoffWindowsSession(logoffWindowsSessionParameters);
             }
             if (provisionManagedCredentialParameters != null) {
                 request.setProvisionManagedCredential(provisionManagedCredentialParameters);
@@ -463,6 +493,8 @@ public class MasterRemoteOperationGateway {
             case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID ->
                     ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID;
             case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN -> ErrorCode.WINDOWS_SESSION_UNKNOWN;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED -> ErrorCode.WINDOWS_SESSION_CHANGED;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGOFF_FAILED -> ErrorCode.WINDOWS_LOGOFF_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED -> ErrorCode.ACCOUNT_NOT_CONFIGURED;
             case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND -> ErrorCode.ACCOUNT_NOT_FOUND;
             case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID ->
@@ -553,6 +585,10 @@ public class MasterRemoteOperationGateway {
                     "Agent reported invalid managed Windows account bindings.";
             case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN ->
                     "Agent could not determine Windows session state.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED ->
+                    "Windows session changed before logoff.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGOFF_FAILED ->
+                    "Windows did not accept the logoff request.";
             case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED ->
                     "Managed Windows account is not configured on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND ->
@@ -587,6 +623,7 @@ public class MasterRemoteOperationGateway {
             case OPEN_APPLICATION -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION;
             case OPEN_URL -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL;
             case GET_WINDOWS_SESSION_STATE -> NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE;
+            case LOGOFF_WINDOWS_SESSION -> NetworkOperationType.NETWORK_OPERATION_TYPE_LOGOFF_WINDOWS_SESSION;
             case PROVISION_MANAGED_CREDENTIAL ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL;
             case APPLY_BROWSER_NAVIGATION_POLICY ->

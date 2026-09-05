@@ -275,6 +275,8 @@ public sealed class RemoteOperationDispatcher
                     request.ApplyBrowserDownloadPolicy),
                 OperationRequest.OperationParametersOneofCase.ProvisionManagedCredential => ManagedCredentialProvisioningSignature(
                     request.ProvisionManagedCredential),
+                OperationRequest.OperationParametersOneofCase.LogoffWindowsSession => LogoffWindowsSessionSignature(
+                    request.LogoffWindowsSession),
                 OperationRequest.OperationParametersOneofCase.None => string.Empty,
                 _ => "<unknown>"
             };
@@ -304,6 +306,14 @@ public sealed class RemoteOperationDispatcher
 
         private static string ManagedCredentialProvisioningSignature(
             ProvisionManagedCredentialOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
+
+        private static string LogoffWindowsSessionSignature(
+            LogoffWindowsSessionOperationParameters? parameters)
         {
             return parameters is null
                 ? string.Empty

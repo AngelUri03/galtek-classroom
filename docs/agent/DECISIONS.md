@@ -1,5 +1,31 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19F
+
+- `LOGOFF_WINDOWS_SESSION` es una operacion remota tipada Agent-side para cerrar solo la sesion de consola fisica cuyo SID real coincide con el managed account esperado.
+- El request acepta solo `ManagedWindowsAccountId account_id` con `PRIMARY` o `SECONDARY`; `UNSPECIFIED` se rechaza.
+- Nunca se aceptan username, domain, SID, `accountReference`, password, sessionId, PID, force, timeout, command, args, shell ni payload arbitrario para escoger sesion.
+- `WINDOWS_SESSION_LOGOFF_V1` es una capability especifica de logoff; no se introduce capability generica de session control.
+- La capability no autoriza. `LOGOFF_WINDOWS_SESSION` sigue pasando por el dispatcher normal y requiere Commercial License Client `ACTIVE`; `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe.
+- El Agent Service/LocalSystem ejecuta toda la operacion; no usa Session Agent ni Session Command.
+- Debe existir binding local para el slot solicitado. Sin binding devuelve `ACCOUNT_NOT_CONFIGURED`; binding corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- LOGOFF no requiere password, no consulta `managed-windows-credentials.dat`, no usa DPAPI ni Credential Vault.
+- La autoridad de sesion es `WTSGetActiveConsoleSessionId()` sobre consola fisica. No se elige sesion por RDP, `explorer.exe`, foreground process, username, WMI, Registry ni `C:\Users`.
+- La identidad se obtiene por `WTSQueryUserToken(sessionId)` + `GetTokenInformation(TokenUser)` y se compara exclusivamente por SID real contra `managed-windows-accounts.json`.
+- Una cuenta borrada pero con sesion viva puede cerrarse si el `TokenUser` SID coincide con el binding; no se exige `LookupAccountSid` exitoso ni se adopta un SID nuevo por username.
+- `NO_SESSION` devuelve `SUCCESS` idempotente porque la sesion esperada ya esta ausente.
+- Otro managed account, administrador u otro usuario activo devuelve `WINDOWS_SESSION_CHANGED` y nunca se cierra automaticamente.
+- Estado de consola no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+- Antes de `WTSLogoffSession`, el Agent repite la observacion y exige mismo `sessionId` y mismo SID esperado; si cambian, no llama logoff.
+- La implementacion productiva usa `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)`.
+- `bWait = FALSE` es intencional para no bloquear workers; `SUCCESS` significa que Windows acepto la solicitud asincrona, no que ya no exista sesion.
+- No hay polling posterior, loop, sleeps, heartbeat field, status query nuevo, receipts nuevos ni reconciliation 19F.
+- Si `WTSLogoffSession` devuelve false, se reporta `WINDOWS_LOGOFF_FAILED`; el resultado remoto no expone SID, username, accountReference ni sessionId.
+- Mismo `operationId + accountId` devuelve resultado cacheado y no repite `WTSLogoffSession`; mismo `operationId` con otro accountId conserva conflicto de dedupe.
+- Si el Master no recibe `OperationResult`, el resultado es `OPERATION_RESULT_UNKNOWN` sin retry automatico porque un retry tardio podria cerrar una nueva sesion del mismo accountId.
+- `LOGOFF_WINDOWS_SESSION` puede cerrar aplicaciones y provocar perdida de trabajo no guardado; no debe ejecutarse por assignment, startup ni recovery automatico.
+- 19F agrega solo metodo tipado `MasterRemoteOperationGateway.logoffWindowsSession(...)`; no agrega endpoint HTTP, BatchOperation, fanout, planner, UI, LOGON, SWITCH ni Credential Provider.
+
 ## 2026-09-04 - Prompt 19E2
 
 - `ManagedCredentialProvisioningBridge` es una primitive interna del Master Backend, no Controller, endpoint, CommandLineRunner ni provisioning de startup.

@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. Sigue sin existir HTTP, BatchOperation, login/logoff/switch ni reveal Client-side.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. Sigue sin existir HTTP, BatchOperation, login/switch ni reveal Client-side.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -153,6 +153,16 @@ La comparacion no usa `accountReference` ni username. Si una cuenta se renombra 
 
 `managed-windows-accounts.json` sigue sin guardar passwords, tokens, sessionId, profile path ni estado de sesion. `GET_WINDOWS_SESSION_STATE` tampoco escribe este archivo.
 
+## Uso Desde Windows Session Logoff
+
+Desde Prompt 19F, `LOGOFF_WINDOWS_SESSION` usa estos bindings como expected account para cerrar la sesion de consola fisica actual solo si el SID real del `TokenUser` coincide con el `windowsSid` del slot solicitado.
+
+El request remoto transporta solo `accountId` `PRIMARY` o `SECONDARY`. No acepta username, domain, SID, `accountReference`, password, sessionId, force, timeout ni comandos. Sin binding para el slot solicitado devuelve `ACCOUNT_NOT_CONFIGURED`; binding corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+
+Para logoff, el SID del token activo es suficiente aunque `LookupAccountSid` ya no resuelva la cuenta porque fue borrada mientras la sesion sigue viva. Galtek no adopta otro SID por username y no exige credencial almacenada para cerrar sesion.
+
+`NO_SESSION` es `SUCCESS` idempotente. Si la consola pertenece a otro SID, incluso otro managed account o administrador, `LOGOFF_WINDOWS_SESSION` no la cierra y devuelve `WINDOWS_SESSION_CHANGED`.
+
 ## Validacion Manual Pendiente
 
 En una PC descartable:
@@ -162,14 +172,15 @@ En una PC descartable:
 3. Verificar que list muestre ambas con `CREDENTIAL_NOT_CONFIGURED`.
 4. Renombrar `Primaria`; el SID permanece y el binding sigue valido.
 5. Provisionar credencial con `PROVISION_MANAGED_CREDENTIAL` y confirmar status interno `READY`.
-6. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND`.
-7. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
-8. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
+6. Con `PRIMARY` logueado, ejecutar `LOGOFF_WINDOWS_SESSION(PRIMARY)` y confirmar que cierra solo si el SID activo coincide.
+7. Borrar `Primaria` dejando su sesion viva; confirmar que `LOGOFF_WINDOWS_SESSION(PRIMARY)` todavia puede cerrarla por SID.
+8. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND` para status/list.
+9. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
+10. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
 
 Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticamente en 19B.
 
 ## Pendiente
 
-- 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master.

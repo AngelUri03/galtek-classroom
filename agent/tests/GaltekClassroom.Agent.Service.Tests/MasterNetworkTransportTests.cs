@@ -163,6 +163,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.BrowserDownloadPolicyV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.InputControlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.WindowsSessionStateV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.WindowsSessionLogoffV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.ManagedCredentialProvisioningV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -284,6 +285,33 @@ public sealed class MasterNetworkTransportTests : IDisposable
 
         Assert.True(differentAccount.Duplicate);
         Assert.Equal(1, handler.Calls);
+        Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, differentAccount.Result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DuplicateLogoffWindowsSessionOperationComparesAccountId()
+    {
+        var handler = new LogoffCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(
+            LogoffRequest("operation-logoff", ManagedWindowsAccountId.Primary),
+            CancellationToken.None);
+        RemoteOperationDispatchResult sameAccount = await dispatcher.DispatchAsync(
+            LogoffRequest("operation-logoff", ManagedWindowsAccountId.Primary),
+            CancellationToken.None);
+        RemoteOperationDispatchResult differentAccount = await dispatcher.DispatchAsync(
+            LogoffRequest("operation-logoff", ManagedWindowsAccountId.Secondary),
+            CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.True(sameAccount.Duplicate);
+        Assert.True(differentAccount.Duplicate);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(OperationExecutionStatus.Success, sameAccount.Result.Status);
         Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, differentAccount.Result.ErrorCode);
     }
 
@@ -482,6 +510,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
 
         Assert.False(policy.RequiresActiveCommercialLicense(NetworkOperationType.UnlockInput));
         Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.ProvisionManagedCredential));
+        Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.LogoffWindowsSession));
         Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.LockInput));
     }
 
@@ -609,6 +638,24 @@ public sealed class MasterNetworkTransportTests : IDisposable
             {
                 AccountId = accountId,
                 PasswordUtf16Le = ByteString.CopyFrom(System.Text.Encoding.Unicode.GetBytes(password))
+            }
+        };
+    }
+
+    private static OperationRequest LogoffRequest(
+        string operationId,
+        ManagedWindowsAccountId accountId)
+    {
+        return new OperationRequest
+        {
+            OperationId = operationId,
+            OperationType = NetworkOperationType.LogoffWindowsSession,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds(),
+            LogoffWindowsSession = new LogoffWindowsSessionOperationParameters
+            {
+                AccountId = accountId
             }
         };
     }
@@ -772,6 +819,21 @@ public sealed class MasterNetworkTransportTests : IDisposable
         {
             Calls++;
             return Task.FromResult(RemoteOperationHandlerResult.Success("provisioned"));
+        }
+    }
+
+    private sealed class LogoffCountingOperationHandler : IRemoteOperationHandler
+    {
+        public int Calls { get; private set; }
+
+        public NetworkOperationType OperationType => NetworkOperationType.LogoffWindowsSession;
+
+        public Task<RemoteOperationHandlerResult> HandleAsync(
+            OperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(RemoteOperationHandlerResult.Success("logoff accepted"));
         }
     }
 

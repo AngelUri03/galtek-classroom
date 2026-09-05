@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19F implementa `LOGOFF_WINDOWS_SESSION` como operacion remota tipada y destructiva del lado Agent. El contrato Protobuf agrega `LogoffWindowsSessionOperationParameters` con solo `ManagedWindowsAccountId account_id`, capability especifica `WINDOWS_SESSION_LOGOFF_V1` y errores `WINDOWS_SESSION_CHANGED`/`WINDOWS_LOGOFF_FAILED`. El Agent Service/LocalSystem valida que exista binding local `PRIMARY`/`SECONDARY`, observa la consola fisica con `WTSGetActiveConsoleSessionId()`, obtiene SID real del `TokenUser`, compara contra `managed-windows-accounts.json`, repite sessionId+SID inmediatamente antes de la llamada destructiva y solo entonces invoca `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)`. `NO_SESSION` es `SUCCESS` idempotente; otra sesion activa no se cierra; `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado. El Master Java agrega solo `MasterRemoteOperationGateway.logoffWindowsSession(...)` y capability/error mappings; no agrega endpoint HTTP, BatchOperation, fanout, planner, UI, LOGON, SWITCH, Credential Provider, password, retry automatico ni reconciliacion.
+
 Prompt 19E2 agrega en el Master Backend `ManagedCredentialProvisioningBridge`, una primitive interna Java-only que conecta Credential Vault -> `MasterRemoteOperationGateway.provisionManagedCredential(...)` para un solo `deviceId` explicito. El bridge exige `MasterAccessGuard.requireAuthorized()` antes de tocar el vault, valida una sesion de vault vigente mediante metadata, acepta solo `credentialId`, `operationId` y `accountId` logico `PRIMARY`/`SECONDARY`, rechaza credenciales que no sean `WINDOWS_ACCOUNT` con `CREDENTIAL_NOT_PROVISIONABLE`, extrae la password solo desde el vault, la codifica temporalmente como UTF-16LE sin BOM ni NUL y limpia el `byte[]` controlado en `finally` tras success, failure o timeout. No envia `credentialId`, vault token, master password, username, SID, domain ni `accountReference` al Client; no agrega endpoint HTTP, UI, BatchOperation, SQLite migration, retry automatico, fanout, startup provisioning ni cambios Client.
 
 Prompt 19E1 implementa `PROVISION_MANAGED_CREDENTIAL` como operacion remota tipada y secret-bearing sobre el gRPC/mTLS existente. El Master solo puede enviar `accountId` tipado `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sin BOM ni NUL; no envia username, SID, `accountReference`, `credentialId`, vault token, master password, comandos ni payload generico. El Agent Service valida framing, accountId y longitud, copia el secreto a un buffer mutable controlado, valida el binding local `managed-windows-accounts.json`, protege inmediatamente con `ManagedWindowsCredentialStore`/DPAPI y limpia el buffer. La capability `MANAGED_CREDENTIAL_PROVISIONING_V1` se anuncia porque existen handler productivo, store DPAPI, binding store y mapping Protobuf. El dedupe del Agent usa una firma secret-safe para esta operacion (`operationId`, tipo, target, protocolVersion y accountId), nunca password ni hash; duplicados con mismo `operationId + accountId` devuelven el resultado original sin reaplicar. No agrega Credential Vault bridge, endpoint HTTP Master, BatchOperation, Local IPC, Session Agent password handling, login/logoff/switch, status query nuevo, retry automatico ni trabajo idle.
@@ -80,7 +82,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master administrativa, autorizacion interna de unlock recovery y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente; Prompt 18B2 despacha input control batch desde Master usando handlers Agent-side existentes. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, login/logoff Windows, cambio real de usuario, mDNS, UI ni captura.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente; Prompt 18B2 despacha input control batch desde Master usando handlers Agent-side existentes. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, `LOGON_MANAGED_ACCOUNT` real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, dispatch Master/batch de logoff, mDNS, UI ni captura. `LOGOFF_WINDOWS_SESSION` ya existe Agent-side desde 19F.
 
 ## Modelo operativo Master/Client
 
@@ -389,9 +391,9 @@ NO IMPLEMENTADO:
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
-- Ejecucion real de `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` o `SWITCH_MANAGED_ACCOUNT`.
+- Ejecucion real de `LOGON_MANAGED_ACCOUNT` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
-- Login/logoff Windows real, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
+- `LOGON_MANAGED_ACCOUNT` real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
 
 ## Almacenamiento local del Master
 
@@ -582,15 +584,14 @@ NO IMPLEMENTADO:
 - DPAPI o endurecimiento avanzado de ACL.
 - Clock rollback.
 - Enforcements de features.
-- Passwords reales de cuentas Windows administradas.
-- DPAPI aplicado a secretos de cuentas administradas.
+- Uso de passwords de cuentas Windows administradas para iniciar o cambiar sesion.
 - Credential Provider.
-- Login/logoff Windows real.
-- Cambio real de usuario Windows.
+- `LOGON_MANAGED_ACCOUNT` real.
+- `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario Windows.
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Endpoints/IPC de pairing reales expuestos a UI/transporte.
 - Comandos MASTER protegidos por autorizacion de red.
-- Comandos remotos funcionales distintos de `SHUTDOWN`, `RESTART`, `OPEN_URL` y apply de browser policies en Master.
+- Endpoint/batch Master para session control (`GET_WINDOWS_SESSION_STATE`, `PROVISION_MANAGED_CREDENTIAL`, `LOGOFF_WINDOWS_SESSION`, `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT`).
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
@@ -965,8 +966,9 @@ NO IMPLEMENTADO:
 - Base de datos local.
 - Logs persistentes en disco.
 - DPAPI/ACL hardening avanzado para `license.dat`.
-- Almacenamiento seguro futuro de credenciales `PRIMARY`/`SECONDARY`.
-- Integracion de `managed-windows-accounts.json` y `managed-windows-credentials.dat` con browser policies, Local IPC, Protobuf, login/logoff/switch o Credential Vault.
+- Integracion de `managed-windows-accounts.json` con browser policies por `PRIMARY`/`SECONDARY`.
+- Local IPC especifico de cuentas administradas, si una fase futura lo requiere.
+- `LOGON_MANAGED_ACCOUNT` real y `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
@@ -983,6 +985,11 @@ VIGENTE DESDE AHORA:
 - Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - `GET_WINDOWS_SESSION_STATE` ya existe Agent-side como snapshot remoto read-only y on-demand de la consola fisica; no se consulta en heartbeat ni startup.
 - `GET_WINDOWS_SESSION_STATE` usa SID del token real de la consola fisica para clasificar contra `managed-windows-accounts.json`; nunca mapea por username ni `accountReference`.
+- `LOGOFF_WINDOWS_SESSION` ya existe Agent-side y solo cierra la consola fisica si el SID real sigue coincidiendo con el managed account esperado `PRIMARY`/`SECONDARY`.
+- `LOGOFF_WINDOWS_SESSION` nunca acepta `sessionId`, username, domain, SID, password, force, timeout, command, args ni payload generico desde Master.
+- Antes de llamar `WTSLogoffSession`, el Agent revalida inmediatamente el mismo `sessionId` y SID esperado; si cambian, devuelve `WINDOWS_SESSION_CHANGED` y no cierra la nueva sesion.
+- `LOGOFF_WINDOWS_SESSION` usa `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)`; no usa Session Agent, shell, PowerShell, `cmd`, `logoff.exe`, WMI, `ExitWindowsEx`, SendKeys ni polling posterior.
+- `LOGOFF_WINDOWS_SESSION` no requiere password ni consulta `managed-windows-credentials.dat` o Credential Vault. `NO_SESSION` es success idempotente; otra sesion activa nunca se cierra automaticamente; `SUCCESS` significa solicitud WTS aceptada.
 - `WTSGetActiveConsoleSessionId()` es la autoridad inicial. `0xFFFFFFFF` y Session 0 se tratan como `UNKNOWN`.
 - `WTSUserName` puede usarse solo como senal auxiliar de presencia de login: vacio significa `NO_SESSION`; nunca se envia, persiste ni compara contra bindings.
 - `WTSQueryUserToken` se usa desde LocalSystem con `SeTcbPrivilege` habilitado de forma acotada, solo para leer `TokenUser`; el token se cierra siempre.

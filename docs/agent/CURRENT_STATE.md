@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-04 - Prompt 19E2.
+2026-09-04 - Prompt 19F.
 
 ## Estado del proyecto
+
+Prompt 19F implementa `LOGOFF_WINDOWS_SESSION` como operacion remota tipada y segura del lado Agent para cerrar solo la sesion Windows administrada esperada en la consola fisica. El Protobuf v1 agrega `LogoffWindowsSessionOperationParameters(account_id)`, capability `WINDOWS_SESSION_LOGOFF_V1` y errores `WINDOWS_SESSION_CHANGED`/`WINDOWS_LOGOFF_FAILED`. El Agent Service/LocalSystem exige binding local `PRIMARY`/`SECONDARY`, observa consola fisica por `WTSGetActiveConsoleSessionId()`, obtiene SID real mediante `WTSQueryUserToken` + `GetTokenInformation(TokenUser)`, compara solo contra `managed-windows-accounts.json`, repite sessionId+SID inmediatamente antes de llamar `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)` y no usa Session Agent, password, DPAPI, Credential Vault, shell ni polling. `NO_SESSION` es `SUCCESS` idempotente; otra sesion activa devuelve `WINDOWS_SESSION_CHANGED` y no se cierra; `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado. El Master Java agrega solo `MasterRemoteOperationGateway.logoffWindowsSession(...)`, OperationType/capability/error mappings y tests; no hay endpoint HTTP, BatchOperation, fanout, planner, UI, LOGON, SWITCH, retry automatico ni reconciliation.
 
 Prompt 19E2 agrega `ManagedCredentialProvisioningBridge` como primitive interna Java-only del Master Backend para conectar Credential Vault -> `MasterRemoteOperationGateway.provisionManagedCredential(...)` sobre un solo `deviceId` explicito. La operacion exige `MasterAccessGuard.requireAuthorized()` antes de tocar el vault, requiere sesion de vault vigente, valida metadata antes de extraer secreto, permite solo `WINDOWS_ACCOUNT`, rechaza `GOOGLE_ACCOUNT` con `CREDENTIAL_NOT_PROVISIONABLE`, acepta solo `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `PRIMARY`/`SECONDARY`, codifica la password como UTF-16LE sin BOM/NUL y limpia el `byte[]` controlado en `finally`. El bridge no devuelve password, no registra reveal humano, no envia `credentialId` ni vault token al Client, no crea endpoint HTTP, UI, BatchOperation, SQLite migration, fanout, retry automatico, startup provisioning ni cambios Client.
 
@@ -76,7 +78,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1 para autorizacion administrativa normal, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos normales. La unica excepcion actual es `POST /api/classrooms/{classroomId}/input-control/unlock`, que consume `GET_MASTER_UNLOCK_AUTHORIZATION` mediante `MasterUnlockAccessGuard` para despachar solo `UNLOCK_INPUT`, sin exponer endpoint publico de autorizacion y sin fallback entre guards.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, login/logoff Windows real, cambio real de usuario, proyeccion real ni distribucion real.
+El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, `LOGON_MANAGED_ACCOUNT` real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, endpoint/batch Master de logoff, proyeccion real ni distribucion real. `LOGOFF_WINDOWS_SESSION` ya existe Agent-side desde 19F, pero no es todavia un flujo end-to-end desde UI/Master.
 
 ## Implementado
 
@@ -301,7 +303,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1` y `BROWSER_DOWNLOAD_POLICY_V1`; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1`, `BROWSER_DOWNLOAD_POLICY_V1`, `INPUT_CONTROL_V1`, `WINDOWS_SESSION_STATE_V1`, `MANAGED_CREDENTIAL_PROVISIONING_V1` y `WINDOWS_SESSION_LOGOFF_V1`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler salvo `UNLOCK_INPUT` recovery-safe y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
 - `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
@@ -412,7 +414,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `ApplyBrowserPolicyOperationHandler`, `ApplyBrowserDownloadPolicyOperationHandler`, `GetWindowsSessionStateOperationHandler`, `ProvisionManagedCredentialOperationHandler` y `LogoffWindowsSessionOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -514,6 +516,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 93 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest" test` en `master-backend`: correcto, bridge interno, autorizacion, vault validation, tipo `WINDOWS_ACCOUNT`, UTF-16LE, limpieza de bytes, propagation de outcomes y no retry superados.
 - `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest,CredentialVaultServiceTest" test` en `master-backend`: correcto, regresion dirigida del bridge y Credential Vault superada.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
@@ -582,4 +588,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19E2 deja conectado internamente el Credential Vault del Master con `PROVISION_MANAGED_CREDENTIAL`, todavia sin API/UI ni BatchOperation. El siguiente paso recomendado, Prompt 19F, es `LOGOFF_WINDOWS_SESSION`.
+Fase 19F deja implementado `LOGOFF_WINDOWS_SESSION` Agent-side y el metodo tipado Java del gateway, todavia sin endpoint HTTP, BatchOperation, fanout ni UI. El siguiente paso recomendado, Prompt 19G, es disenar `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT` con integracion Windows soportada.

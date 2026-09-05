@@ -2129,3 +2129,44 @@
 ### Commit sugerido
 
 `feat(master): bridge vault credential provisioning`
+
+## 2026-09-04 - Prompt 19F
+
+### Realizado
+
+- Implementada operacion remota tipada `LOGOFF_WINDOWS_SESSION` para cerrar solo una sesion Windows administrada esperada en la consola fisica del Client.
+- Protobuf v1 agrega `LogoffWindowsSessionOperationParameters(account_id)`, capability `WINDOWS_SESSION_LOGOFF_V1` y errores `WINDOWS_SESSION_CHANGED`/`WINDOWS_LOGOFF_FAILED`.
+- `account_id` acepta solo `PRIMARY`/`SECONDARY`; `UNSPECIFIED` se rechaza.
+- El contrato no transporta username, domain, SID, `accountReference`, password, sessionId, force, timeout, command, args, shell ni payload arbitrario.
+- Agregado `WindowsSessionLogoffService`, `LogoffWindowsSessionOperationHandler`, `IWindowsSessionLogoffController` y `WindowsSessionLogoffController`.
+- El Agent Service valida Installation Identity y binding local `managed-windows-accounts.json`; sin binding devuelve `ACCOUNT_NOT_CONFIGURED`, binding invalido devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+- La identidad se observa por `WTSGetActiveConsoleSessionId()` + `WTSQueryUserToken` + `GetTokenInformation(TokenUser)` y se compara por SID real contra el binding esperado.
+- Si `NO_SESSION`, devuelve `SUCCESS` idempotente y no llama WTS logoff.
+- Si otra sesion esta activa, devuelve `WINDOWS_SESSION_CHANGED` y no la cierra.
+- Antes del logoff destructivo se repite la observacion y se exige mismo `sessionId` y mismo SID esperado.
+- La implementacion productiva llama `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)`.
+- `SUCCESS` significa solicitud WTS aceptada, no cierre observado; no hay polling posterior.
+- `WTSLogoffSession` false devuelve `WINDOWS_LOGOFF_FAILED`.
+- El dedupe del Agent usa firma `operationId + accountId`; duplicados iguales no repiten WTS logoff y mismo operationId con otro accountId conserva conflicto.
+- `ClientCapabilityProvider` anuncia `WINDOWS_SESSION_LOGOFF_V1`.
+- Java agrega `MasterRemoteOperationGateway.logoffWindowsSession(...)`, mapping `OperationType.LOGOFF_WINDOWS_SESSION`, mapping de capability y errores.
+- Agregados tests dirigidos .NET de contrato, capability, handler registrado, licencia, session safety, race, WTS y dedupe.
+- Agregados tests dirigidos Java de gateway, accountId, ausencia de campos sensibles, capability mapping, errores e incertidumbre por timeout.
+- Creado `docs/windows/WINDOWS_SESSION_LOGOFF.md` y actualizados protocolo, arquitectura, modelo funcional, reglas, estado, decisiones, managed accounts y session state.
+
+### Cambios descartados
+
+- No se agrego endpoint HTTP, BatchOperation, fanout, planner Master, UI, `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, Credential Provider, password usage, DPAPI, Credential Vault, Session Agent, RDP control, force flag, timeout configurable, polling, heartbeat status, status query nuevo ni reconciliation.
+- No se uso shell, PowerShell, `cmd`, `logoff.exe`, WMI, `ExitWindowsEx` ni SendKeys.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 93 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(agent): log off managed windows sessions`

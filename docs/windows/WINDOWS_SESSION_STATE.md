@@ -54,6 +54,16 @@ El resultado remoto no contiene SID, username, domain, `accountReference`, `sess
 
 Desde Prompt 19D, `READY` de una cuenta administrada depende tambien de una credencial DPAPI usable en `managed-windows-credentials.dat`, ligada al mismo SID del binding. Desde 19E1 esa credencial puede cargarse por `PROVISION_MANAGED_CREDENTIAL`. `GET_WINDOWS_SESSION_STATE` no consulta ni descifra ese credential store: sigue observando solo la sesion de consola actual y clasificandola por SID contra `managed-windows-accounts.json`.
 
+## Relacion Con Logoff
+
+Desde Prompt 19F, `LOGOFF_WINDOWS_SESSION(accountId)` reutiliza la misma autoridad de consola fisica y SID real, pero como operacion destructiva expected-account. El Agent Service exige que el binding local del `accountId` solicitado exista y que el SID activo coincida con ese binding.
+
+La operacion observa la consola, valida SID, vuelve a observar inmediatamente antes de cerrar, exige el mismo `sessionId` y SID, y solo entonces llama `WTSLogoffSession` con `bWait = FALSE`. Si entre ambas observaciones cambia el `sessionId` o el SID, no cierra la nueva sesion.
+
+`NO_SESSION` se considera `SUCCESS` idempotente porque la sesion esperada ya esta ausente. `OTHER_SESSION_ACTIVE` o cualquier SID distinto devuelve `WINDOWS_SESSION_CHANGED`. Estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+
+El resultado remoto de logoff no contiene SID, username, domain, `accountReference`, `sessionId` ni token. `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado; una consulta futura explicita de `GET_WINDOWS_SESSION_STATE` puede observar el resultado.
+
 ## Locked, Disconnected Y RDP
 
 Una sesion bloqueada sigue siendo una sesion logueada: `PRIMARY` bloqueado sigue siendo `PRIMARY_ACTIVE`.
@@ -63,6 +73,8 @@ Fast User Switching puede dejar sesiones historicas o disconnected. Galtek no en
 ## Limites
 
 `GET_WINDOWS_SESSION_STATE` no implementa provisioning, login, logoff, switch, Credential Provider, UI, endpoint/batch Master, Local IPC, Session Command, Session Agent dependency, browser policy integration, heartbeat state, polling, WMI, process scans ni writes, y no descifra passwords.
+
+`LOGOFF_WINDOWS_SESSION` no implementa login, switch, Credential Provider, endpoint/batch Master, fanout, planner, UI, Session Agent, password usage, DPAPI, force flag, configurable timeout, polling, status heartbeat ni reconciliation.
 
 ## Validacion Manual Pendiente
 
