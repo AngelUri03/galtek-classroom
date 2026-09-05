@@ -108,6 +108,12 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No validar passwords provocando `LogonUser`, Credential Provider, Winlogon, LSA ni ningun logon durante storage/provisioning.
 - No agregar fallback Local IPC, HTTP, plaintext socket, file share, clipboard ni temp file para passwords remotas.
 - No agregar retry automatico, reconciliation ni receipt para credential provisioning; ante falta de resultado confirmado usar `OPERATION_RESULT_UNKNOWN`.
+- El bridge interno Master Credential Vault -> credential provisioning debe usar `MasterAccessGuard.requireAuthorized()`, no `MasterUnlockAccessGuard`.
+- El bridge interno acepta solo `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `PRIMARY`/`SECONDARY`; no acepta password, master password, username, SID, domain ni accountReference desde el caller.
+- Para provisioning desde vault, solo `WINDOWS_ACCOUNT` es provisionable; `GOOGLE_ACCOUNT` debe rechazarse antes de llamar al gateway.
+- `credentialId` y vault session token nunca salen del Master Backend ni se agregan a Protobuf, `OperationRequest`, BatchOperation, SQLite, heartbeat, ClientHello, logs, exceptions ni `OperationResult`.
+- El bridge debe codificar la password revelada internamente como UTF-16LE sin BOM/NUL, mantenerla en `byte[]` y limpiar esa copia controlada en `finally`; no debe trim/normalizar/cambiar el secreto.
+- El bridge interno no es reveal humano y no devuelve passwords al caller; la visualizacion humana queda separada en la futura operacion explicita de Credential Vault Reveal.
 - `SUCCESS` de credential provisioning no valida la password contra Windows ni cambia la password real de la cuenta.
 - No usar DPAPI en heartbeat, startup, idle, timers, polling ni scans.
 - No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.

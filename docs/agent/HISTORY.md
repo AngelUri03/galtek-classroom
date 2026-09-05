@@ -2098,3 +2098,34 @@
 ### Commit sugerido
 
 `feat(agent): provision managed credentials securely`
+
+## 2026-09-04 - Prompt 19E2
+
+### Realizado
+
+- Agregado `ManagedCredentialProvisioningBridge` en el Master Backend como primitive interna Java-only.
+- El bridge conecta Credential Vault -> `MasterRemoteOperationGateway.provisionManagedCredential(...)` para un solo `deviceId` explicito.
+- La entrada queda limitada a `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `PRIMARY`/`SECONDARY`; no acepta password ni master password desde el caller.
+- `MasterAccessGuard.requireAuthorized()` corre antes de tocar el vault; `MasterUnlockAccessGuard` no participa.
+- Se valida sesion/metadata del vault antes de extraer secreto, se exige `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT` se rechaza con `CREDENTIAL_NOT_PROVISIONABLE`.
+- `credentialId` y vault token permanecen dentro del Master; no se envian al gateway/protobuf ni se persisten.
+- La password se obtiene exclusivamente del vault, se codifica con `StandardCharsets.UTF_16LE` sin BOM/NUL y el `byte[]` controlado se limpia en `finally`.
+- Agregado `CredentialVaultService.readInternal(...)` package-private para lectura interna sin audit de reveal humano.
+- Agregado error interno `CREDENTIAL_NOT_PROVISIONABLE` sin tocar Protobuf.
+- Agregados tests dirigidos de autorizacion, vault locked/session expirada/missing, enforcement `WINDOWS_ACCOUNT`, rechazo Google, UTF-16LE exacto/Unicode/no BOM/no NUL, limpieza de bytes en success/failure/timeout, propagation de success/failure/unknown y no retry.
+- Actualizados docs de arquitectura, modelo funcional, reglas, estado, decisiones, Credential Vault y managed credentials.
+
+### Cambios descartados
+
+- No se agrego endpoint HTTP, UI, BatchOperation, fanout, provisioning masivo, startup provisioning, SQLite migration, Protobuf, Local IPC, Agent C#, Session Agent, login, logoff, switch, reveal humano, retry automatico ni status query nuevo.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest,CredentialVaultServiceTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): bridge vault credential provisioning`

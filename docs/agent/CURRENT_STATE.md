@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-04 - Prompt 19E1.
+2026-09-04 - Prompt 19E2.
 
 ## Estado del proyecto
+
+Prompt 19E2 agrega `ManagedCredentialProvisioningBridge` como primitive interna Java-only del Master Backend para conectar Credential Vault -> `MasterRemoteOperationGateway.provisionManagedCredential(...)` sobre un solo `deviceId` explicito. La operacion exige `MasterAccessGuard.requireAuthorized()` antes de tocar el vault, requiere sesion de vault vigente, valida metadata antes de extraer secreto, permite solo `WINDOWS_ACCOUNT`, rechaza `GOOGLE_ACCOUNT` con `CREDENTIAL_NOT_PROVISIONABLE`, acepta solo `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `PRIMARY`/`SECONDARY`, codifica la password como UTF-16LE sin BOM/NUL y limpia el `byte[]` controlado en `finally`. El bridge no devuelve password, no registra reveal humano, no envia `credentialId` ni vault token al Client, no crea endpoint HTTP, UI, BatchOperation, SQLite migration, fanout, retry automatico, startup provisioning ni cambios Client.
 
 Prompt 19E1 implementa `PROVISION_MANAGED_CREDENTIAL` como operacion remota tipada y secret-bearing para provisionar o reemplazar en el Agent Service la password almacenada por Galtek Client para `PRIMARY`/`SECONDARY`. El Protobuf v1 agrega `ProvisionManagedCredentialOperationParameters` con `ManagedWindowsAccountId account_id` y `bytes password_utf16le`; el password viaja como UTF-16LE sin BOM/NUL y no como string. El transporte usa solo el gRPC/mTLS existente con Master esperado, trust `PAIRED`, no `REVOKED` y Device correcto; no hay HTTP, Local IPC, Session Command, file/clipboard fallback ni compresion especifica. El handler valida framing/accountId/longitud, copia a un buffer mutable controlado, lee Installation Identity, valida binding/SID local por el store, protege inmediatamente con DPAPI y persiste durablemente `managed-windows-credentials.dat`. `SUCCESS` no valida la password contra Windows ni cambia la password real. El dedupe ya no conserva `OperationRequest` completo; para provisioning retiene solo metadata no secreta y el resultado, sin password ni hash. Se anuncia `MANAGED_CREDENTIAL_PROVISIONING_V1`. El Master Java agrega solo un metodo explicito `provisionManagedCredential(...)` en `MasterRemoteOperationGateway` para construir el request tipado; no agrega endpoint HTTP ni BatchOperation.
 
@@ -107,6 +109,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `POST /api/classrooms/{classroomId}/input-control/lock` protegido por `MasterAccessGuard`, envia batch `LOCK_INPUT` a Devices explicitamente seleccionados.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` protegido por `MasterUnlockAccessGuard`, envia batch `UNLOCK_INPUT` recovery-safe a Devices explicitamente seleccionados.
 - Credential Vault interno Java-only del Master en `credential-vault.dat`, separado de SQLite y sin endpoints HTTP.
+- Bridge interno `ManagedCredentialProvisioningBridge` para provisionar una credential `WINDOWS_ACCOUNT` del vault hacia un Client explicito mediante `MasterRemoteOperationGateway`, sin HTTP ni BatchOperation.
 - `managed-windows-accounts.json` en `<CommonApplicationData>\Galtek\Classroom\` como fuente de verdad local del Client para `PRIMARY`/`SECONDARY` -> Windows SID.
 - `managed-windows-credentials.dat` en `<CommonApplicationData>\Galtek\Classroom\` como fuente de verdad cifrada DPAPI del Client para passwords Windows de `PRIMARY`/`SECONDARY`.
 - Store local `IManagedWindowsAccountBindingStore`/`ManagedWindowsAccountBindingStore` con Load/List/Get/Add/Replace/Remove, escritura durable, verificacion posterior y fail closed.
@@ -511,6 +514,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest" test` en `master-backend`: correcto, bridge interno, autorizacion, vault validation, tipo `WINDOWS_ACCOUNT`, UTF-16LE, limpieza de bytes, propagation de outcomes y no retry superados.
+- `mvn -q "-Dtest=ManagedCredentialProvisioningBridgeTest,CredentialVaultServiceTest" test` en `master-backend`: correcto, regresion dirigida del bridge y Credential Vault superada.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ProvisionManagedCredential|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ManagedWindowsCredential|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 100 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
@@ -576,6 +582,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19E1 deja listo el contrato y handler Agent-side para provisionar credenciales administradas de forma segura sobre gRPC/mTLS, sin puente real con Credential Vault todavia. El siguiente paso recomendado, Prompt 19E2, es conectar internamente el Credential Vault del Master con `MasterRemoteOperationGateway` sin endpoint HTTP y sin BatchOperation.
-
-El CredentialVaultService interno puede ser reutilizado en 19E2 para obtener el secreto bajo sesion de vault valida y pasarlo al gateway sin persistirlo en SQLite, BatchOperation ni logs.
+Fase 19E2 deja conectado internamente el Credential Vault del Master con `PROVISION_MANAGED_CREDENTIAL`, todavia sin API/UI ni BatchOperation. El siguiente paso recomendado, Prompt 19F, es `LOGOFF_WINDOWS_SESSION`.

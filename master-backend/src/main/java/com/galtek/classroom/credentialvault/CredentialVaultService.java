@@ -98,6 +98,13 @@ public class CredentialVaultService {
         return entry.password();
     }
 
+    synchronized CredentialVaultEntry readInternal(String sessionToken, String credentialId) {
+        CredentialVaultValidator.validateCredentialId(credentialId);
+        CredentialVaultSessionManager.ActiveVaultSession session = sessionManager.requireActive(sessionToken);
+        return findEntry(session.document(), credentialId)
+                .orElseThrow(CredentialVaultService::notFound);
+    }
+
     public synchronized CredentialVaultEntryMetadata add(String sessionToken, CredentialVaultEntryDraft draft) {
         CredentialVaultValidator.validateDraft(draft);
         CredentialVaultSessionManager.ActiveVaultSession session = sessionManager.requireActive(sessionToken);

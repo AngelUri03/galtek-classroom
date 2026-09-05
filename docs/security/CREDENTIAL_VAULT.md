@@ -8,8 +8,8 @@ Prompt 19A implementa el nucleo seguro local para que la profesora administrador
 - Usa el Master data directory y sus overrides existentes: `GALTEK_CLASSROOM_MASTER_DATA_DIR` y `galtek.classroom.master.storage.data-dir`.
 - No usa `classroom.db`, migrations SQLite, BrowserProfile, environment variables, registry, logs ni browser storage para secretos.
 - Tipos iniciales: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
-- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, bridge interno hacia provisioning, login Windows ni Google browser automation.
-- El Client credential store operativo de Prompt 19D es `managed-windows-credentials.dat` en el Agent Service y esta separado de esta boveda. Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL` y el metodo tipado del gateway, pero no conecta todavia esta boveda al transporte.
+- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, BatchOperation, login Windows ni Google browser automation.
+- El Client credential store operativo de Prompt 19D es `managed-windows-credentials.dat` en el Agent Service y esta separado de esta boveda. Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL` y el metodo tipado del gateway; Prompt 19E2 conecta esta boveda al gateway solo mediante un bridge interno Master sin HTTP.
 
 ## Modelo
 
@@ -66,7 +66,10 @@ updatedAtUtc
 - Passwords prohibidas en `classroom.db`, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State y StudentWorkspace metadata.
 - Las credenciales Google no autorizan leer Chrome passwords, copiar cookies/tokens, copiar `Login Data`, copiar `Local State`, browser automation, SendKeys, auto-login ni autofill.
 - Las operaciones Windows normales futuras siguen usando `accountId = PRIMARY/SECONDARY`; no envian passwords.
-- La excepcion vigente para transporte de password es `PROVISION_MANAGED_CREDENTIAL`: el secreto viaja como bytes UTF-16LE sobre gRPC/mTLS y se persiste inmediatamente por DPAPI en el Client. 19E1 no lee secretos desde Credential Vault; 19E2 agregara el bridge interno sin endpoint HTTP y sin BatchOperation.
+- La excepcion vigente para transporte de password es `PROVISION_MANAGED_CREDENTIAL`: el secreto viaja como bytes UTF-16LE sobre gRPC/mTLS y se persiste inmediatamente por DPAPI en el Client. Desde 19E2, `ManagedCredentialProvisioningBridge` puede leer internamente una entry `WINDOWS_ACCOUNT` bajo sesion de vault vigente y enviarla al gateway sin endpoint HTTP ni BatchOperation.
+- El bridge interno exige `MasterAccessGuard.requireAuthorized()` antes de acceder al vault, no usa `MasterUnlockAccessGuard`, no recibe password ni master password, rechaza `GOOGLE_ACCOUNT`, no devuelve el secreto al caller y no registra reveal humano.
+- `credentialId` y vault session token permanecen solo dentro del Master Backend; no se envian al Client ni se persisten en SQLite, BatchOperation, Protobuf, heartbeat, ClientHello, logs, exceptions ni resultados.
+- La password del vault ya existe como `String` en el modelo cifrado/desbloqueado de 19A; 19E2 no redisena eso. La garantia vigente es no crear strings adicionales innecesarios, no persistir/loguear/cachear el secreto, mantener corta su vida y limpiar el `byte[]` UTF-16LE controlado en `finally`.
 - El Client credential store seguro existe desde Prompt 19D, usa DPAPI bajo LocalSystem y no ofrece reveal. La boveda del Master sigue siendo la superficie humana futura para consultar passwords.
 
 ## Recovery

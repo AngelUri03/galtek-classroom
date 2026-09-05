@@ -1,6 +1,6 @@
 # Managed Credential Provisioning
 
-Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL`, una operacion remota tipada y secret-bearing para cargar o reemplazar en el Client la password Windows almacenada por Galtek para `PRIMARY` o `SECONDARY`.
+Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL`, una operacion remota tipada y secret-bearing para cargar o reemplazar en el Client la password Windows almacenada por Galtek para `PRIMARY` o `SECONDARY`. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para usar una credencial `WINDOWS_ACCOUNT` ya almacenada, sin endpoint HTTP ni BatchOperation.
 
 ## Contrato
 
@@ -74,15 +74,32 @@ Galtek limpia los buffers mutables que controla con `CryptographicOperations.Zer
 
 Los logs permitidos no incluyen password, bytes, SID, username, `accountReference`, protectedData ni protobuf `ToString()`.
 
+## Bridge Interno 19E2
+
+`ManagedCredentialProvisioningBridge` vive solo en el Master Backend como primitive interna. Su entrada acepta unicamente:
+
+```text
+vaultSessionToken
+credentialId
+deviceId
+operationId
+accountId: PRIMARY | SECONDARY
+```
+
+El caller no entrega password, master password, username, SID, domain ni `accountReference`. El bridge ejecuta `MasterAccessGuard.requireAuthorized()` antes de tocar Credential Vault; `MasterUnlockAccessGuard` no participa. Primero valida sesion de vault y metadata, exige `WINDOWS_ACCOUNT`, rechaza `GOOGLE_ACCOUNT` como `CREDENTIAL_NOT_PROVISIONABLE`, comprueba una conexion registrada online con capability `MANAGED_CREDENTIAL_PROVISIONING_V1`, lee internamente la password, la codifica con `StandardCharsets.UTF_16LE` sin BOM/NUL, llama exclusivamente a `MasterRemoteOperationGateway.provisionManagedCredential(...)` y limpia el `byte[]` en `finally`.
+
+`credentialId` y vault session token nunca salen del Master Backend. El bridge no crea BatchOperation, no escribe SQLite, no agrega Protobuf, no expone HTTP, no hace fanout, no reintenta automaticamente y propaga el resultado tipado vigente del gateway, incluido `OPERATION_RESULT_UNKNOWN`.
+
+La password del Credential Vault sigue existiendo como `String` por el modelo 19A; Java `String` no puede zeroizarse de forma fiable. La garantia de 19E2 es no crear strings adicionales innecesarios, no persistir/loguear/cachear el secreto, mantener corta su vida de uso y limpiar la copia `byte[]` controlada.
+
 ## Limites 19E1
 
-19E1 no agrega Credential Vault bridge, endpoint HTTP Master, BatchOperation, SQLite migration, retry automatico, reconciliation, status query nuevo, Local IPC credential op, Session Agent password handling, login, logoff, switch, Credential Provider, password verification, Windows password change, UI, clipboard ni reveal.
+19E1 no agrega Credential Vault bridge. 19E2 agrega solo el bridge interno Master. Sigue sin haber endpoint HTTP Master, BatchOperation, SQLite migration, retry automatico, reconciliation, status query nuevo, Local IPC credential op, Session Agent password handling, login, logoff, switch, Credential Provider, password verification, Windows password change, UI, clipboard ni reveal.
 
 Si el Master envia la operacion y no recibe `OperationResult`, el resultado correcto sigue siendo `OPERATION_RESULT_UNKNOWN`; no se infiere exito ni se reintenta automaticamente.
 
 ## Pendiente
 
-- 19E2: bridge interno Master Credential Vault -> `MasterRemoteOperationGateway`, sin HTTP ni BatchOperation.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master, planner y superficie administrativa.

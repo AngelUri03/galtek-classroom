@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19E2 agrega en el Master Backend `ManagedCredentialProvisioningBridge`, una primitive interna Java-only que conecta Credential Vault -> `MasterRemoteOperationGateway.provisionManagedCredential(...)` para un solo `deviceId` explicito. El bridge exige `MasterAccessGuard.requireAuthorized()` antes de tocar el vault, valida una sesion de vault vigente mediante metadata, acepta solo `credentialId`, `operationId` y `accountId` logico `PRIMARY`/`SECONDARY`, rechaza credenciales que no sean `WINDOWS_ACCOUNT` con `CREDENTIAL_NOT_PROVISIONABLE`, extrae la password solo desde el vault, la codifica temporalmente como UTF-16LE sin BOM ni NUL y limpia el `byte[]` controlado en `finally` tras success, failure o timeout. No envia `credentialId`, vault token, master password, username, SID, domain ni `accountReference` al Client; no agrega endpoint HTTP, UI, BatchOperation, SQLite migration, retry automatico, fanout, startup provisioning ni cambios Client.
+
 Prompt 19E1 implementa `PROVISION_MANAGED_CREDENTIAL` como operacion remota tipada y secret-bearing sobre el gRPC/mTLS existente. El Master solo puede enviar `accountId` tipado `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sin BOM ni NUL; no envia username, SID, `accountReference`, `credentialId`, vault token, master password, comandos ni payload generico. El Agent Service valida framing, accountId y longitud, copia el secreto a un buffer mutable controlado, valida el binding local `managed-windows-accounts.json`, protege inmediatamente con `ManagedWindowsCredentialStore`/DPAPI y limpia el buffer. La capability `MANAGED_CREDENTIAL_PROVISIONING_V1` se anuncia porque existen handler productivo, store DPAPI, binding store y mapping Protobuf. El dedupe del Agent usa una firma secret-safe para esta operacion (`operationId`, tipo, target, protocolVersion y accountId), nunca password ni hash; duplicados con mismo `operationId + accountId` devuelven el resultado original sin reaplicar. No agrega Credential Vault bridge, endpoint HTTP Master, BatchOperation, Local IPC, Session Agent password handling, login/logoff/switch, status query nuevo, retry automatico ni trabajo idle.
 
 Prompt 19D implementa en `GaltekClassroom.Agent.Service` el Client secure credential store para passwords Windows de `PRIMARY`/`SECONDARY`. La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\managed-windows-credentials.dat` usando `GALTEK_CLASSROOM_DATA_DIR`, separada de `managed-windows-accounts.json` y del `credential-vault.dat` del Master. El envelope externo solo conserva `schemaVersion`, `installationId`, `accountId`, `protectedData` y timestamps; el payload interno binario protegido por DPAPI contiene `accountId`, `windowsSid` y password. DPAPI usa scope de usuario actual del proceso productivo, exige LocalSystem (`S-1-5-18`), usa `CRYPTPROTECT_UI_FORBIDDEN`, no usa LocalMachine ni fallback plaintext, y agrega optional entropy deterministica por `schemaVersion`/`installationId`/`accountId`. El store interno expone GetStatus/Add/Replace/Remove/Acquire con lease disposable y limpieza de buffers controlados; no agrega CLI password, reveal, Local IPC, Protobuf, UI, provisioning remoto, login/logoff/switch, heartbeat fields, polling ni trabajo idle.
@@ -444,7 +446,7 @@ NO IMPLEMENTADO:
 - Auditoria persistente de acciones administrativas reales.
 - Borrado seguro/retencion configurable de PII.
 - DPAPI/keystore del sistema para private key del Master.
-- UI/API HTTP de Credential Vault, clipboard, export masivo, reset destructivo de vault y provisioning remoto de credenciales.
+- UI/API HTTP de Credential Vault, clipboard, export masivo, reset destructivo de vault y provisioning masivo/batch de credenciales.
 
 ## Agent
 
@@ -991,6 +993,9 @@ VIGENTE DESDE AHORA:
 - El credential store del Client requiere LocalSystem para protect/unprotect y no usa `CRYPTPROTECT_LOCAL_MACHINE` ni fallback si DPAPI falla.
 - El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
 - La UI no recibe passwords por defecto. La unica excepcion futura es una operacion explicita `REVEAL CREDENTIAL` despues de `MasterAccessGuard.requireAuthorized()`, vault unlock valido y sesion de boveda no expirada; solo se entrega el secreto de la credencial solicitada.
+- El bridge interno de provisioning no es reveal humano: usa sesion de vault vigente para seleccionar una credential `WINDOWS_ACCOUNT`, no devuelve password al caller y no expone superficie HTTP.
+- `credentialId` y vault session token son solo datos internos del Master Backend y nunca salen por Protobuf, `OperationRequest`, BatchOperation, SQLite, heartbeat, ClientHello, logs ni resultados.
+- La copia controlada que el bridge crea para `PROVISION_MANAGED_CREDENTIAL` vive en `byte[]` UTF-16LE sin BOM/NUL y se limpia en `finally`; se reconoce que el Credential Vault existente mantiene passwords como `String` dentro del modelo cifrado/desbloqueado.
 - Las passwords Windows y Google escolares solo pueden persistirse dentro de `credential-vault.dat` cifrado; nunca en SQLite, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State ni StudentWorkspace metadata.
 - Logs no deben mostrar master password, credential password, DEK, KEK, session token, plaintext vault ni ciphertext completo innecesario.
 - `MasterUnlockAccessGuard` jamas autoriza acceso a Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.

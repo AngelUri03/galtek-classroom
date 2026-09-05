@@ -251,6 +251,25 @@ class CredentialVaultServiceTest {
     }
 
     @Test
+    void internalReadReturnsExistingEntryWithoutRecordingHumanReveal() {
+        RecordingAuditSink audit = new RecordingAuditSink();
+        TestVault fixture = newVault(new MutableClock(Instant.parse("2026-09-03T18:00:00Z")), audit,
+                new RecordingFileSecurity());
+        fixture.service().initialize(MASTER_PASSWORD);
+        CredentialVaultSession session = fixture.service().unlock(MASTER_PASSWORD);
+        CredentialVaultEntryMetadata entry = fixture.service().add(session.token(), new CredentialVaultEntryDraft(
+                CredentialType.WINDOWS_ACCOUNT,
+                "Windows PC01",
+                "PC01",
+                "windows secret"));
+
+        CredentialVaultEntry internal = fixture.service().readInternal(session.token(), entry.credentialId());
+
+        assertThat(internal.password()).isEqualTo("windows secret");
+        assertThat(audit.events()).doesNotContain("revealed:" + entry.credentialId());
+    }
+
+    @Test
     void missingCredentialAndInvalidDraftsReturnOperationalErrors() {
         TestVault fixture = newVault();
         fixture.service().initialize(MASTER_PASSWORD);

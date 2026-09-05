@@ -1,6 +1,6 @@
 # Managed Windows Credentials
 
-Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. No agrega reveal, HTTP, BatchOperation, Local IPC, Session Agent, login ni cambio de password Windows.
+Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. No agrega reveal, HTTP, BatchOperation, Local IPC, Session Agent, login ni cambio de password Windows.
 
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:
 
@@ -154,6 +154,8 @@ El password entra al Agent como bytes UTF-16LE sin BOM ni NUL, se copia a un buf
 
 El resultado `SUCCESS` solo confirma DPAPI protect, escritura durable y verificacion del store. Si no llega `OperationResult`, el Master reporta `OPERATION_RESULT_UNKNOWN` y no reintenta automaticamente.
 
+Desde Prompt 19E2, el Master Backend puede invocar `ManagedCredentialProvisioningBridge` con `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `accountId` `PRIMARY`/`SECONDARY`. El bridge usa `MasterAccessGuard`, requiere sesion de vault vigente, permite solo `WINDOWS_ACCOUNT`, rechaza `GOOGLE_ACCOUNT`, no devuelve password al caller, no envia `credentialId` ni vault token al Client, codifica el password como UTF-16LE temporal sin BOM/NUL y limpia el `byte[]` controlado despues del gateway.
+
 ## CLI, IPC Y Red
 
 No se agrega password a CLI, Local IPC, UI ni logs.
@@ -162,14 +164,14 @@ No se agrega password a CLI, Local IPC, UI ni logs.
 
 ## Limites 19E1
 
-19E1 no implementa Credential Vault integration, API HTTP Master, BatchOperation, Local IPC de credenciales, login, logoff, switch, Credential Provider, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
+19E1 no implementa Credential Vault integration. 19E2 implementa solo el bridge interno Master, sin API HTTP Master, BatchOperation, Local IPC de credenciales, login, logoff, switch, Credential Provider, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
 
 No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire futuro para login.
 
 ## Validacion Manual Pendiente
 
 1. Confirmar que el Service corre como LocalSystem.
-2. Provisionar `PRIMARY` mediante `PROVISION_MANAGED_CREDENTIAL` cuando exista el bridge Master de Prompt 19E2 o una superficie administrativa segura posterior.
+2. Provisionar `PRIMARY` mediante el bridge interno 19E2 o una superficie administrativa segura posterior.
 3. Verificar que `managed-windows-credentials.dat` no contiene password ni SID en plaintext.
 4. Reiniciar el Service y confirmar que la credencial sigue usable.
 5. Copiar el credential store a otra instalacion y confirmar fail closed.
@@ -179,7 +181,6 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 
 ## Pendiente
 
-- 19E2: bridge interno Credential Vault -> MasterRemoteOperationGateway.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master y planner.

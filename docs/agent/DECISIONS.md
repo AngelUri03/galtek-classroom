@@ -1,5 +1,23 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19E2
+
+- `ManagedCredentialProvisioningBridge` es una primitive interna del Master Backend, no Controller, endpoint, CommandLineRunner ni provisioning de startup.
+- El bridge acepta solo `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `accountId` logico `PRIMARY`/`SECONDARY`.
+- El caller interno nunca entrega password, master password, username, SID, domain ni `accountReference`.
+- `MasterAccessGuard.requireAuthorized()` se ejecuta antes de acceder al Credential Vault; `MasterUnlockAccessGuard` no participa ni existe fallback.
+- La sesion de vault debe estar vigente; errores como vault no inicializado, locked/session expirada y credential inexistente se preservan.
+- El bridge valida metadata del vault antes de extraer secreto para no leer passwords cuando la credential no existe, no es `WINDOWS_ACCOUNT`, el Device esta offline o falta capability.
+- Solo `WINDOWS_ACCOUNT` es provisionable; `GOOGLE_ACCOUNT` se rechaza como `CREDENTIAL_NOT_PROVISIONABLE` antes del gateway.
+- `credentialId` y vault session token permanecen exclusivamente en el Master Backend y nunca se agregan a Protobuf, `OperationRequest`, BatchOperation, SQLite, heartbeat, ClientHello, logs, exceptions ni resultados.
+- El password se obtiene exclusivamente desde Credential Vault y se codifica con `StandardCharsets.UTF_16LE` sin BOM ni terminador NUL.
+- La copia UTF-16LE controlada vive en `byte[]` y se limpia con `Arrays.fill(..., (byte) 0)` en `finally` tras success, failure, timeout o excepcion del gateway.
+- Se reconoce que Credential Vault 19A mantiene passwords como Java `String` dentro del modelo cifrado/desbloqueado; 19E2 no redisena esa capa ni promete zeroizar strings.
+- El bridge no es reveal humano, no devuelve passwords al caller y no registra reveal humano.
+- El bridge reutiliza exclusivamente `MasterRemoteOperationGateway.provisionManagedCredential(...)`; no construye manualmente `OperationRequest` ni crea segundo path gRPC.
+- El resultado tipado vigente del gateway se propaga sin convertirlo a string generico; `OPERATION_RESULT_UNKNOWN` se preserva y no hay retry automatico.
+- 19E2 no agrega endpoint HTTP, UI, BatchOperation, fanout, provisioning masivo, SQLite migration, Client changes, Protobuf changes, Local IPC ni login/logoff/switch.
+
 ## 2026-09-04 - Prompt 19E1
 
 - `PROVISION_MANAGED_CREDENTIAL` es la unica operacion remota secret-bearing vigente para passwords Windows administradas.

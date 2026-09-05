@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; no agrega reveal, HTTP, BatchOperation, login/logoff/switch ni Credential Vault bridge.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. Sigue sin existir HTTP, BatchOperation, login/logoff/switch ni reveal Client-side.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -170,7 +170,6 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19E2: bridge interno Credential Vault -> MasterRemoteOperationGateway.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master.
