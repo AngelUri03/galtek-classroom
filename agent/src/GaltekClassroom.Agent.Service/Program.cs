@@ -1,5 +1,6 @@
 using GaltekClassroom.Agent.Service;
 using GaltekClassroom.Agent.Service.Applications;
+using GaltekClassroom.Agent.Service.CredentialProviderBridge;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
@@ -32,6 +33,7 @@ builder.Services.AddLocalIpcServices();
 builder.Services.AddSessionCommandServices();
 builder.Services.AddApplicationBindingServices();
 builder.Services.AddManagedWindowsAccountBindingServices();
+builder.Services.AddCredentialProviderBridgeServices();
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
 {
@@ -232,6 +234,9 @@ builder.Services.AddWindowsService(options =>
 
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<LocalIpcServer>();
+builder.Services.AddSingleton<IHostedService>(provider => OperatingSystem.IsWindows()
+    ? provider.GetRequiredService<CredentialProviderBridgeServer>()
+    : provider.GetRequiredService<NoOpCredentialProviderBridgeServer>());
 builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
 builder.Services.AddHostedService<MasterConnectionHostedService>();
 

@@ -64,6 +64,12 @@ La operacion observa la consola, valida SID, vuelve a observar inmediatamente an
 
 El resultado remoto de logoff no contiene SID, username, domain, `accountReference`, `sessionId` ni token. `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado; una consulta futura explicita de `GET_WINDOWS_SESSION_STATE` puede observar el resultado.
 
+## Relacion Con Credential Provider
+
+Desde Prompt 19G1, `Credential Provider V2` queda como foundation para login futuro, pero `GET_WINDOWS_SESSION_STATE` no depende del provider y el provider no lee el estado de sesion por su cuenta. El Agent Service conserva la autoridad local.
+
+La activation metadata del provider es efimera y no cambia el resultado de `GET_WINDOWS_SESSION_STATE`: no es una sesion, no es proof de login y no contiene SID ni password.
+
 ## Locked, Disconnected Y RDP
 
 Una sesion bloqueada sigue siendo una sesion logueada: `PRIMARY` bloqueado sigue siendo `PRIMARY_ACTIVE`.
@@ -74,7 +80,7 @@ Fast User Switching puede dejar sesiones historicas o disconnected. Galtek no en
 
 `GET_WINDOWS_SESSION_STATE` no implementa provisioning, login, logoff, switch, Credential Provider, UI, endpoint/batch Master, Local IPC, Session Command, Session Agent dependency, browser policy integration, heartbeat state, polling, WMI, process scans ni writes, y no descifra passwords.
 
-`LOGOFF_WINDOWS_SESSION` no implementa login, switch, Credential Provider, endpoint/batch Master, fanout, planner, UI, Session Agent, password usage, DPAPI, force flag, configurable timeout, polling, status heartbeat ni reconciliation.
+`LOGOFF_WINDOWS_SESSION` no implementa login, switch, Credential Provider usage, endpoint/batch Master, fanout, planner, UI, Session Agent, password usage, DPAPI, force flag, configurable timeout, polling, status heartbeat ni reconciliation.
 
 ## Validacion Manual Pendiente
 

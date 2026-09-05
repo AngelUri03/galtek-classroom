@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. Sigue sin existir HTTP, BatchOperation, login/switch ni reveal Client-side.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1 agrega foundation de Credential Provider V2 y activation metadata efimera, pero sigue sin existir HTTP, BatchOperation, login/switch, reveal Client-side ni uso de password en LogonUI.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -163,6 +163,12 @@ Para logoff, el SID del token activo es suficiente aunque `LookupAccountSid` ya 
 
 `NO_SESSION` es `SUCCESS` idempotente. Si la consola pertenece a otro SID, incluso otro managed account o administrador, `LOGOFF_WINDOWS_SESSION` no la cierra y devuelve `WINDOWS_SESSION_CHANGED`.
 
+## Uso Desde Credential Provider
+
+Desde Prompt 19G1, el Credential Provider V2 no lee este archivo directamente. El provider consulta solo al Agent Service por el pipe dedicado `GaltekClassroom.CredentialProvider.v1`.
+
+La activation metadata futura usa solo `accountId` logico `PRIMARY` o `SECONDARY`, expira rapido, vive en memoria del Service y no contiene SID, `accountReference`, username ni password. En 19G1, incluso con activation valida, el provider no enumera una credential productiva ni intenta login.
+
 ## Validacion Manual Pendiente
 
 En una PC descartable:
@@ -182,5 +188,5 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
+- 19G2: one-time credential acquisition y `GetSerialization` real soportado por Windows.
 - 19H: dispatch batch Master.

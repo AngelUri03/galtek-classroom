@@ -1,5 +1,36 @@
 # Decisiones vigentes
 
+## 2026-09-05 - Prompt 19G1
+
+- `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT` futuros deben usar Credential Provider V2 como mecanismo soportado por Windows para introducir credenciales al flujo normal Winlogon/LSA.
+- 19G1 no realiza login, switch, password serialization, `KERB_INTERACTIVE_UNLOCK_LOGON`, LSA call ni acquisition de credenciales.
+- El Credential Provider de Galtek es una DLL C++ nativa con Windows SDK; no carga .NET runtime dentro de LogonUI y no agrega dependencias externas.
+- El CLSID vigente es `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}`.
+- El provider implementa `ICredentialProvider`, `ICredentialProviderCredential` e `ICredentialProviderCredential2`, soporta solo `CPUS_LOGON` y deja escenarios no soportados con fallo seguro.
+- Galtek no implementa `ICredentialProviderFilter`.
+- Galtek nunca debe ocultar Password Provider, PIN, Windows Hello ni otros providers. La recuperacion estandar de Windows debe permanecer intacta.
+- Sin activation pendiente, el provider devuelve 0 credentials Galtek. Con activation valida, 19G1 puede detectar metadata pero sigue devolviendo 0 credentials productivas para evitar una tile sin login real.
+- `GetSerialization` no devuelve credencial autenticable y responde `CPGSR_NO_CREDENTIAL_NOT_FINISHED`.
+- El Credential Provider no lee `managed-windows-accounts.json`, `managed-windows-credentials.dat`, `installation.json`, `license.dat`, `authorized-masters.json` ni `credential-vault.dat`.
+- El Agent Service es la unica autoridad del bridge; el provider es cliente local y adapter minimo para LogonUI.
+- El pipe dedicado es `GaltekClassroom.CredentialProvider.v1`; no reutiliza Local IPC v1 ni Session Command v1.
+- El pipe se crea solo para `LocalSystem`, sin grants explicitos a Builtin Users, Authenticated Users, Interactive Users ni Builtin Administrators.
+- El Service valida el caller con PID real del Named Pipe, proceso real, ruta canonica `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y token real LocalSystem.
+- No se confia en PID, SID, username, process name ni sessionId enviados por payload; esos campos no pertenecen al contrato.
+- El contrato local usa JSON UTF-8 versionado con framing big-endian y limite de 8 KiB.
+- Operaciones 19G1 del bridge: `PING` y `GET_PENDING_ACTIVATION_METADATA`.
+- Activation metadata contiene solo `activationId`, `accountId`, `createdAtUtc` y `expiresAtUtc`; `accountId` solo acepta `PRIMARY`/`SECONDARY`.
+- Existe como maximo una activation pending por Client; una nueva reemplaza la anterior.
+- Activation es in-memory, lazy-expiring, default 45 segundos, maximo 60 segundos, sin timer permanente, polling, archivo, Registry, SQLite, DPAPI ni heartbeat.
+- Restart del Agent Service pierde cualquier activation pendiente.
+- 19G1 no llama `ManagedWindowsCredentialStore.Acquire()` y no transporta password, password bytes, protectedData, credential lease, credentialId, vault token ni master password.
+- El provider no abre red, no resuelve DNS, no habla con Master/AWS/Hub y no usa gRPC/HTTP/sockets.
+- Registro/desregistro queda solo en scripts lab-only; no se integra al installer productivo general.
+- El registro COM debe apuntar a la DLL instalada bajo Program Files, no al artifact del repo, Desktop, AppData alumno ni Temp.
+- DLL y directorio productivo deben impedir write de usuarios estandar; alumnos nunca deben poder modificar una DLL cargada por LogonUI.
+- Fallo de Agent/Galtek debe dejar funcionando login estandar de Windows; fallo de autenticacion Galtek debe cerrar seguro.
+- 19G2 queda pendiente para one-time credential acquisition, secreto Service -> Provider y serialization real soportada por Windows.
+
 ## 2026-09-04 - Prompt 19F
 
 - `LOGOFF_WINDOWS_SESSION` es una operacion remota tipada Agent-side para cerrar solo la sesion de consola fisica cuyo SID real coincide con el managed account esperado.

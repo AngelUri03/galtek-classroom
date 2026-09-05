@@ -128,6 +128,21 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
+- Nunca reemplazar, ocultar ni filtrar Credential Providers estandar de Windows.
+- Galtek Credential Provider debe ser aditivo: falla abierto hacia los mecanismos normales de login de Windows, pero cerrado respecto a autenticacion Galtek.
+- No implementar `ICredentialProviderFilter`.
+- Credential Provider debe ser DLL nativa; no cargar .NET runtime dentro de LogonUI.
+- Credential Provider nunca habla con Master/red directamente y nunca abre TCP, HTTP, gRPC local, DNS ni sockets LAN.
+- Credential Provider nunca lee stores Galtek directamente; no lee `managed-windows-accounts.json`, `managed-windows-credentials.dat`, `installation.json`, `license.dat`, `authorized-masters.json` ni `credential-vault.dat`.
+- Agent Service sigue siendo la autoridad de binding, credenciales y activaciones de Credential Provider.
+- Sin activation explicita pendiente no existe tile/login Galtek activo.
+- Activation de Credential Provider es efimera, in-memory, de expiracion corta y lazy; no persistir activation en archivo, Registry, SQLite, DPAPI ni heartbeat.
+- No persistir activation ni secretos para auto-login.
+- El pipe Service <-> Credential Provider debe ser dedicado, no reutilizar Local IPC v1 ni Session Command v1.
+- El pipe Service <-> Credential Provider debe ser accesible solo por LocalSystem y el Service debe validar PID real del pipe, image path real de `%SystemRoot%\System32\LogonUI.exe`, sesion esperada y token LocalSystem.
+- No confiar en PID, SID, username, process name ni sessionId enviados por payload para autorizar al Credential Provider.
+- En 19G1 y hasta alcance explicito futuro, `GetSerialization` no debe devolver credential serialization autenticable ni construir `KERB_INTERACTIVE_UNLOCK_LOGON`.
+- Fallo del Agent/Galtek nunca debe impedir login estandar de Windows.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
 - El transporte gRPC/mTLS de Prompt 13 solo permite conexion, identificacion y heartbeat; no autoriza por si mismo comandos remotos.
 - Cualquier extension del transporte debe exigir TLS/mTLS, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y fallo cerrado.

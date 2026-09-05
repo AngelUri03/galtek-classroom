@@ -181,6 +181,25 @@ Uninstall only the Session Agent:
 
 The Session uninstaller removes the task and `%ProgramFiles%\Galtek\Classroom\Agent\Session\`. It does not touch ProgramData and has no `-PurgeData` option.
 
+## Credential Provider Lab
+
+Prompt 19G1 adds manual lab-only scripts for the native Credential Provider V2 foundation:
+
+```powershell
+.\installer\windows\register-credential-provider-dev.ps1
+.\installer\windows\unregister-credential-provider-dev.ps1
+```
+
+These scripts are not part of the general production installer. Use them only on a disposable lab PC with a known local administrator password and recovery available.
+
+The registration script points by default to:
+
+```text
+%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\GaltekClassroom.CredentialProvider.dll
+```
+
+It refuses DLL paths outside Program Files and does not register a Credential Provider Filter. Standard Windows providers such as password, PIN and Windows Hello must remain visible.
+
 ## Diagnostics
 
 From development builds:

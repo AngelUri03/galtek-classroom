@@ -2,9 +2,13 @@
 
 ## Ultima actualizacion
 
-2026-09-04 - Prompt 19F.
+2026-09-05 - Prompt 19G1.
 
 ## Estado del proyecto
+
+Prompt 19G1 agrega la foundation segura para Credential Provider V2 sin realizar login todavia. Se crea `agent/native/GaltekClassroom.CredentialProvider/` como DLL C++ nativa/Windows SDK con CLSID `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}`, COM plumbing minimo, `ICredentialProvider`, `ICredentialProviderCredential` e `ICredentialProviderCredential2`. El provider soporta solo `CPUS_LOGON`, no implementa `ICredentialProviderFilter`, no oculta Password/PIN/Windows Hello/otros providers, no abre red y en 19G1 devuelve 0 credentials productivas; `GetSerialization` queda seguro como `CPGSR_NO_CREDENTIAL_NOT_FINISHED`.
+
+El Agent Service agrega un bridge local dedicado `GaltekClassroom.CredentialProvider.v1`, separado de Local IPC v1 y Session Command v1. El Service es servidor/autoridad y el provider es cliente local. El pipe se crea solo para `LocalSystem`; al conectar, el Service valida PID real del cliente por `GetNamedPipeClientProcessId`, proceso real, ruta canonica `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y token real `S-1-5-18`. El contrato local es JSON UTF-8 con frame big-endian acotado a 8 KiB y operaciones 19G1 `PING` / `GET_PENDING_ACTIVATION_METADATA`; el request no puede aportar PID/SID/username/process para autorizarse. La activation metadata es efimera in-memory, una por Client, `PRIMARY`/`SECONDARY`, default 45 segundos, maximo 60, lazy-expiring y se pierde al reiniciar Service. No hay password, protectedData, credentialId, vault token, DPAPI acquire, Protobuf, gRPC, endpoint Master, BatchOperation, planner ni UI.
 
 Prompt 19F implementa `LOGOFF_WINDOWS_SESSION` como operacion remota tipada y segura del lado Agent para cerrar solo la sesion Windows administrada esperada en la consola fisica. El Protobuf v1 agrega `LogoffWindowsSessionOperationParameters(account_id)`, capability `WINDOWS_SESSION_LOGOFF_V1` y errores `WINDOWS_SESSION_CHANGED`/`WINDOWS_LOGOFF_FAILED`. El Agent Service/LocalSystem exige binding local `PRIMARY`/`SECONDARY`, observa consola fisica por `WTSGetActiveConsoleSessionId()`, obtiene SID real mediante `WTSQueryUserToken` + `GetTokenInformation(TokenUser)`, compara solo contra `managed-windows-accounts.json`, repite sessionId+SID inmediatamente antes de llamar `WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)` y no usa Session Agent, password, DPAPI, Credential Vault, shell ni polling. `NO_SESSION` es `SUCCESS` idempotente; otra sesion activa devuelve `WINDOWS_SESSION_CHANGED` y no se cierra; `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado. El Master Java agrega solo `MasterRemoteOperationGateway.logoffWindowsSession(...)`, OperationType/capability/error mappings y tests; no hay endpoint HTTP, BatchOperation, fanout, planner, UI, LOGON, SWITCH, retry automatico ni reconciliation.
 
@@ -516,6 +520,12 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge"` en `agent`: correcto, 24 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `rg` dirigido sobre provider/bridge/scripts para `LogonUser`, `CreateProcessAsUser`, `CreateProcessWithLogon`, `DefaultPassword`, `WinStation`, `SendKeys`, `LsaLogonUser`, `KERB_INTERACTIVE_UNLOCK_LOGON`, WinHTTP/WinINet/WSA/socket y `ICredentialProviderFilter`: sin coincidencias en codigo productivo 19G1.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 93 pruebas Service superadas; el proyecto Session no tuvo coincidencias con el filtro.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
@@ -588,4 +598,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19F deja implementado `LOGOFF_WINDOWS_SESSION` Agent-side y el metodo tipado Java del gateway, todavia sin endpoint HTTP, BatchOperation, fanout ni UI. El siguiente paso recomendado, Prompt 19G, es disenar `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT` con integracion Windows soportada.
+Fase 19G1 deja preparada la base Credential Provider V2 y el bridge local seguro, todavia sin login, switch, password serialization ni operation remota. El siguiente paso recomendado, 19G2, es agregar una operacion one-time Service -> Provider para adquirir credencial y construir la serialization real soportada por Windows sin perder recovery por providers estandar.

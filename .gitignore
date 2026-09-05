@@ -13,6 +13,11 @@ TestResults/
 *.snupkg
 artifacts/
 
+# Native Windows builds
+agent/native/**/Win32/
+agent/native/**/x64/
+agent/native/**/GaltekCl.*/
+
 # Galtek Classroom Master local SQLite data
 classroom.db
 classroom.db-wal

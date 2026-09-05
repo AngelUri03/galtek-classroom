@@ -2170,3 +2170,51 @@
 ### Commit sugerido
 
 `feat(agent): log off managed windows sessions`
+
+## 2026-09-05 - Prompt 19G1
+
+### Realizado
+
+- Agregado proyecto nativo `agent/native/GaltekClassroom.CredentialProvider/` para Credential Provider V2.
+- Implementado COM plumbing minimo con CLSID `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}`.
+- Implementadas interfaces `ICredentialProvider`, `ICredentialProviderCredential` e `ICredentialProviderCredential2`.
+- `SetUsageScenario` acepta solo `CPUS_LOGON`; otros escenarios fallan seguro.
+- El provider no implementa `ICredentialProviderFilter` y no oculta Password/PIN/Windows Hello/otros providers.
+- Sin activation, y aun con activation 19G1, el provider devuelve 0 credentials productivas.
+- `GetSerialization` queda seguro con `CPGSR_NO_CREDENTIAL_NOT_FINISHED`, sin password ni serialization autenticable.
+- Agregado bridge local dedicado `GaltekClassroom.CredentialProvider.v1`, separado de Local IPC v1 y Session Command v1.
+- El Agent Service actua como servidor y el provider como cliente local; no hay red, HTTP, gRPC local ni Protobuf.
+- El pipe tiene ACL solo `LocalSystem`.
+- El Service valida PID real del pipe con `GetNamedPipeClientProcessId`, proceso real, path canonico `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y token real LocalSystem.
+- El contrato JSON UTF-8 versionado soporta solo `PING` y `GET_PENDING_ACTIVATION_METADATA`, con framing big-endian y limite de 8 KiB.
+- El request rechaza hints de PID/SID/username/process y no puede autorizarse por payload.
+- Agregado modelo `CredentialProviderActivation` efimero, in-memory, una activation por Client, `PRIMARY`/`SECONDARY`, TTL default 45s, maximo 60s, expiracion lazy y perdida por restart.
+- No se agregaron campos password, protectedData, credentialId, vault token ni master password.
+- No se llama `ManagedWindowsCredentialStore.Acquire()`.
+- Agregados scripts lab-only `register-credential-provider-dev.ps1` y `unregister-credential-provider-dev.ps1`.
+- El registro lab apunta a Program Files y no registra Credential Provider Filter.
+- Actualizados docs de Credential Provider, arquitectura, modelo funcional, reglas, estado, decisiones, installer, managed accounts, managed credentials, session state y logoff.
+
+### Cambios descartados
+
+- No se implemento `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, remote `OperationRequest`, endpoint Master, BatchOperation, planner, UI, Protobuf ni gRPC.
+- No se implemento transporte de password Service -> Provider, credential lease, `ManagedWindowsCredentialStore.Acquire()`, `KERB_INTERACTIVE_UNLOCK_LOGON`, LSA call ni serialization real.
+- No se uso autologon Registry, `DefaultPassword`, `LogonUser`, `CreateProcessAsUser`, `CreateProcessWithLogonW`, SendKeys, UI Automation, PowerShell, `cmd`, scripts, RDP ni APIs WinStation no documentadas.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge"` en `agent`: correcto, 24 pruebas Service superadas; Session sin coincidencias.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `rg` dirigido sobre provider/bridge/scripts para APIs prohibidas/filtro/provider network APIs: sin coincidencias en codigo productivo 19G1.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Validacion manual pendiente
+
+- En PC descartable: copiar DLL a `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\`, confirmar ACL sin write para usuarios estandar, registrar con script lab, bloquear/cerrar sesion, confirmar providers estandar visibles, confirmar que Galtek no autentica sin activation, detener Agent Service y verificar login estandar, desregistrar y confirmar desaparicion del provider.
+
+### Commit sugerido
+
+`feat(agent): add credential provider foundation`

@@ -110,8 +110,10 @@ Por eso no se ejecuta automaticamente por assignment, startup ni recovery. Requi
 
 ## Limites 19F
 
-No implementa endpoint HTTP, BatchOperation, planner Master, fanout, `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, Credential Provider, uso de password, DPAPI, vault, Session Agent, RDP control, shell, PowerShell, `cmd`, `logoff.exe`, UI ni polling.
+No implementa endpoint HTTP, BatchOperation, planner Master, fanout, `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, uso de Credential Provider, uso de password, DPAPI, vault, Session Agent, RDP control, shell, PowerShell, `cmd`, `logoff.exe`, UI ni polling.
+
+Prompt 19G1 agrega una foundation separada de Credential Provider V2 para login futuro. Esa foundation no cambia `LOGOFF_WINDOWS_SESSION`: logoff sigue sin requerir password, sin provider y sin consultar `managed-windows-credentials.dat`.
 
 ## Pendiente
 
-19G queda pendiente para `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT`.
+19G2 queda pendiente para credential acquisition one-time y serialization real del futuro `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
