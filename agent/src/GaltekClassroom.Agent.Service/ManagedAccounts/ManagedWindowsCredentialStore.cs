@@ -239,10 +239,22 @@ public interface IManagedWindowsCredentialStore
         ReadOnlyMemory<char> secret,
         CancellationToken cancellationToken);
 
+    Task<ManagedWindowsCredentialWriteResult> AddUtf16LittleEndianAsync(
+        Guid currentInstallationId,
+        string accountId,
+        ReadOnlyMemory<byte> secretUtf16LittleEndian,
+        CancellationToken cancellationToken);
+
     Task<ManagedWindowsCredentialWriteResult> ReplaceAsync(
         Guid currentInstallationId,
         string accountId,
         ReadOnlyMemory<char> secret,
+        CancellationToken cancellationToken);
+
+    Task<ManagedWindowsCredentialWriteResult> ReplaceUtf16LittleEndianAsync(
+        Guid currentInstallationId,
+        string accountId,
+        ReadOnlyMemory<byte> secretUtf16LittleEndian,
         CancellationToken cancellationToken);
 
     Task<ManagedWindowsCredentialWriteResult> RemoveAsync(
@@ -379,6 +391,20 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         return AddOrReplaceAsync(currentInstallationId, accountId, secret, replaceExisting: false, cancellationToken);
     }
 
+    public Task<ManagedWindowsCredentialWriteResult> AddUtf16LittleEndianAsync(
+        Guid currentInstallationId,
+        string accountId,
+        ReadOnlyMemory<byte> secretUtf16LittleEndian,
+        CancellationToken cancellationToken)
+    {
+        return AddOrReplaceUtf16LittleEndianAsync(
+            currentInstallationId,
+            accountId,
+            secretUtf16LittleEndian,
+            replaceExisting: false,
+            cancellationToken);
+    }
+
     public Task<ManagedWindowsCredentialWriteResult> ReplaceAsync(
         Guid currentInstallationId,
         string accountId,
@@ -386,6 +412,20 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         CancellationToken cancellationToken)
     {
         return AddOrReplaceAsync(currentInstallationId, accountId, secret, replaceExisting: true, cancellationToken);
+    }
+
+    public Task<ManagedWindowsCredentialWriteResult> ReplaceUtf16LittleEndianAsync(
+        Guid currentInstallationId,
+        string accountId,
+        ReadOnlyMemory<byte> secretUtf16LittleEndian,
+        CancellationToken cancellationToken)
+    {
+        return AddOrReplaceUtf16LittleEndianAsync(
+            currentInstallationId,
+            accountId,
+            secretUtf16LittleEndian,
+            replaceExisting: true,
+            cancellationToken);
     }
 
     public async Task<ManagedWindowsCredentialWriteResult> RemoveAsync(
@@ -521,6 +561,102 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         try
         {
             payload = BuildPayload(context.Binding.AccountId, context.Binding.WindowsSid, secret.Span);
+            entropy = DeriveOptionalEntropy(currentInstallationId, context.Binding.AccountId);
+            var protectedResult = _protector.Protect(payload, entropy);
+            if (!protectedResult.Succeeded || protectedResult.Data.Length == 0)
+            {
+                return ManagedWindowsCredentialWriteResult.Failure(
+                    ManagedWindowsCredentialWriteStatus.ProtectionFailed,
+                    _filePath,
+                    ManagedWindowsCredentialErrorCodes.ManagedCredentialProtectionFailed,
+                    "Managed Windows credential protection failed.");
+            }
+
+            var now = _clock.UtcNow.ToUniversalTime();
+            var entry = new ManagedWindowsCredentialEntry(
+                context.Binding.AccountId,
+                Convert.ToBase64String(protectedResult.Data),
+                existing?.CreatedAtUtc ?? now,
+                now);
+
+            var entries = existing is null
+                ? load.Entries.Concat([entry]).ToArray()
+                : load.Entries
+                    .Select(current => SameAccountId(current.AccountId, context.Binding.AccountId) ? entry : current)
+                    .ToArray();
+
+            return await PersistAsync(
+                currentInstallationId,
+                entries,
+                ManagedWindowsCredentialWriteStatus.Configured,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (payload is not null)
+            {
+                CryptographicOperations.ZeroMemory(payload);
+            }
+
+            if (entropy is not null)
+            {
+                CryptographicOperations.ZeroMemory(entropy);
+            }
+        }
+    }
+
+    private async Task<ManagedWindowsCredentialWriteResult> AddOrReplaceUtf16LittleEndianAsync(
+        Guid currentInstallationId,
+        string accountId,
+        ReadOnlyMemory<byte> secretUtf16LittleEndian,
+        bool replaceExisting,
+        CancellationToken cancellationToken)
+    {
+        var idValidation = ManagedWindowsAccountBindingValidator.ValidateAccountId(accountId);
+        if (!idValidation.IsValid)
+        {
+            return InvalidWrite(idValidation.ErrorMessage ?? "Managed Windows accountId is invalid.");
+        }
+
+        var load = await LoadAsync(currentInstallationId, cancellationToken).ConfigureAwait(false);
+        if (!load.Loaded)
+        {
+            return StoreInvalidWrite(load);
+        }
+
+        var context = await ResolveCredentialContextAsync(
+            currentInstallationId,
+            accountId,
+            cancellationToken).ConfigureAwait(false);
+        if (!context.Succeeded)
+        {
+            return ToWriteFailure(context);
+        }
+
+        var secretValidation = ValidateUtf16LittleEndianSecret(secretUtf16LittleEndian);
+        if (!secretValidation.IsValid)
+        {
+            return InvalidWrite(secretValidation.ErrorMessage ?? "Managed Windows credential is invalid.");
+        }
+
+        var existing = Find(load.Entries, context.Binding!.AccountId);
+        if (existing is not null && !replaceExisting)
+        {
+            return ManagedWindowsCredentialWriteResult.Failure(
+                ManagedWindowsCredentialWriteStatus.AlreadyExists,
+                _filePath,
+                ManagedWindowsCredentialErrorCodes.ManagedCredentialAlreadyExists,
+                "Managed Windows credential already exists. Use explicit replace to overwrite it.");
+        }
+
+        byte[]? payload = null;
+        byte[]? entropy = null;
+        try
+        {
+            payload = BuildPayloadFromUtf16LittleEndian(
+                context.Binding.AccountId,
+                context.Binding.WindowsSid,
+                secretUtf16LittleEndian.Span);
             entropy = DeriveOptionalEntropy(currentInstallationId, context.Binding.AccountId);
             var protectedResult = _protector.Protect(payload, entropy);
             if (!protectedResult.Succeeded || protectedResult.Data.Length == 0)
@@ -856,6 +992,72 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         {
             CryptographicOperations.ZeroMemory(passwordBytes);
         }
+    }
+
+    private static byte[] BuildPayloadFromUtf16LittleEndian(
+        string accountId,
+        string windowsSid,
+        ReadOnlySpan<byte> passwordUtf16LittleEndian)
+    {
+        var normalizedAccountId = ManagedWindowsAccountBinding.NormalizeAccountId(accountId);
+        var accountBytes = Encoding.UTF8.GetBytes(normalizedAccountId);
+        var sidBytes = Encoding.UTF8.GetBytes(windowsSid);
+        var length = PayloadMagic.Length
+            + sizeof(ushort)
+            + sizeof(ushort)
+            + accountBytes.Length
+            + sizeof(ushort)
+            + sidBytes.Length
+            + sizeof(int)
+            + passwordUtf16LittleEndian.Length;
+        var payload = new byte[length];
+        var offset = 0;
+
+        PayloadMagic.CopyTo(payload, offset);
+        offset += PayloadMagic.Length;
+
+        BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(offset, sizeof(ushort)), 1);
+        offset += sizeof(ushort);
+
+        BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(offset, sizeof(ushort)), checked((ushort)accountBytes.Length));
+        offset += sizeof(ushort);
+        accountBytes.CopyTo(payload.AsSpan(offset));
+        offset += accountBytes.Length;
+
+        BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(offset, sizeof(ushort)), checked((ushort)sidBytes.Length));
+        offset += sizeof(ushort);
+        sidBytes.CopyTo(payload.AsSpan(offset));
+        offset += sidBytes.Length;
+
+        BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(offset, sizeof(int)), passwordUtf16LittleEndian.Length);
+        offset += sizeof(int);
+        passwordUtf16LittleEndian.CopyTo(payload.AsSpan(offset));
+
+        return payload;
+    }
+
+    private static ManagedWindowsCredentialValidationResult ValidateUtf16LittleEndianSecret(
+        ReadOnlyMemory<byte> secretUtf16LittleEndian)
+    {
+        if (secretUtf16LittleEndian.Length == 0)
+        {
+            return ManagedWindowsCredentialValidationResult.Invalid(
+                "Managed Windows credential is empty.");
+        }
+
+        if (secretUtf16LittleEndian.Length % 2 != 0)
+        {
+            return ManagedWindowsCredentialValidationResult.Invalid(
+                "Managed Windows credential UTF-16LE bytes are invalid.");
+        }
+
+        if (secretUtf16LittleEndian.Length > ManagedWindowsCredentialConstants.MaximumPasswordCharacters * 2)
+        {
+            return ManagedWindowsCredentialValidationResult.Invalid(
+                "Managed Windows credential exceeds maximum length.");
+        }
+
+        return ManagedWindowsCredentialValidationResult.Valid();
     }
 
     private static bool TryParsePayload(

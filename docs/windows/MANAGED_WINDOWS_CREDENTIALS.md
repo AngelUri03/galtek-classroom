@@ -1,5 +1,7 @@
 # Managed Windows Credentials
 
+Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. No agrega reveal, HTTP, BatchOperation, Local IPC, Session Agent, login ni cambio de password Windows.
+
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:
 
 ```text
@@ -89,6 +91,8 @@ El store interno expone:
 GetStatus
 Add
 Replace
+AddUtf16LittleEndian
+ReplaceUtf16LittleEndian
 Remove
 Acquire
 ```
@@ -136,22 +140,36 @@ binding configurado
 
 Si falta credencial: `CREDENTIAL_NOT_CONFIGURED`. Si la cuenta desaparecio: `ACCOUNT_NOT_FOUND`.
 
+## Provisioning Remoto 19E1
+
+`PROVISION_MANAGED_CREDENTIAL` significa:
+
+```text
+establece la credencial almacenada por Galtek Client para este slot
+```
+
+Sirve para provisioning inicial y rotacion de la copia almacenada: crea si falta y reemplaza si existe. No modifica la cuenta Windows, no cambia la password real, no valida con logon, no cambia SID/binding/username/perfil/sesion y no involucra al Session Agent.
+
+El password entra al Agent como bytes UTF-16LE sin BOM ni NUL, se copia a un buffer mutable controlado, se valida contra el maximo vigente y se pasa a `ReplaceUtf16LittleEndianAsync`. Ese buffer se limpia siempre en `finally`. Protobuf/gRPC pueden mantener buffers internos no zeroizables por Galtek; por eso no se guardan referencias al `ByteString`, no se loguea el request y el dedupe no conserva el protobuf completo.
+
+El resultado `SUCCESS` solo confirma DPAPI protect, escritura durable y verificacion del store. Si no llega `OperationResult`, el Master reporta `OPERATION_RESULT_UNKNOWN` y no reintenta automaticamente.
+
 ## CLI, IPC Y Red
 
-19D no agrega password a CLI, Local IPC, Protobuf, gRPC, UI ni logs.
+No se agrega password a CLI, Local IPC, UI ni logs.
 
 `--managed-account-list` sigue siendo diagnostico local de binding y no intenta descifrar DPAPI desde una consola administrativa normal. La autoridad futura para `credentialConfigured` sera una operacion productiva del Agent Service bajo LocalSystem.
 
-## Limites 19D
+## Limites 19E1
 
-19D no implementa provisioning remoto, Credential Vault integration, API Master, transporte de password, Local IPC de credenciales, login, logoff, switch, Credential Provider, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
+19E1 no implementa Credential Vault integration, API HTTP Master, BatchOperation, Local IPC de credenciales, login, logoff, switch, Credential Provider, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
 
-No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning futuro, status explicito y acquire futuro para login.
+No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire futuro para login.
 
 ## Validacion Manual Pendiente
 
 1. Confirmar que el Service corre como LocalSystem.
-2. Provisionar `PRIMARY` desde la futura operacion 19E.
+2. Provisionar `PRIMARY` mediante `PROVISION_MANAGED_CREDENTIAL` cuando exista el bridge Master de Prompt 19E2 o una superficie administrativa segura posterior.
 3. Verificar que `managed-windows-credentials.dat` no contiene password ni SID en plaintext.
 4. Reiniciar el Service y confirmar que la credencial sigue usable.
 5. Copiar el credential store a otra instalacion y confirmar fail closed.
@@ -161,7 +179,7 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 
 ## Pendiente
 
-- 19E: provisioning administrativo seguro Master -> Client.
+- 19E2: bridge interno Credential Vault -> MasterRemoteOperationGateway.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master y planner.

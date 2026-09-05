@@ -1,5 +1,36 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19E1
+
+- `PROVISION_MANAGED_CREDENTIAL` es la unica operacion remota secret-bearing vigente para passwords Windows administradas.
+- La operacion solo establece la copia segura que Galtek Client conserva para `PRIMARY`/`SECONDARY`; no cambia la password real de Windows.
+- El Protobuf v1 conserva `protocolVersion = 1` y agrega `ProvisionManagedCredentialOperationParameters` con solo `ManagedWindowsAccountId account_id` y `bytes password_utf16le`.
+- `password_utf16le` usa UTF-16LE sin BOM y sin terminador NUL; no se usa `string password`.
+- Los account ids validos son solo `PRIMARY` y `SECONDARY`; `UNSPECIFIED` se rechaza.
+- El request no transporta username, domain, SID, `accountReference`, `credentialId`, vault token, master password, profile path, command, arguments, shell, JSON, `Struct`, `Any` ni `map`.
+- El transporte autorizado sigue siendo solo gRPC/mTLS existente, Master esperado, trust `PAIRED`, no `REVOKED` y Device correcto.
+- No hay fallback HTTP, Local IPC, socket plaintext, file share, clipboard, temp file ni Session Command para passwords.
+- No se habilita compresion especifica para esta operacion.
+- `MANAGED_CREDENTIAL_PROVISIONING_V1` se anuncia solo porque existen handler Agent-side, store DPAPI productivo, binding store y mapping Protobuf.
+- `PROVISION_MANAGED_CREDENTIAL` requiere Commercial License Client `ACTIVE`; la unica excepcion recovery-safe sigue siendo `UNLOCK_INPUT`.
+- `ProvisionManagedCredentialOperationHandler` corre en Agent Service/LocalSystem y nunca en Session Agent.
+- El handler copia `password_utf16le` a un buffer mutable controlado, valida no vacio, cantidad par y maximo vigente, y limpia el buffer en `finally`.
+- El store agrega ruta `ReplaceUtf16LittleEndianAsync` para construir payload DPAPI desde bytes sin decodificar a string.
+- Antes de guardar, el Client valida binding local, catalogo, SID valido y SID resoluble como `SidTypeUser`.
+- La persistencia reutiliza `ManagedWindowsCredentialStore` y `WindowsDpapiManagedWindowsCredentialProtector`; no hay crypto nueva.
+- `SUCCESS` significa solo DPAPI protect + persistencia durable + verificacion del credential store.
+- `SUCCESS` no prueba que la password sea correcta, no llama `LogonUser`/LSA/Credential Provider/Winlogon y no provoca lockout.
+- `OperationResult` de provisioning queda sin payload secreto y no contiene password, longitud exacta, hash, SID, username, accountReference ni protectedData.
+- No se persiste password hash, HMAC, fingerprint ni checksum.
+- El dedupe del Agent ya no conserva `OperationRequest` completo en `OperationState`; conserva una firma no secreta y el resultado.
+- Para provisioning, la firma de dedupe usa `operationId`, `operationType`, `targetDeviceId`, `protocolVersion` y `accountId`, nunca password ni hash.
+- Mismo `operationId + accountId` devuelve el resultado original y no reaplica el secreto, incluso si el duplicado trae bytes distintos.
+- Mismo `operationId` con otro `accountId` mantiene conflicto `OPERATION_DUPLICATE` y no ejecuta la segunda operacion.
+- Protobuf/gRPC y runtimes administrados pueden crear buffers internos que Galtek no puede zeroizar; la garantia es no persistencia plaintext, no logs, no caches Galtek de secretos y limpieza inmediata de copias controladas.
+- El Master Java agrega solo `MasterRemoteOperationGateway.provisionManagedCredential(...)`; no agrega endpoint HTTP, BatchOperation, SQLite migration ni Credential Vault bridge.
+- Si el Master no recibe `OperationResult`, el resultado es `OPERATION_RESULT_UNKNOWN`; no hay retry automatico, receipt, reconciliation ni status query nuevo.
+- 19E2 queda pendiente para conectar Credential Vault -> gateway internamente, todavia sin HTTP ni BatchOperation.
+
 ## 2026-09-04 - Prompt 19D
 
 - El Client secure credential store queda implementado solo del lado `GaltekClassroom.Agent.Service`.

@@ -8,8 +8,8 @@ Prompt 19A implementa el nucleo seguro local para que la profesora administrador
 - Usa el Master data directory y sus overrides existentes: `GALTEK_CLASSROOM_MASTER_DATA_DIR` y `galtek.classroom.master.storage.data-dir`.
 - No usa `classroom.db`, migrations SQLite, BrowserProfile, environment variables, registry, logs ni browser storage para secretos.
 - Tipos iniciales: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
-- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, Protobuf, gRPC, provisioning remoto, login Windows ni Google browser automation.
-- El Client credential store operativo de Prompt 19D es `managed-windows-credentials.dat` en el Agent Service y esta separado de esta boveda.
+- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, bridge interno hacia provisioning, login Windows ni Google browser automation.
+- El Client credential store operativo de Prompt 19D es `managed-windows-credentials.dat` en el Agent Service y esta separado de esta boveda. Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL` y el metodo tipado del gateway, pero no conecta todavia esta boveda al transporte.
 
 ## Modelo
 
@@ -66,6 +66,7 @@ updatedAtUtc
 - Passwords prohibidas en `classroom.db`, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State y StudentWorkspace metadata.
 - Las credenciales Google no autorizan leer Chrome passwords, copiar cookies/tokens, copiar `Login Data`, copiar `Local State`, browser automation, SendKeys, auto-login ni autofill.
 - Las operaciones Windows normales futuras siguen usando `accountId = PRIMARY/SECONDARY`; no envian passwords.
+- La excepcion vigente para transporte de password es `PROVISION_MANAGED_CREDENTIAL`: el secreto viaja como bytes UTF-16LE sobre gRPC/mTLS y se persiste inmediatamente por DPAPI en el Client. 19E1 no lee secretos desde Credential Vault; 19E2 agregara el bridge interno sin endpoint HTTP y sin BatchOperation.
 - El Client credential store seguro existe desde Prompt 19D, usa DPAPI bajo LocalSystem y no ofrece reveal. La boveda del Master sigue siendo la superficie humana futura para consultar passwords.
 
 ## Recovery

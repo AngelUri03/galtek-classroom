@@ -2057,3 +2057,44 @@
 ### Commit sugerido
 
 `feat(agent): protect managed windows credentials`
+
+## 2026-09-04 - Prompt 19E1
+
+### Realizado
+
+- Implementada operacion remota tipada `PROVISION_MANAGED_CREDENTIAL` para provisionar/reemplazar la credencial almacenada por Galtek Client para `PRIMARY`/`SECONDARY`.
+- Protobuf v1 agrega `ManagedWindowsAccountId`, `ProvisionManagedCredentialOperationParameters(account_id, password_utf16le)`, capability `MANAGED_CREDENTIAL_PROVISIONING_V1` y errores estructurados de binding/store/proteccion.
+- `password_utf16le` viaja como bytes UTF-16LE sin BOM/NUL; no se agrega `string password`.
+- Agregado `ProvisionManagedCredentialOperationHandler` en Agent Service/LocalSystem, registrado en `RemoteOperationDispatcher`.
+- El handler valida parametros, accountId, password no vacio, bytes pares y maximo vigente, copia el secreto a buffer mutable y lo limpia con `CryptographicOperations.ZeroMemory` en `finally`.
+- `ManagedWindowsCredentialStore` agrega ruta `AddUtf16LittleEndianAsync`/`ReplaceUtf16LittleEndianAsync` para construir payload DPAPI desde bytes sin decodificar a string.
+- Provisioning reutiliza binding local, validacion SID `SidTypeUser`, `ManagedWindowsCredentialStore` y `WindowsDpapiManagedWindowsCredentialProtector`.
+- `SUCCESS` significa DPAPI protect, persistencia durable y verificacion del store; no valida password contra Windows ni cambia la password real.
+- `ClientCapabilityProvider` anuncia `MANAGED_CREDENTIAL_PROVISIONING_V1`.
+- El dedupe del Agent deja de conservar `OperationRequest` completo; retiene una firma no secreta y el `OperationResult`.
+- Para provisioning, la firma de dedupe usa solo metadata no secreta: operationId, tipo, targetDeviceId, protocolVersion y accountId.
+- Mismo `operationId + accountId` devuelve resultado cacheado sin reaplicar el secreto, incluso con bytes distintos; mismo operationId con otro accountId conserva conflicto.
+- Java agrega `PROVISION_MANAGED_CREDENTIAL`, capability, mapping de capability, errores remotos y metodo explicito `MasterRemoteOperationGateway.provisionManagedCredential(...)`.
+- Agregados tests dirigidos .NET de contrato, handler, store por bytes, memoria sensible, dedupe secret-safe, capability y licencia.
+- Agregados tests dirigidos Java de gateway/proto, bytes, accountId tipado, ausencia de campos SID/username/credentialId/vault token, no persistencia/logging en gateway y timeout unknown.
+- Creado `docs/windows/MANAGED_CREDENTIAL_PROVISIONING.md` y actualizados protocolo, arquitectura, modelo funcional, reglas, decisiones, estado, managed accounts, session state, managed credentials y Credential Vault.
+
+### Cambios descartados
+
+- No se implemento Credential Vault bridge real, endpoint HTTP Master, BatchOperation, SQLite migration, Local IPC credential op, Session Command password, Session Agent password handling, login, logoff, switch, Credential Provider, `LogonUser`, LSA, Winlogon, `CreateProcessAsUser`, password verification, Windows password change, password hash/fingerprint/checksum, receipt, reconciliation, status query nuevo, auto retry, UI, clipboard ni reveal.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ProvisionManagedCredential|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ManagedWindowsCredential|FullyQualifiedName~OperationContracts|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 100 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Validacion manual pendiente
+
+- En PC descartable: provisionar `PRIMARY` y `SECONDARY` desde Master sobre mTLS real, verificar que `managed-windows-credentials.dat` no contiene password/SID plaintext, confirmar `READY` cuando binding/SID siguen validos, reiniciar Service y confirmar persistencia, re-provisionar para rotacion, y confirmar que duplicados por operationId no reaplican el secreto.
+
+### Commit sugerido
+
+`feat(agent): provision managed credentials securely`

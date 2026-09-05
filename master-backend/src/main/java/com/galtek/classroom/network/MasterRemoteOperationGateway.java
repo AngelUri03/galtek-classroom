@@ -1,8 +1,10 @@
 package com.galtek.classroom.network;
 
+import com.google.protobuf.ByteString;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParameters;
 import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
+import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
 import com.galtek.classroom.network.v1.OpenApplicationOperationParameters;
@@ -15,6 +17,7 @@ import com.galtek.classroom.network.v1.OperationResult;
 import com.galtek.classroom.network.v1.OperationStatusKnowledge;
 import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
+import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
@@ -89,7 +92,7 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -98,7 +101,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -107,7 +110,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserDownloadPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -116,7 +119,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenUrlOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -125,7 +128,32 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenApplicationOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null, null);
+    }
+
+    public Optional<DispatchHandle> provisionManagedCredential(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId,
+            ManagedWindowsAccountId accountId,
+            byte[] passwordUtf16Le) {
+        ProvisionManagedCredentialOperationParameters parameters =
+                ProvisionManagedCredentialOperationParameters.newBuilder()
+                        .setAccountId(accountId == null
+                                ? ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED
+                                : accountId)
+                        .setPasswordUtf16Le(ByteString.copyFrom(passwordUtf16Le == null ? new byte[0] : passwordUtf16Le))
+                        .build();
+        return dispatch(
+                snapshot,
+                OperationType.PROVISION_MANAGED_CREDENTIAL,
+                operationId,
+                targetDeviceId,
+                null,
+                null,
+                null,
+                null,
+                parameters);
     }
 
     private Optional<DispatchHandle> dispatch(
@@ -136,7 +164,8 @@ public class MasterRemoteOperationGateway {
             ApplyBrowserPolicyOperationParameters browserPolicyParameters,
             ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters,
             OpenApplicationOperationParameters openApplicationParameters,
-            OpenUrlOperationParameters openUrlParameters) {
+            OpenUrlOperationParameters openUrlParameters,
+            ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
         }
@@ -176,6 +205,9 @@ public class MasterRemoteOperationGateway {
             }
             if (openUrlParameters != null) {
                 request.setOpenUrl(openUrlParameters);
+            }
+            if (provisionManagedCredentialParameters != null) {
+                request.setProvisionManagedCredential(provisionManagedCredentialParameters);
             }
             session.send(MasterEnvelope.newBuilder()
                     .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
@@ -431,6 +463,12 @@ public class MasterRemoteOperationGateway {
             case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID ->
                     ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID;
             case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN -> ErrorCode.WINDOWS_SESSION_UNKNOWN;
+            case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED -> ErrorCode.ACCOUNT_NOT_CONFIGURED;
+            case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND -> ErrorCode.ACCOUNT_NOT_FOUND;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID ->
+                    ErrorCode.MANAGED_CREDENTIAL_STORE_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED ->
+                    ErrorCode.MANAGED_CREDENTIAL_PROTECTION_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE -> ErrorCode.OPERATION_ALREADY_RUNNING;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_REJECTED -> ErrorCode.OPERATION_REJECTED;
@@ -515,6 +553,14 @@ public class MasterRemoteOperationGateway {
                     "Agent reported invalid managed Windows account bindings.";
             case NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN ->
                     "Agent could not determine Windows session state.";
+            case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED ->
+                    "Managed Windows account is not configured on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND ->
+                    "Managed Windows account was not found on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID ->
+                    "Managed Windows credential store is invalid on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED ->
+                    "Managed Windows credential protection failed on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
                     "Operation is not implemented by the target Agent.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_DUPLICATE ->
@@ -541,6 +587,8 @@ public class MasterRemoteOperationGateway {
             case OPEN_APPLICATION -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_APPLICATION;
             case OPEN_URL -> NetworkOperationType.NETWORK_OPERATION_TYPE_OPEN_URL;
             case GET_WINDOWS_SESSION_STATE -> NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE;
+            case PROVISION_MANAGED_CREDENTIAL ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->

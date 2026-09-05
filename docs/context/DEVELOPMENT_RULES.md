@@ -96,9 +96,19 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Cada Client credential queda ligada al SID del binding vigente dentro del payload protegido.
 - Rebind a un SID nuevo invalida logicamente la credencial anterior; no adoptarla ni borrarla automaticamente.
 - Passwords Windows administradas solo viven durante operaciones explicitas; limpiar buffers mutables controlados con `CryptographicOperations.ZeroMemory` o equivalente.
+- Passwords remotas solo pueden transportarse en operaciones explicitas secret-bearing sobre gRPC/mTLS autenticado, con Master esperado, trust `PAIRED`, no `REVOKED` y Device correcto.
+- Nunca usar `string` Protobuf para passwords; usar `bytes` con encoding documentado.
+- Requests secret-bearing no se loguean ni se cachean completos como protobuf serializado.
+- El dedupe de credential provisioning nunca conserva password raw, password hash, fingerprint/checksum de password ni request secreto completo.
+- Mismo `operationId + accountId` en credential provisioning devuelve el resultado original y no reaplica el secreto.
+- Password recibida para provisioning se persiste inmediatamente via DPAPI en el Client credential store o se descarta.
+- El buffer mutable controlado recibido para provisioning se limpia siempre en `finally`.
 - El Session Agent nunca recibe passwords Windows administradas; el secreto pertenece al Agent Service.
 - El Client no ofrece reveal/export/dump; reveal humano pertenece al Credential Vault del Master.
 - No validar passwords provocando `LogonUser`, Credential Provider, Winlogon, LSA ni ningun logon durante storage/provisioning.
+- No agregar fallback Local IPC, HTTP, plaintext socket, file share, clipboard ni temp file para passwords remotas.
+- No agregar retry automatico, reconciliation ni receipt para credential provisioning; ante falta de resultado confirmado usar `OPERATION_RESULT_UNKNOWN`.
+- `SUCCESS` de credential provisioning no valida la password contra Windows ni cambia la password real de la cuenta.
 - No usar DPAPI en heartbeat, startup, idle, timers, polling ni scans.
 - No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Reflection;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.Network;
@@ -7,6 +8,7 @@ using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
+using Google.Protobuf;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 
@@ -161,6 +163,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.BrowserDownloadPolicyV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.InputControlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.WindowsSessionStateV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.ManagedCredentialProvisioningV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
     }
@@ -238,6 +241,85 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Equal(NetworkOperationErrorCode.OperationNotImplemented, same.Result.ErrorCode);
         Assert.Equal(first.Result.CompletedAtUnixMs, same.Result.CompletedAtUnixMs);
         Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, different.Result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DuplicateProvisionManagedCredentialOperationComparesOnlySecretSafeMetadata()
+    {
+        var handler = new ProvisionCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision", ManagedWindowsAccountId.Primary, "first-secret"),
+            CancellationToken.None);
+        RemoteOperationDispatchResult sameMetadataDifferentSecret = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision", ManagedWindowsAccountId.Primary, "different-secret"),
+            CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.True(sameMetadataDifferentSecret.Duplicate);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(first.Result.CompletedAtUnixMs, sameMetadataDifferentSecret.Result.CompletedAtUnixMs);
+        Assert.Equal(OperationExecutionStatus.Success, sameMetadataDifferentSecret.Result.Status);
+    }
+
+    [Fact]
+    public async Task DuplicateProvisionManagedCredentialOperationWithDifferentAccountConflicts()
+    {
+        var handler = new ProvisionCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        _ = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision-conflict", ManagedWindowsAccountId.Primary, "first-secret"),
+            CancellationToken.None);
+        RemoteOperationDispatchResult differentAccount = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision-conflict", ManagedWindowsAccountId.Secondary, "second-secret"),
+            CancellationToken.None);
+
+        Assert.True(differentAccount.Duplicate);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, differentAccount.Result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProvisionManagedCredentialDedupeStateDoesNotStoreSecretRequest()
+    {
+        var dispatcher = new RemoteOperationDispatcher(
+            [new ProvisionCountingOperationHandler()],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        _ = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision-state", ManagedWindowsAccountId.Primary, "secret-value"),
+            CancellationToken.None);
+
+        object operations = typeof(RemoteOperationDispatcher)
+            .GetField("_operations", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(dispatcher)!;
+        object state = ((System.Collections.IEnumerable)operations)
+            .Cast<object>()
+            .Select(entry => entry.GetType().GetProperty("Value")!.GetValue(entry)!)
+            .Single();
+        var stateMembers = state.GetType()
+            .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(member => member.MemberType is MemberTypes.Field or MemberTypes.Property)
+            .Select(member => member switch
+            {
+                FieldInfo field => field.FieldType,
+                PropertyInfo property => property.PropertyType,
+                _ => typeof(object)
+            });
+
+        Assert.DoesNotContain(typeof(OperationRequest), stateMembers);
+        Assert.DoesNotContain("secret-value", state.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("SHA", state.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("hash", state.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -348,6 +430,62 @@ public sealed class MasterNetworkTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task OperationDispatcher_ProvisionManagedCredentialRequiresActiveCommercialLicense()
+    {
+        var handler = new ProvisionCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow),
+            new StaticLicenseStateProvider(LicenseState.Blocked(
+                CommercialLicenseStatus.LicenseExpired,
+                FixedNow,
+                "Commercial license is expired.")));
+
+        RemoteOperationDispatchResult dispatch = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision-license", ManagedWindowsAccountId.Primary, "secret"),
+            CancellationToken.None);
+
+        Assert.Equal(OperationExecutionStatus.Failed, dispatch.Result.Status);
+        Assert.Equal(NetworkOperationErrorCode.OperationRejected, dispatch.Result.ErrorCode);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task OperationDispatcher_ActiveCommercialLicenseAllowsProvisionManagedCredential()
+    {
+        var handler = new ProvisionCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow),
+            new StaticLicenseStateProvider(LicenseState.ActiveState(
+                "license-1",
+                "school-1",
+                [CommercialLicenseConstants.ClientRole],
+                CommercialLicenseFeatures.Empty,
+                FixedNow.AddDays(1),
+                FixedNow)));
+
+        RemoteOperationDispatchResult dispatch = await dispatcher.DispatchAsync(
+            ProvisionRequest("operation-provision-active-license", ManagedWindowsAccountId.Primary, "secret"),
+            CancellationToken.None);
+
+        Assert.Equal(OperationExecutionStatus.Success, dispatch.Result.Status);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public void RemoteOperationLicensePolicy_OnlyUnlockInputBypassesActiveCommercialLicense()
+    {
+        var policy = RemoteOperationLicensePolicy.Default;
+
+        Assert.False(policy.RequiresActiveCommercialLicense(NetworkOperationType.UnlockInput));
+        Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.ProvisionManagedCredential));
+        Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.LockInput));
+    }
+
+    [Fact]
     public void ReconnectBackoffIncreasesAndCanBeReset()
     {
         var backoff = new MasterConnectionBackoff(
@@ -451,6 +589,26 @@ public sealed class MasterNetworkTransportTests : IDisposable
                 PolicyVersion = 1,
                 RestrictionMode = restrictionMode,
                 AccountScope = BrowserPolicyAccountScope.Any
+            }
+        };
+    }
+
+    private static OperationRequest ProvisionRequest(
+        string operationId,
+        ManagedWindowsAccountId accountId,
+        string password)
+    {
+        return new OperationRequest
+        {
+            OperationId = operationId,
+            OperationType = NetworkOperationType.ProvisionManagedCredential,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds(),
+            ProvisionManagedCredential = new ProvisionManagedCredentialOperationParameters
+            {
+                AccountId = accountId,
+                PasswordUtf16Le = ByteString.CopyFrom(System.Text.Encoding.Unicode.GetBytes(password))
             }
         };
     }
@@ -599,6 +757,21 @@ public sealed class MasterNetworkTransportTests : IDisposable
         {
             Calls++;
             return Task.FromResult(RemoteOperationHandlerResult.NotImplemented());
+        }
+    }
+
+    private sealed class ProvisionCountingOperationHandler : IRemoteOperationHandler
+    {
+        public int Calls { get; private set; }
+
+        public NetworkOperationType OperationType => NetworkOperationType.ProvisionManagedCredential;
+
+        public Task<RemoteOperationHandlerResult> HandleAsync(
+            OperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(RemoteOperationHandlerResult.Success("provisioned"));
         }
     }
 

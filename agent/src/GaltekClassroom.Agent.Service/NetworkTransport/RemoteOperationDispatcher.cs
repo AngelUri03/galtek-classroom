@@ -41,8 +41,9 @@ public sealed class RemoteOperationDispatcher
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var signature = RequestSignature.From(request);
         var state = new OperationState(
-            request,
+            signature,
             new Lazy<Task<OperationResult>>(
                 () => ExecuteOnceAsync(request, cancellationToken),
                 LazyThreadSafetyMode.ExecutionAndPublication));
@@ -50,7 +51,7 @@ public sealed class RemoteOperationDispatcher
         var duplicate = !ReferenceEquals(existing, state);
 
         OperationResult result;
-        if (duplicate && !SameRequest(existing.Request, request))
+        if (duplicate && !SameRequest(existing.Signature, signature))
         {
             result = DuplicateConflict(request);
         }
@@ -76,7 +77,7 @@ public sealed class RemoteOperationDispatcher
         }
 
         if (!_operations.TryGetValue(operationId, out var state)
-            || !string.Equals(state.Request.TargetDeviceId, targetDeviceId, StringComparison.Ordinal)
+            || !string.Equals(state.Signature.TargetDeviceId, targetDeviceId, StringComparison.Ordinal)
             || !state.Result.IsValueCreated
             || !state.Result.Value.IsCompletedSuccessfully)
         {
@@ -238,13 +239,76 @@ public sealed class RemoteOperationDispatcher
             && Enum.IsDefined(typeof(NetworkOperationType), operationType);
     }
 
-    private static bool SameRequest(OperationRequest left, OperationRequest right)
+    private static bool SameRequest(RequestSignature left, RequestSignature right)
     {
-        return string.Equals(left.OperationId, right.OperationId, StringComparison.Ordinal)
-            && left.OperationType == right.OperationType
-            && string.Equals(left.TargetDeviceId, right.TargetDeviceId, StringComparison.Ordinal)
-            && string.Equals(left.ProtocolVersion, right.ProtocolVersion, StringComparison.Ordinal)
-            && SameParameters(left, right);
+        return left == right;
+    }
+
+    private sealed record RequestSignature(
+        string OperationId,
+        NetworkOperationType OperationType,
+        string TargetDeviceId,
+        string ProtocolVersion,
+        OperationRequest.OperationParametersOneofCase OperationParametersCase,
+        string ParameterSignature)
+    {
+        public static RequestSignature From(OperationRequest request)
+        {
+            return new RequestSignature(
+                request.OperationId ?? string.Empty,
+                request.OperationType,
+                request.TargetDeviceId ?? string.Empty,
+                request.ProtocolVersion ?? string.Empty,
+                request.OperationParametersCase,
+                ParameterSignatureFor(request));
+        }
+
+        private static string ParameterSignatureFor(OperationRequest request)
+        {
+            return request.OperationParametersCase switch
+            {
+                OperationRequest.OperationParametersOneofCase.OpenUrl => request.OpenUrl?.Url ?? string.Empty,
+                OperationRequest.OperationParametersOneofCase.OpenApplication => request.OpenApplication?.ApplicationId ?? string.Empty,
+                OperationRequest.OperationParametersOneofCase.ApplyBrowserPolicy => BrowserPolicySignature(
+                    request.ApplyBrowserPolicy),
+                OperationRequest.OperationParametersOneofCase.ApplyBrowserDownloadPolicy => BrowserDownloadPolicySignature(
+                    request.ApplyBrowserDownloadPolicy),
+                OperationRequest.OperationParametersOneofCase.ProvisionManagedCredential => ManagedCredentialProvisioningSignature(
+                    request.ProvisionManagedCredential),
+                OperationRequest.OperationParametersOneofCase.None => string.Empty,
+                _ => "<unknown>"
+            };
+        }
+
+        private static string BrowserPolicySignature(ApplyBrowserPolicyOperationParameters? parameters)
+        {
+            if (parameters is null)
+            {
+                return string.Empty;
+            }
+
+            var rules = string.Join(
+                "\n",
+                parameters.Rules.Select(rule =>
+                    $"{rule.RuleId}\u001f{rule.Action}\u001f{rule.MatchType}\u001f{rule.Pattern}\u001f{rule.Enabled}"));
+            return $"{parameters.PolicyId}\u001f{parameters.PolicyVersion}\u001f{parameters.ImplicitUnrestricted}\u001f{parameters.Mode}\u001f{parameters.AccountScope}\u001e{rules}";
+        }
+
+        private static string BrowserDownloadPolicySignature(
+            ApplyBrowserDownloadPolicyOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : $"{parameters.PolicyId}\u001f{parameters.PolicyVersion}\u001f{parameters.ImplicitNoSpecialRestrictions}\u001f{parameters.RestrictionMode}\u001f{parameters.AccountScope}";
+        }
+
+        private static string ManagedCredentialProvisioningSignature(
+            ProvisionManagedCredentialOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
     }
 
     private static bool SameParameters(OperationRequest left, OperationRequest right)
@@ -409,14 +473,14 @@ public sealed class RemoteOperationDispatcher
         private long _completedAtUnixMs;
 
         public OperationState(
-            OperationRequest request,
+            RequestSignature signature,
             Lazy<Task<OperationResult>> result)
         {
-            Request = request;
+            Signature = signature;
             Result = result;
         }
 
-        public OperationRequest Request { get; }
+        public RequestSignature Signature { get; }
 
         public Lazy<Task<OperationResult>> Result { get; }
 

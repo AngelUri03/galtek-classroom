@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service; no implementa provisioning remoto ni reveal.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; no agrega reveal, HTTP, BatchOperation, login/logoff/switch ni Credential Vault bridge.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -161,7 +161,7 @@ En una PC descartable:
 2. Ejecutar bind de `PRIMARY -> Primaria` y `SECONDARY -> Secundaria`.
 3. Verificar que list muestre ambas con `CREDENTIAL_NOT_CONFIGURED`.
 4. Renombrar `Primaria`; el SID permanece y el binding sigue valido.
-5. Provisionar credencial desde la futura operacion 19E y confirmar status interno `READY`.
+5. Provisionar credencial con `PROVISION_MANAGED_CREDENTIAL` y confirmar status interno `READY`.
 6. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND`.
 7. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
 8. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
@@ -170,7 +170,7 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19E: provisioning administrativo seguro Master -> Client.
+- 19E2: bridge interno Credential Vault -> MasterRemoteOperationGateway.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch batch Master.

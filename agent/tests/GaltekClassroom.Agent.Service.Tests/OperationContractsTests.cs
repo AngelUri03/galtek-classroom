@@ -24,6 +24,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.LogonManagedAccount, operations);
         Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
         Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
+        Assert.Contains(ClassroomOperationTypes.ProvisionManagedCredential, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserDownloadPolicy, operations);
     }
@@ -38,6 +39,11 @@ public sealed class OperationContractsTests
         Assert.DoesNotContain("RUN_POWERSHELL", operations);
         Assert.DoesNotContain("RUN_CMD", operations);
         Assert.DoesNotContain("EXECUTE_PATH", operations);
+        Assert.DoesNotContain("SET_PASSWORD", operations);
+        Assert.DoesNotContain("EXECUTE_CREDENTIAL", operations);
+        Assert.DoesNotContain("RUN_LOGON", operations);
+        Assert.DoesNotContain("UPDATE_WINDOWS_PASSWORD", operations);
+        Assert.DoesNotContain("CHANGE_ACCOUNT_PASSWORD", operations);
     }
 
     [Fact]
@@ -135,6 +141,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.AccountNotConfigured, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.AccountNotFound, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialNotConfigured, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialStoreInvalid, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.ManagedCredentialProtectionFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionUnknown, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
@@ -321,6 +329,57 @@ public sealed class OperationContractsTests
             "WINDOWS_SESSION_STATE_V1",
             ClassroomCapabilities.WindowsSessionStateV1);
         Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionStateV1));
+    }
+
+    [Fact]
+    public void ProvisionManagedCredentialRemoteContract_IsTypedSecretBearingBytesOnly()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.ProvisionManagedCredential,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1",
+            ProvisionManagedCredential = new ProvisionManagedCredentialOperationParameters
+            {
+                AccountId = ManagedWindowsAccountId.Primary,
+                PasswordUtf16Le = Google.Protobuf.ByteString.CopyFrom([0x41, 0x00])
+            }
+        };
+
+        Assert.Equal(NetworkOperationType.ProvisionManagedCredential, request.OperationType);
+        Assert.Equal(
+            OperationRequest.OperationParametersOneofCase.ProvisionManagedCredential,
+            request.OperationParametersCase);
+        Assert.Equal(ManagedWindowsAccountId.Primary, request.ProvisionManagedCredential.AccountId);
+        Assert.Equal([0x41, 0x00], request.ProvisionManagedCredential.PasswordUtf16Le.ToByteArray());
+
+        var parameterNames = typeof(ProvisionManagedCredentialOperationParameters)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AccountId", parameterNames);
+        Assert.Contains("PasswordUtf16Le", parameterNames);
+        Assert.DoesNotContain("Password", parameterNames);
+        Assert.DoesNotContain("Username", parameterNames);
+        Assert.DoesNotContain("WindowsSid", parameterNames);
+        Assert.DoesNotContain("Sid", parameterNames);
+        Assert.DoesNotContain("CredentialId", parameterNames);
+        Assert.DoesNotContain("VaultSessionToken", parameterNames);
+        Assert.DoesNotContain("MasterPassword", parameterNames);
+        Assert.DoesNotContain("ProfilePath", parameterNames);
+        Assert.DoesNotContain("Command", parameterNames);
+        Assert.DoesNotContain("Arguments", parameterNames);
+        Assert.DoesNotContain("Shell", parameterNames);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeManagedCredentialProvisioningV1()
+    {
+        Assert.Equal(
+            "MANAGED_CREDENTIAL_PROVISIONING_V1",
+            ClassroomCapabilities.ManagedCredentialProvisioningV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.ManagedCredentialProvisioningV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

@@ -39,6 +39,8 @@ public final class ClientCapabilityMapper {
             case NETWORK_CAPABILITY_BROWSER_DOWNLOAD_POLICY_V1 -> DeviceCapability.BROWSER_DOWNLOAD_POLICY_V1;
             case NETWORK_CAPABILITY_INPUT_CONTROL_V1 -> DeviceCapability.INPUT_CONTROL_V1;
             case NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1 -> DeviceCapability.WINDOWS_SESSION_STATE_V1;
+            case NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 ->
+                    DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

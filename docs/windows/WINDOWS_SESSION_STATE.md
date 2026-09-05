@@ -52,7 +52,7 @@ El resultado remoto no contiene SID, username, domain, `accountReference`, `sess
 
 ## Relacion Con Credenciales
 
-Desde Prompt 19D, `READY` de una cuenta administrada depende tambien de una credencial DPAPI usable en `managed-windows-credentials.dat`, ligada al mismo SID del binding. `GET_WINDOWS_SESSION_STATE` no consulta ni descifra ese credential store: sigue observando solo la sesion de consola actual y clasificandola por SID contra `managed-windows-accounts.json`.
+Desde Prompt 19D, `READY` de una cuenta administrada depende tambien de una credencial DPAPI usable en `managed-windows-credentials.dat`, ligada al mismo SID del binding. Desde 19E1 esa credencial puede cargarse por `PROVISION_MANAGED_CREDENTIAL`. `GET_WINDOWS_SESSION_STATE` no consulta ni descifra ese credential store: sigue observando solo la sesion de consola actual y clasificandola por SID contra `managed-windows-accounts.json`.
 
 ## Locked, Disconnected Y RDP
 

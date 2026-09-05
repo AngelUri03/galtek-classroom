@@ -87,7 +87,13 @@ message OperationRequest {
     ApplyBrowserPolicyOperationParameters apply_browser_policy = 21;
     ApplyBrowserDownloadPolicyOperationParameters apply_browser_download_policy = 22;
     OpenApplicationOperationParameters open_application = 23;
+    ProvisionManagedCredentialOperationParameters provision_managed_credential = 24;
   }
+}
+
+message ProvisionManagedCredentialOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
+  bytes password_utf16le = 2;
 }
 
 message OpenApplicationOperationParameters {
@@ -178,6 +184,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_OPEN_APPLICATION_V1 = 8;
   NETWORK_CAPABILITY_INPUT_CONTROL_V1 = 9;
   NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1 = 10;
+  NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 = 11;
 }
 
 enum NetworkOperationType {
@@ -200,6 +207,13 @@ enum NetworkOperationType {
   NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT = 16;
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY = 17;
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY = 18;
+  NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL = 19;
+}
+
+enum ManagedWindowsAccountId {
+  MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED = 0;
+  MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY = 1;
+  MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY = 2;
 }
 
 enum BrowserPolicyMode {
@@ -309,4 +323,8 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_INPUT_UNLOCK_FAILED = 38;
   NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID = 39;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_UNKNOWN = 40;
+  NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED = 41;
+  NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND = 42;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID = 43;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED = 44;
 }

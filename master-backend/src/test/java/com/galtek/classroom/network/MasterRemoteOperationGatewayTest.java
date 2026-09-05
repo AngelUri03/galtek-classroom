@@ -14,6 +14,7 @@ import com.galtek.classroom.network.v1.BrowserPolicyMode;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleAction;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleMatchType;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
+import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
 import com.galtek.classroom.network.v1.NetworkOperationType;
@@ -27,8 +28,10 @@ import com.galtek.classroom.network.v1.OperationResult;
 import com.galtek.classroom.network.v1.OperationStatusKnowledge;
 import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
+import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
 import com.galtek.classroom.network.v1.WindowsSessionStateResult;
+import com.google.protobuf.ByteString;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -38,6 +41,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -115,6 +119,114 @@ class MasterRemoteOperationGatewayTest {
         assertThat(request.getAllFields().keySet())
                 .extracting(field -> field.getJsonName())
                 .doesNotContain("username", "sid", "sessionId", "accountId", "password");
+    }
+
+    @Test
+    void provisionManagedCredentialBuildsTypedSecretBearingOperationRequest() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        byte[] password = utf16Le("Clase 1!");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.provisionManagedCredential(
+                        snapshot,
+                        "provision-1",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY,
+                        password)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL);
+        assertThat(request.hasProvisionManagedCredential()).isTrue();
+        assertThat(request.getProvisionManagedCredential().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(request.getProvisionManagedCredential().getPasswordUtf16Le())
+                .isEqualTo(ByteString.copyFrom(password));
+        assertThat(request.hasOpenApplication()).isFalse();
+        assertThat(request.hasOpenUrl()).isFalse();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+    }
+
+    @Test
+    void provisionManagedCredentialParametersContainBytesAndNoIdentityOrVaultFields() {
+        ProvisionManagedCredentialOperationParameters parameters =
+                ProvisionManagedCredentialOperationParameters.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .setPasswordUtf16Le(ByteString.copyFrom(utf16Le("secret")))
+                        .build();
+
+        assertThat(parameters.getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY);
+        assertThat(parameters.getPasswordUtf16Le()).isInstanceOf(ByteString.class);
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .containsExactlyInAnyOrder("accountId", "passwordUtf16le");
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .doesNotContain(
+                        "password",
+                        "username",
+                        "sid",
+                        "credentialId",
+                        "vaultSessionToken",
+                        "masterPassword",
+                        "profilePath",
+                        "command",
+                        "arguments",
+                        "shell");
+    }
+
+    @Test
+    void provisionManagedCredentialGatewayDoesNotPersistPasswordInPendingOperation() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        byte[] password = utf16Le("secret-value");
+        gateway.registerSession(snapshot, observer);
+
+        DispatchHandle handle = gateway.provisionManagedCredential(
+                        snapshot,
+                        "provision-pending",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY,
+                        password)
+                .orElseThrow();
+        Arrays.fill(password, (byte) 0);
+
+        assertThat(gateway.pendingCount()).isEqualTo(1);
+        assertThat(handle.toString()).doesNotContain("secret-value");
+        assertThat(handle.toString()).doesNotContain("password");
+    }
+
+    @Test
+    void provisionManagedCredentialTimeoutReportsUnknownWithoutRetrying() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, new RecordingObserver<>());
+        DispatchHandle handle = gateway.provisionManagedCredential(
+                        snapshot,
+                        "provision-timeout",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY,
+                        utf16Le("secret"))
+                .orElseThrow();
+
+        RemoteOperationOutcome timeout = gateway.timeout(handle);
+
+        assertThat(timeout.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(timeout.errorCode()).isEqualTo(ErrorCode.OPERATION_RESULT_UNKNOWN);
+        assertThat(gateway.pendingCount()).isZero();
+    }
+
+    @Test
+    void gatewayHasNoLoggerFieldForSecretProtoLogging() {
+        assertThat(MasterRemoteOperationGateway.class.getDeclaredFields())
+                .extracting(field -> field.getType().getName())
+                .noneMatch(typeName -> typeName.contains("Logger"));
     }
 
     @Test
@@ -340,6 +452,25 @@ class MasterRemoteOperationGatewayTest {
 
         assertThat(unknown.errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_UNKNOWN);
         assertThat(invalidBindings.errorCode()).isEqualTo(ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID);
+    }
+
+    @Test
+    void operationResultMapsManagedCredentialProvisioningErrorsWithoutTextParsing() {
+        assertManagedCredentialError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED,
+                ErrorCode.ACCOUNT_NOT_CONFIGURED);
+        assertManagedCredentialError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_FOUND,
+                ErrorCode.ACCOUNT_NOT_FOUND);
+        assertManagedCredentialError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDINGS_INVALID,
+                ErrorCode.MANAGED_ACCOUNT_BINDINGS_INVALID);
+        assertManagedCredentialError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_STORE_INVALID,
+                ErrorCode.MANAGED_CREDENTIAL_STORE_INVALID);
+        assertManagedCredentialError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED,
+                ErrorCode.MANAGED_CREDENTIAL_PROTECTION_FAILED);
     }
 
     @Test
@@ -660,6 +791,20 @@ class MasterRemoteOperationGatewayTest {
         assertThat(outcome.errorCode().retryable()).isEqualTo(retryable);
     }
 
+    private static void assertManagedCredentialError(
+            NetworkOperationErrorCode networkError,
+            ErrorCode expected) {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "provision",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL,
+                        networkError));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(expected);
+    }
+
     private static OperationResult success(
             String operationId,
             String deviceId,
@@ -706,6 +851,10 @@ class MasterRemoteOperationGatewayTest {
                 null,
                 connectionId,
                 null);
+    }
+
+    private static byte[] utf16Le(String value) {
+        return value.getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
     }
 
     private static final class RecordingObserver<T> implements StreamObserver<T> {

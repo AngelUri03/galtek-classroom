@@ -126,6 +126,57 @@ public sealed class ManagedWindowsCredentialStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ReplaceUtf16LittleEndianAsync_PreservesExactPasswordBytes()
+    {
+        await SaveBindingsAsync([PrimaryBinding()]);
+        var store = CreateStore();
+        byte[] original = [0x41, 0x00, 0x00, 0xD8, 0x42, 0x00];
+
+        var result = await store.ReplaceUtf16LittleEndianAsync(
+            InstallationId,
+            "PRIMARY",
+            original,
+            CancellationToken.None);
+        var acquired = await store.AcquireAsync(InstallationId, "PRIMARY", CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        using var lease = acquired.Lease!;
+        Assert.Equal(original, lease.PasswordUtf16LittleEndian.ToArray());
+    }
+
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 65 })]
+    public async Task ReplaceUtf16LittleEndianAsync_WhenPasswordBytesAreInvalid_Rejects(byte[] passwordUtf16Le)
+    {
+        await SaveBindingsAsync([PrimaryBinding()]);
+
+        var result = await CreateStore().ReplaceUtf16LittleEndianAsync(
+            InstallationId,
+            "PRIMARY",
+            passwordUtf16Le,
+            CancellationToken.None);
+
+        Assert.Equal(ManagedWindowsCredentialWriteStatus.Invalid, result.Status);
+        Assert.Equal(ManagedWindowsCredentialErrorCodes.ManagedCredentialInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReplaceUtf16LittleEndianAsync_WhenPasswordExceedsMaximum_Rejects()
+    {
+        await SaveBindingsAsync([PrimaryBinding()]);
+        var tooLarge = new byte[(ManagedWindowsCredentialConstants.MaximumPasswordCharacters + 1) * 2];
+
+        var result = await CreateStore().ReplaceUtf16LittleEndianAsync(
+            InstallationId,
+            "PRIMARY",
+            tooLarge,
+            CancellationToken.None);
+
+        Assert.Equal(ManagedWindowsCredentialWriteStatus.Invalid, result.Status);
+    }
+
+    [Fact]
     public async Task ReplaceAsync_WhenPrimaryExists_PreservesSecondary()
     {
         await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding()]);
@@ -376,6 +427,21 @@ public sealed class ManagedWindowsCredentialStoreTests : IDisposable
 
         Assert.All(successPayload, value => Assert.Equal(0, value));
         Assert.All(failurePayload, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task Utf16LittleEndianPlaintextPayloadIsZeroedAfterProtectSuccess()
+    {
+        await SaveBindingsAsync([PrimaryBinding()]);
+
+        await CreateStore().ReplaceUtf16LittleEndianAsync(
+            InstallationId,
+            "PRIMARY",
+            Encoding.Unicode.GetBytes("secret"),
+            CancellationToken.None);
+        var payload = _protector.LastProtectPlaintext!;
+
+        Assert.All(payload, value => Assert.Equal(0, value));
     }
 
     [Fact]
