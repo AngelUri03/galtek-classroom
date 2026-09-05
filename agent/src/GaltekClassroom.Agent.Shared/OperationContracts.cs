@@ -260,6 +260,8 @@ public static class ClassroomOperationErrorCodes
     public const string WindowsSessionChanged = "WINDOWS_SESSION_CHANGED";
     public const string WindowsLogonFailed = "WINDOWS_LOGON_FAILED";
     public const string WindowsLogoffFailed = "WINDOWS_LOGOFF_FAILED";
+    public const string WindowsLogonBusy = "WINDOWS_LOGON_BUSY";
+    public const string WindowsLogonNotConfirmed = "WINDOWS_LOGON_NOT_CONFIRMED";
     public const string SessionSwitchFailed = "SESSION_SWITCH_FAILED";
     public const string CredentialProviderUnavailable = "CREDENTIAL_PROVIDER_UNAVAILABLE";
     public const string MasterNotLicensed = "MASTER_NOT_LICENSED";
@@ -312,6 +314,7 @@ public static class ClassroomCapabilities
     public const string BrowserDownloadPolicyV1 = "BROWSER_DOWNLOAD_POLICY_V1";
     public const string InputControlV1 = "INPUT_CONTROL_V1";
     public const string WindowsSessionStateV1 = "WINDOWS_SESSION_STATE_V1";
+    public const string WindowsSessionLogonV1 = "WINDOWS_SESSION_LOGON_V1";
     public const string WindowsSessionLogoffV1 = "WINDOWS_SESSION_LOGOFF_V1";
     public const string ManagedCredentialProvisioningV1 = "MANAGED_CREDENTIAL_PROVISIONING_V1";
 }

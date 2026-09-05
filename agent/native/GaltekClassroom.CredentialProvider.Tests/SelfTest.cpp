@@ -118,6 +118,7 @@ int wmain()
     identity.userSid = L"S-1-5-21-1000000000-1000000000-1000000000-1004";
     identity.domain = L"AULA";
     identity.username = L"Primaria";
+    identity.autoSubmitRequested = false;
 
     GaltekCredential* credential = new (std::nothrow) GaltekCredential(identity);
     if (credential == nullptr)
@@ -160,7 +161,7 @@ int wmain()
     {
         credential2->Release();
         credential->Release();
-        return Fail(L"SetSelected must not request auto-logon in 19G2");
+        return Fail(L"SetSelected must not request auto-logon without remote activation");
     }
 
     PWSTR sid = nullptr;
@@ -182,6 +183,42 @@ int wmain()
 
     credential2->Release();
     credential->Release();
+
+    BridgeActivationIdentity autoSubmitIdentity;
+    autoSubmitIdentity.activationId = "11111111-2222-3333-4444-555555555555";
+    autoSubmitIdentity.userSid = identity.userSid;
+    autoSubmitIdentity.domain = identity.domain;
+    autoSubmitIdentity.username = identity.username;
+    autoSubmitIdentity.autoSubmitRequested = true;
+
+    GaltekCredential* autoCredential = new (std::nothrow) GaltekCredential(autoSubmitIdentity);
+    if (autoCredential == nullptr)
+    {
+        return Fail(L"auto-submit credential allocation");
+    }
+
+    ICredentialProviderCredential2* autoCredential2 = nullptr;
+    if (Failed(autoCredential->QueryInterface(
+            IID_ICredentialProviderCredential2,
+            reinterpret_cast<void**>(&autoCredential2)))
+        || autoCredential2 == nullptr)
+    {
+        autoCredential->Release();
+        return Fail(L"auto-submit ICredentialProviderCredential2 construction");
+    }
+
+    BOOL firstAutoLogon = FALSE;
+    BOOL secondAutoLogon = TRUE;
+    if (Failed(autoCredential2->SetSelected(&firstAutoLogon)) || firstAutoLogon != TRUE
+        || Failed(autoCredential2->SetSelected(&secondAutoLogon)) || secondAutoLogon != FALSE)
+    {
+        autoCredential2->Release();
+        autoCredential->Release();
+        return Fail(L"remote auto-submit must be requested exactly once");
+    }
+
+    autoCredential2->Release();
+    autoCredential->Release();
 
     BridgeClient bridge;
     BridgeActivationStatus bridgeStatus = bridge.GetPendingActivationMetadata(1);

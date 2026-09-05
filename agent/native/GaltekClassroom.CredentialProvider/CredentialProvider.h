@@ -3,6 +3,8 @@
 #include "BridgeClient.h"
 
 #include <credentialprovider.h>
+#include <thread>
+#include <atomic>
 
 class GaltekCredentialProvider final : public ICredentialProvider
 {
@@ -24,11 +26,15 @@ public:
 
 private:
     ~GaltekCredentialProvider();
+    void StopNotificationWorker();
+    void NotificationWorker(IStream* eventsStream, UINT_PTR adviseContext, HANDLE stopEvent);
 
     LONG _referenceCount;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO _usageScenario;
-    ICredentialProviderEvents* _events;
     UINT_PTR _adviseContext;
     bool _hasCredential;
     BridgeActivationIdentity _identity;
+    HANDLE _notificationStopEvent;
+    std::thread _notificationThread;
+    std::atomic_bool _notificationRunning;
 };

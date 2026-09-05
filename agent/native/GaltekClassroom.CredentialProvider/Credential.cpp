@@ -251,7 +251,10 @@ GaltekCredential::GaltekCredential(const BridgeActivationIdentity& identity)
       _userSid(identity.userSid),
       _domain(identity.domain),
       _username(identity.username),
-      _acquireAttempted(false)
+      _autoSubmitRequested(identity.autoSubmitRequested),
+      _autoSubmitConsumed(false),
+      _acquireAttempted(false),
+      _logonResultReported(false)
 {
     InterlockedIncrement(&g_objectCount);
 }
@@ -337,7 +340,8 @@ HRESULT GaltekCredential::SetSelected(BOOL* autoLogon)
         return E_POINTER;
     }
 
-    *autoLogon = FALSE;
+    *autoLogon = (_autoSubmitRequested && !_autoSubmitConsumed) ? TRUE : FALSE;
+    _autoSubmitConsumed = true;
     return S_OK;
 }
 
@@ -531,6 +535,7 @@ HRESULT GaltekCredential::GetSerialization(
     HRESULT hr = RetrieveNegotiateAuthPackage(&authPackage);
     if (FAILED(hr))
     {
+        ReportLocalSerializationFailed();
         return S_OK;
     }
 
@@ -538,6 +543,7 @@ HRESULT GaltekCredential::GetSerialization(
     hr = ProtectPasswordForLogon(password, &protectedPassword);
     if (FAILED(hr))
     {
+        ReportLocalSerializationFailed();
         return S_OK;
     }
 
@@ -559,6 +565,7 @@ HRESULT GaltekCredential::GetSerialization(
             CoTaskMemFree(packed);
         }
 
+        ReportLocalSerializationFailed();
         return S_OK;
     }
 
@@ -586,6 +593,16 @@ HRESULT GaltekCredential::ReportResult(
 
     *statusText = nullptr;
     *statusIcon = CPSI_NONE;
+    if (!_activationId.empty() && !_logonResultReported)
+    {
+        BridgeClient bridge;
+        bridge.ReportLogonResult(
+            _activationId,
+            status == 0 ? "SUCCESS" : "FAILED",
+            750);
+        _logonResultReported = true;
+    }
+
     return S_OK;
 }
 
@@ -603,4 +620,16 @@ HRESULT GaltekCredential::GetUserSid(PWSTR* sid)
     }
 
     return AllocCoTaskString(_userSid.c_str(), sid);
+}
+
+void GaltekCredential::ReportLocalSerializationFailed()
+{
+    if (_activationId.empty() || _logonResultReported)
+    {
+        return;
+    }
+
+    BridgeClient bridge;
+    bridge.ReportLogonResult(_activationId, "LOCAL_SERIALIZATION_FAILED", 750);
+    _logonResultReported = true;
 }

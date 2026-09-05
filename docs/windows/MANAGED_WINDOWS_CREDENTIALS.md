@@ -1,6 +1,6 @@
 # Managed Windows Credentials
 
-Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password y sin Master remoto todavia.
+Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password. Prompt 19G3 usa ese camino para `LOGON_MANAGED_ACCOUNT` remoto individual sin enviar password desde el Master.
 
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:
 
@@ -178,9 +178,17 @@ No se serializa como JSON, Base64, hexadecimal, XML, Protobuf ni string de contr
 
 En el provider, `GetSerialization` usa buffers mutables RAII, limpia receive buffer y plaintext con `SecureZeroMemory`, protege la password con `CredProtectW`, empaqueta `KERB_INTERACTIVE_UNLOCK_LOGON` y transfiere ownership del buffer final a LogonUI. Si algo falla despues del acquire, no se restaura la activation ni se reintenta.
 
-## Limites 19E1
+## Relacion Con Logon Remoto
 
-19E1 no implementa Credential Vault integration. 19E2 implementa solo el bridge interno Master. 19G2 implementa solo el tramo local Credential Provider para una activation ya existente. Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, login remoto, switch, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
+Desde Prompt 19G3, `LOGON_MANAGED_ACCOUNT` valida este store antes de crear una activation remota. El Agent exige una credencial DPAPI usable y ligada al mismo SID del binding vigente; no revela la password durante preflight y no intenta validarla con `LogonUser`.
+
+Si falta credencial para el slot, el resultado remoto es `MANAGED_CREDENTIAL_NOT_CONFIGURED`. Si el store esta corrupto o DPAPI falla, se devuelve el error estructurado del credential store y no se crea activation. Una vez creada la activation, la password solo puede salir por `ACQUIRE_PENDING_CREDENTIAL(activationId)` al Credential Provider validado y se consume exactly once.
+
+`REPORT_LOGON_RESULT SUCCESS` es el unico camino a `OperationResult SUCCESS`. Rechazo de Windows o fallo local despues de acquire produce `WINDOWS_LOGON_FAILED`; si no llega confirmacion antes del timeout, la activation se limpia y el resultado es `WINDOWS_LOGON_NOT_CONFIRMED`.
+
+## Limites Vigentes
+
+Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, switch, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, registry autologon, cambio de password ni validacion de password contra Windows fuera del flujo normal Winlogon/LSA iniciado por Credential Provider.
 
 No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire one-time para Credential Provider.
 
@@ -193,11 +201,11 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 5. Copiar el credential store a otra instalacion y confirmar fail closed.
 6. Rebindear `PRIMARY` a otro SID y confirmar que la credencial vieja queda no configurada.
 7. Re-provisionar y confirmar `READY`.
-8. Cuando exista mecanismo lab seguro en 19G3 o posterior, crear activation y confirmar que el provider puede usar la credential una sola vez.
+8. Ejecutar `LOGON_MANAGED_ACCOUNT` en laboratorio y confirmar que el provider puede usar la credential una sola vez.
 9. Confirmar que segundo intento exige nueva activation.
 10. Confirmar que un usuario Windows estandar no puede leer el credential store.
 
 ## Pendiente
 
-- 19G3: operacion remota `LOGON_MANAGED_ACCOUNT`, creation productiva de activation, notification event-driven y resultado operacional.
-- 19H: dispatch batch Master y planner.
+- Dispatch batch Master/planner/UI para logon.
+- `SWITCH_MANAGED_ACCOUNT`.

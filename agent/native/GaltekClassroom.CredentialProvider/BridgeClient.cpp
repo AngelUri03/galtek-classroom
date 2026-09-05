@@ -307,7 +307,76 @@ namespace
         return !value->empty();
     }
 
-    bool OpenBridgePipe(DWORD timeoutMilliseconds, HANDLE* pipe)
+    bool FindJsonBool(
+        const std::string& json,
+        const char* key,
+        bool* value)
+    {
+        if (value == nullptr)
+        {
+            return false;
+        }
+
+        const std::string prefix = std::string("\"") + key + "\":";
+        const size_t start = json.find(prefix);
+        if (start == std::string::npos)
+        {
+            return false;
+        }
+
+        const size_t valueStart = start + prefix.size();
+        if (json.compare(valueStart, 4, "true") == 0)
+        {
+            *value = true;
+            return true;
+        }
+
+        if (json.compare(valueStart, 5, "false") == 0)
+        {
+            *value = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool FindJsonNumber(
+        const std::string& json,
+        const char* key,
+        long long* value)
+    {
+        if (value == nullptr)
+        {
+            return false;
+        }
+
+        const std::string prefix = std::string("\"") + key + "\":";
+        const size_t start = json.find(prefix);
+        if (start == std::string::npos)
+        {
+            return false;
+        }
+
+        size_t index = start + prefix.size();
+        long long result = 0;
+        bool foundDigit = false;
+        while (index < json.size() && json[index] >= '0' && json[index] <= '9')
+        {
+            foundDigit = true;
+            result = result * 10 + (json[index] - '0');
+            index++;
+        }
+
+        if (!foundDigit)
+        {
+            return false;
+        }
+
+        *value = result;
+        return true;
+    }
+
+    bool OpenBridgePipe(DWORD timeoutMilliseconds, bool overlapped, HANDLE* pipe)
     {
         *pipe = INVALID_HANDLE_VALUE;
         if (!WaitNamedPipeW(kPipeName, timeoutMilliseconds))
@@ -321,10 +390,15 @@ namespace
             0,
             nullptr,
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
+            overlapped ? FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED : FILE_ATTRIBUTE_NORMAL,
             nullptr);
 
         return *pipe != INVALID_HANDLE_VALUE;
+    }
+
+    bool OpenBridgePipe(DWORD timeoutMilliseconds, HANDLE* pipe)
+    {
+        return OpenBridgePipe(timeoutMilliseconds, false, pipe);
     }
 
     bool SendRequestReadBytes(
@@ -350,6 +424,89 @@ namespace
         }
 
         *response = SecureByteBuffer(std::move(payload));
+        return true;
+    }
+
+    bool WaitForIo(
+        HANDLE file,
+        OVERLAPPED* overlapped,
+        HANDLE cancelEvent,
+        DWORD* transferred)
+    {
+        HANDLE events[] = { overlapped->hEvent, cancelEvent };
+        const DWORD wait = WaitForMultipleObjects(ARRAYSIZE(events), events, FALSE, INFINITE);
+        if (wait == WAIT_OBJECT_0 + 1)
+        {
+            CancelIoEx(file, overlapped);
+            return false;
+        }
+
+        if (wait != WAIT_OBJECT_0)
+        {
+            CancelIoEx(file, overlapped);
+            return false;
+        }
+
+        return GetOverlappedResult(file, overlapped, transferred, FALSE) != FALSE;
+    }
+
+    bool ReadAllCancelable(HANDLE pipe, BYTE* data, DWORD length, HANDLE cancelEvent)
+    {
+        DWORD offset = 0;
+        while (offset < length)
+        {
+            OVERLAPPED overlapped{};
+            overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (overlapped.hEvent == nullptr)
+            {
+                return false;
+            }
+
+            DWORD read = 0;
+            BOOL ok = ReadFile(pipe, data + offset, length - offset, nullptr, &overlapped);
+            if (!ok && GetLastError() == ERROR_IO_PENDING)
+            {
+                ok = WaitForIo(pipe, &overlapped, cancelEvent, &read);
+            }
+            else if (ok)
+            {
+                ok = GetOverlappedResult(pipe, &overlapped, &read, FALSE);
+            }
+
+            CloseHandle(overlapped.hEvent);
+            if (!ok || read == 0)
+            {
+                return false;
+            }
+
+            offset += read;
+        }
+
+        return true;
+    }
+
+    bool ReadFrameCancelable(HANDLE pipe, HANDLE cancelEvent, std::string* json)
+    {
+        BYTE lengthBuffer[sizeof(DWORD)]{};
+        if (!ReadAllCancelable(pipe, lengthBuffer, sizeof(lengthBuffer), cancelEvent))
+        {
+            return false;
+        }
+
+        DWORD length = 0;
+        if (!ReadBigEndianLength(lengthBuffer, &length))
+        {
+            return false;
+        }
+
+        std::vector<BYTE> payload(length, 0);
+        if (!ReadAllCancelable(pipe, payload.data(), length, cancelEvent))
+        {
+            return false;
+        }
+
+        json->assign(reinterpret_cast<const char*>(payload.data()), payload.size());
+        SecureZeroMemory(payload.data(), payload.size());
         return true;
     }
 
@@ -581,6 +738,7 @@ bool BridgeClient::GetPendingActivationIdentity(
         && FindJsonStringWide(response, "userSid", &identity->userSid)
         && FindJsonStringWide(response, "domain", &identity->domain)
         && FindJsonStringWide(response, "username", &identity->username)
+        && FindJsonBool(response, "autoSubmitRequested", &identity->autoSubmitRequested)
         && !identity->userSid.empty()
         && !identity->domain.empty()
         && !identity->username.empty();
@@ -664,4 +822,67 @@ BridgeAcquireStatus BridgeClient::AcquirePendingCredential(
     }
 
     return BridgeAcquireStatus::Acquired;
+}
+
+bool BridgeClient::WaitForActivationChange(
+    long long observedGeneration,
+    HANDLE cancelEvent,
+    long long* generation) const
+{
+    if (cancelEvent == nullptr || generation == nullptr)
+    {
+        return false;
+    }
+
+    *generation = observedGeneration;
+    const std::string request =
+        "{\"protocolVersion\":1,\"requestId\":\""
+        + CreateRequestId()
+        + "\",\"operation\":\"WAIT_FOR_ACTIVATION_CHANGE\",\"observedGeneration\":"
+        + std::to_string(observedGeneration)
+        + "}";
+
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    if (!OpenBridgePipe(250, true, &pipe))
+    {
+        return false;
+    }
+
+    const std::vector<BYTE> frame = FrameJson(request);
+    std::string response;
+    const bool ok = WriteAll(pipe, frame.data(), static_cast<DWORD>(frame.size()))
+        && ReadFrameCancelable(pipe, cancelEvent, &response);
+    CloseHandle(pipe);
+
+    if (!ok
+        || response.find("\"status\":\"SUCCESS\"") == std::string::npos)
+    {
+        return false;
+    }
+
+    return FindJsonNumber(response, "generation", generation);
+}
+
+bool BridgeClient::ReportLogonResult(
+    const std::string& activationId,
+    const char* outcome,
+    DWORD timeoutMilliseconds) const
+{
+    if (activationId.empty() || outcome == nullptr)
+    {
+        return false;
+    }
+
+    const std::string request =
+        "{\"protocolVersion\":1,\"requestId\":\""
+        + CreateRequestId()
+        + "\",\"operation\":\"REPORT_LOGON_RESULT\",\"activationId\":\""
+        + activationId
+        + "\",\"outcome\":\""
+        + outcome
+        + "\"}";
+
+    std::string response;
+    return SendRequestReadJson(request, timeoutMilliseconds, &response)
+        && response.find("\"status\":\"SUCCESS\"") != std::string::npos;
 }

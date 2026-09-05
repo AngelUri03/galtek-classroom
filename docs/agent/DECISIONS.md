@@ -1,5 +1,29 @@
 # Decisiones vigentes
 
+## 2026-09-05 - Prompt 19G3
+
+- `LOGON_MANAGED_ACCOUNT` remoto queda implementado como primitive individual Master gateway -> Agent, sin endpoint HTTP, BatchOperation, fanout, planner, UI ni `SWITCH_MANAGED_ACCOUNT`.
+- El request Protobuf acepta solo `ManagedWindowsAccountId account_id` con `PRIMARY` o `SECONDARY`; `UNSPECIFIED` se rechaza.
+- El Master no envia password, username, domain, SID, sessionId, credentialId, vault token, command, args, shell ni payload arbitrario para logon.
+- La capability nueva es `WINDOWS_SESSION_LOGON_V1`; no se agrega capability generica de session-control.
+- La operacion usa el `RemoteOperationDispatcher` normal y requiere Commercial License Client `ACTIVE`; `UNLOCK_INPUT` conserva la unica excepcion recovery-safe.
+- Preflight de sesion: target ya activo es `SUCCESS` idempotente sin activation ni DPAPI; `NO_SESSION` continua; cualquier otra sesion activa devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+- Preflight de cuenta antes de activation: binding local existente, SID valido resoluble como `SidTypeUser` y credential DPAPI usable ligada al mismo SID.
+- Sin binding devuelve `ACCOUNT_NOT_CONFIGURED`; sin credential devuelve `MANAGED_CREDENTIAL_NOT_CONFIGURED`; cuenta ausente devuelve `ACCOUNT_NOT_FOUND`; stores corruptos fallan cerrado.
+- La consola se revalida inmediatamente antes de activation y debe seguir en `NO_SESSION`; Galtek no hace unlock, switch ni logoff implicito.
+- La activation remota es in-memory only, con `activationId`, `operationId`, `accountId`, timestamps, TTL, `autoSubmitRequested=true` y SID esperado cuando aplica.
+- Una activation remota productiva no reemplaza otra activation remota de distinto `operationId`; se devuelve `WINDOWS_LOGON_BUSY`.
+- El bridge local agrega `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` y `REPORT_LOGON_RESULT(activationId,outcome)`.
+- El Agent Service mantiene generation counter y listener count solo en memoria; create/consume/complete/timeout/clear despiertan waiters.
+- El Credential Provider usa un worker cancellable durante `CPUS_LOGON + Advise`, marshaling COM inter-thread para `ICredentialProviderEvents`, y llama `CredentialsChanged` cuando cambia la generation.
+- El Agent exige al menos un listener LogonUI validado antes de crear activation; si no aparece tras espera acotada, devuelve `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- Auto-submit ocurre solo para activation remota con `autoSubmitRequested=true`: una credential, default `0`, `pbAutoLogonWithDefault=TRUE` y `SetSelected` una sola vez.
+- `GetSerialization` mantiene acquisition exactly once; fallos locales despues de acquire reportan `LOCAL_SERIALIZATION_FAILED`, consumen la activation y no restauran/reintentan.
+- `REPORT_LOGON_RESULT` acepta solo `SUCCESS`, `FAILED` o `LOCAL_SERIALIZATION_FAILED`; no transporta NTSTATUS textual, mensajes, SID, username, domain, sessionId ni password.
+- `ReportResult(STATUS_SUCCESS)` es el unico camino a `OperationResult SUCCESS`; rechazo de auth o fallo local produce `WINDOWS_LOGON_FAILED`; timeout produce `WINDOWS_LOGON_NOT_CONFIRMED`.
+- El Master usa timeout fijo especifico de logon de 55 segundos y conserva el timeout global de otras operaciones.
+- Si el Master no recibe `OperationResult`, el outcome sigue siendo `OPERATION_RESULT_UNKNOWN`; si el Agent reporta `WINDOWS_LOGON_NOT_CONFIRMED`, se preserva ese error.
+
 ## 2026-09-05 - Prompt 19G2
 
 - `LOGON_MANAGED_ACCOUNT` remoto sigue pendiente: 19G2 solo consume una activation existente y completa el tramo local Service -> Credential Provider -> Windows serialization.

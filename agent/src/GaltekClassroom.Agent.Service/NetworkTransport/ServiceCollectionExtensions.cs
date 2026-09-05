@@ -45,6 +45,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWindowsSessionLogoffNativeApi, WindowsSessionLogoffNativeApi>();
         services.AddSingleton<IWindowsSessionLogoffController, WindowsSessionLogoffController>();
         services.AddSingleton<WindowsSessionLogoffService>();
+        services.AddSingleton(WindowsSessionLogonOptions.Default);
+        services.AddSingleton<WindowsSessionLogonService>();
         services.AddSingleton<RemoteOperationLicensePolicy>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
@@ -55,6 +57,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserPolicyOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ApplyBrowserDownloadPolicyOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, GetWindowsSessionStateOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, LogonManagedAccountOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, LogoffWindowsSessionOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ProvisionManagedCredentialOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();

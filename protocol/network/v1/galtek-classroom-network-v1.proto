@@ -89,7 +89,12 @@ message OperationRequest {
     OpenApplicationOperationParameters open_application = 23;
     ProvisionManagedCredentialOperationParameters provision_managed_credential = 24;
     LogoffWindowsSessionOperationParameters logoff_windows_session = 25;
+    LogonManagedAccountOperationParameters logon_managed_account = 26;
   }
+}
+
+message LogonManagedAccountOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
 }
 
 message LogoffWindowsSessionOperationParameters {
@@ -191,6 +196,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1 = 10;
   NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 = 11;
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGOFF_V1 = 12;
+  NETWORK_CAPABILITY_WINDOWS_SESSION_LOGON_V1 = 13;
 }
 
 enum NetworkOperationType {
@@ -335,4 +341,9 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED = 44;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED = 45;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGOFF_FAILED = 46;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_NOT_CONFIGURED = 47;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_FAILED = 48;
+  NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE = 49;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_BUSY = 50;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_NOT_CONFIRMED = 51;
 }

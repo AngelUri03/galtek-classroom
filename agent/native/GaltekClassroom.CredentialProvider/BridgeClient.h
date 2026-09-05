@@ -26,6 +26,7 @@ struct BridgeActivationIdentity
     std::wstring userSid;
     std::wstring domain;
     std::wstring username;
+    bool autoSubmitRequested = false;
 };
 
 class SecureByteBuffer
@@ -82,4 +83,12 @@ public:
         const std::string& activationId,
         DWORD timeoutMilliseconds,
         SecureWideBuffer* password) const;
+    bool WaitForActivationChange(
+        long long observedGeneration,
+        HANDLE cancelEvent,
+        long long* generation) const;
+    bool ReportLogonResult(
+        const std::string& activationId,
+        const char* outcome,
+        DWORD timeoutMilliseconds) const;
 };

@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1 agrega foundation de Credential Provider V2 y activation metadata efimera, pero sigue sin existir HTTP, BatchOperation, login/switch, reveal Client-side ni uso de password en LogonUI.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera, pero sigue sin existir HTTP, BatchOperation, planner/UI, switch ni reveal Client-side.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -165,13 +165,21 @@ Para logoff, el SID del token activo es suficiente aunque `LookupAccountSid` ya 
 
 ## Uso Desde Credential Provider
 
-Desde Prompt 19G2, el Credential Provider V2 no lee este archivo directamente. El provider consulta solo al Agent Service por el pipe dedicado `GaltekClassroom.CredentialProvider.v1`.
+Desde Prompt 19G3, el Credential Provider V2 no lee este archivo directamente. El provider consulta solo al Agent Service por el pipe dedicado `GaltekClassroom.CredentialProvider.v1`.
 
 Para identity, el Service toma el `accountId` de la activation, carga el binding local, valida `windowsSid`, resuelve ese SID mediante APIs Windows soportadas, exige `SidTypeUser` y devuelve al provider `userSid`, `domain` y `username` estructurados. `accountReference` sigue siendo metadata informativa y no autoridad.
 
 La primera identity exitosa fija el `windowsSid` esperado en la activation efimera. Antes de adquirir la password, el Service relee este archivo y exige que el binding vigente siga apuntando al mismo SID. Si un administrador rebindea `PRIMARY`/`SECONDARY` entre identity y acquire, Galtek falla cerrado y no revela la credential.
 
 Con activation + identity valida, el provider enumera una sola credential Galtek y `GetUserSid` devuelve el SID derivado por el Service. Sin binding, binding corrupto, cuenta borrada/no resoluble como `SidTypeUser`, activation expirada o Service no disponible, Galtek enumera 0 credentials.
+
+## Uso Desde Windows Session Logon
+
+Desde Prompt 19G3, `LOGON_MANAGED_ACCOUNT(accountId)` usa estos bindings como expected account remoto. El Master envia solo `PRIMARY` o `SECONDARY`; el Agent deriva todo lo demas localmente.
+
+Antes de activation, el Agent exige que el binding exista, que el `windowsSid` sea valido y resuelva como `SidTypeUser`, y que exista una credencial DPAPI usable ligada al mismo SID. Sin binding devuelve `ACCOUNT_NOT_CONFIGURED`; SID no resoluble devuelve `ACCOUNT_NOT_FOUND`; falta de credential devuelve `MANAGED_CREDENTIAL_NOT_CONFIGURED`; archivo corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+
+La consola fisica debe estar en `NO_SESSION` inmediatamente antes de activar. Si el target ya esta activo, el resultado es `SUCCESS` idempotente sin activation. Si la consola pertenece a otro SID, incluso otro managed account, el resultado es `WINDOWS_SESSION_CHANGED`.
 
 ## Validacion Manual Pendiente
 
@@ -194,5 +202,5 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19G3: `LOGON_MANAGED_ACCOUNT` remoto, activation creation productiva, notification event-driven y resultado operacional.
-- 19H: dispatch batch Master.
+- 19G4: `SWITCH_MANAGED_ACCOUNT`.
+- 19H: dispatch/planner batch Master.

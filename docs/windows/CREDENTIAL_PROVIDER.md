@@ -1,6 +1,6 @@
 # Credential Provider
 
-Prompt 19G2 completa el mecanismo local seguro para que una activation existente pueda producir una credential Galtek mediante Credential Provider V2 nativo. Todavia no existe `LOGON_MANAGED_ACCOUNT` remoto, endpoint Master, BatchOperation, planner, notification remoto ni auto-logon remoto.
+Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto para un Client individual mediante Credential Provider V2 nativo, activation efimera, notification event-driven, auto-submit once y resultado confirmado por `ReportResult`. No existe todavia endpoint Master, BatchOperation, planner, fanout, UI ni `SWITCH_MANAGED_ACCOUNT`.
 
 ## Mecanismo
 
@@ -42,7 +42,7 @@ Interfaces implementadas:
 - `ICredentialProviderCredential`;
 - `ICredentialProviderCredential2`.
 
-19G2 soporta solo `CPUS_LOGON`. `CPUS_CREDUI`, `CPUS_CHANGE_PASSWORD` y unlock quedan no soportados productivamente.
+19G3 soporta solo `CPUS_LOGON`. `CPUS_CREDUI`, `CPUS_CHANGE_PASSWORD` y unlock quedan no soportados productivamente.
 
 ## Provider Aditivo
 
@@ -57,7 +57,7 @@ Nunca debe ocultar ni reemplazar:
 
 Si Galtek falla, los mecanismos estandar de Windows deben seguir disponibles. Galtek falla abierto hacia login estandar de Windows, pero cerrado respecto a autenticacion Galtek.
 
-## Estado 19G2
+## Estado 19G3
 
 Sin activation pendiente:
 
@@ -71,7 +71,7 @@ Con activation vigente + identity valida:
 1 credential Galtek
 ```
 
-La tile no contiene campo password visible/editable ni boton de reveal. `SetSelected` devuelve `autoLogon = FALSE`; 19G2 no intenta auto-logon por activacion remota ni llama `CredentialsChanged` desde un listener background.
+La tile no contiene campo password visible/editable ni boton de reveal. Si la activation remota tiene `autoSubmitRequested=true`, `GetCredentialCount` devuelve `count = 1`, `defaultCredential = 0` y `pbAutoLogonWithDefault = TRUE`. `SetSelected` solicita auto-logon exactamente una vez para esa credential. Las activations locales/manuales no solicitan auto-logon.
 
 `GetSerialization` adquiere la password una sola vez, construye credential serialization soportada para `CPUS_LOGON` y devuelve `CPGSR_RETURN_CREDENTIAL_FINISHED` solo cuando el buffer completo esta listo. Una segunda llamada sobre la misma credential no reacquire y devuelve `CPGSR_NO_CREDENTIAL_NOT_FINISHED`.
 
@@ -140,7 +140,9 @@ Operaciones JSON no secretas:
 
 - `PING`;
 - `GET_PENDING_ACTIVATION_METADATA`;
-- `GET_PENDING_ACTIVATION_IDENTITY`.
+- `GET_PENDING_ACTIVATION_IDENTITY`;
+- `WAIT_FOR_ACTIVATION_CHANGE`;
+- `REPORT_LOGON_RESULT`.
 
 `GET_PENDING_ACTIVATION_IDENTITY` devuelve solo al caller LogonUI validado:
 
@@ -170,6 +172,16 @@ magic/version/status/activationId/passwordByteLength/passwordUtf16Le
 
 No usa JSON, Base64, hexadecimal, XML ni Protobuf para password. El frame secreto no repite SID/domain/username/accountReference/credentialId/vault token. Password maximo vigente: `ManagedWindowsCredentialConstants.MaximumPasswordCharacters` (1024 chars UTF-16, 2048 bytes) mas overhead pequeno; el limite total sigue por debajo de 8 KiB.
 
+`WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` bloquea hasta que cambia la generation in-memory o hasta cancelacion/shutdown. Crear, consumir, completar, expirar o limpiar una activation incrementa la generation. Esta es la ruta sana de notification; no debe reemplazarse por polling del provider.
+
+`REPORT_LOGON_RESULT(activationId,outcome)` acepta solo:
+
+- `SUCCESS`;
+- `FAILED`;
+- `LOCAL_SERIALIZATION_FAILED`.
+
+No transporta mensaje, NTSTATUS textual, SID, username, domain, sessionId, password ni retry instruction.
+
 ## Activation Metadata
 
 Modelo efimero:
@@ -178,9 +190,12 @@ Modelo efimero:
 CredentialProviderActivation {
   activationId
   accountId
+  operationId?
   createdAtUtc
   expiresAtUtc
-  state: PENDING | IDENTITY_RESOLVED | CONSUMED
+  autoSubmitRequested
+  source: LOCAL | REMOTE
+  state: PENDING | IDENTITY_RESOLVED | CONSUMED | COMPLETED
   expectedWindowsSid?
 }
 ```
@@ -191,7 +206,8 @@ La activacion:
 
 - vive solo en memoria del Agent Service;
 - mantiene como maximo una activacion pendiente por Client;
-- reemplaza la activacion anterior al crear una nueva;
+- una activation local puede reemplazar la anterior;
+- una activation remota productiva no reemplaza otra remota de distinto `operationId`;
 - expira lazy al consultar;
 - dura por default 45 segundos y maximo 60 segundos;
 - desaparece al reiniciar el Service.
@@ -229,9 +245,20 @@ El Service usa `ManagedWindowsCredentialLease` durante el tiempo minimo y no con
 
 Si el buffer se entrega exitosamente a Windows, el provider transfiere ownership y no puede zeroizarlo inmediatamente. Si no se entrega, cualquier buffer sensible propio se limpia antes de liberar. La serialization nunca se loguea, cachea, persiste ni imprime en self-test.
 
+## Notification Y Resultado
+
+Durante `CPUS_LOGON + Advise`, el provider inicia un worker con COM inicializado y unmarshalea `ICredentialProviderEvents` mediante marshaling inter-thread. El worker espera `WAIT_FOR_ACTIVATION_CHANGE` con cancelacion por `UnAdvise`; cuando cambia la generation llama `CredentialsChanged(adviseContext)` para que LogonUI reenumere.
+
+`ReportResult` reporta al Service:
+
+- `STATUS_SUCCESS` -> `SUCCESS`;
+- rechazo de autenticacion -> `FAILED`.
+
+Si `GetSerialization` falla localmente despues de adquirir la password, reporta `LOCAL_SERIALIZATION_FAILED`. En todos los casos, no reacquire, no reconstruye activation, no restaura password y no oculta los providers estandar.
+
 ## Memoria Sensible
 
-Windows kernel/Named Pipe, COM, LSA y APIs del sistema pueden crear buffers transitorios que Galtek no puede zeroizar. La garantia de 19G2 es: sin persistencia, sin logs, sin JSON/Base64/string de contrato, sin caches Galtek, lease dispuesto inmediatamente y buffers propios zeroizados con `CryptographicOperations.ZeroMemory` en .NET o `SecureZeroMemory` en C++.
+Windows kernel/Named Pipe, COM, LSA y APIs del sistema pueden crear buffers transitorios que Galtek no puede zeroizar. La garantia de 19G3 es: sin persistencia, sin logs, sin JSON/Base64/string de contrato, sin caches Galtek, lease dispuesto inmediatamente y buffers propios zeroizados con `CryptographicOperations.ZeroMemory` en .NET o `SecureZeroMemory` en C++.
 
 ## Registro Manual Lab
 
@@ -268,8 +295,8 @@ Pasos:
 4. Cerrar o bloquear sesion en PC descartable.
 5. Confirmar que Password/PIN/Windows Hello siguen visibles.
 6. Confirmar que sin activation Galtek no intenta autenticar.
-7. Si no existe mecanismo seguro para crear activation manual, dejar login end-to-end para 19G3.
-8. Cuando exista mecanismo lab seguro, crear activation controlada y confirmar que aparece tile Galtek solo con activation.
+7. Crear `LOGON_MANAGED_ACCOUNT` controlado contra un Client descartable.
+8. Confirmar que aparece tile Galtek solo con activation remota y que auto-submit ocurre una vez.
 9. Confirmar que Password/PIN/Windows Hello siguen visibles.
 10. Intentar login controlado con password correcta/incorrecta en PC descartable.
 11. Confirmar que un segundo intento exige nueva activation.
@@ -283,15 +310,10 @@ No agregar CLI de password ni ejecutar login real automaticamente en la maquina 
 
 El provider usa timeout corto para consultar el pipe. Si el Service no esta disponible, se considera unavailable de forma silenciosa y no bloquea LogonUI.
 
-El Service no agrega timer permanente, polling, WMI, disk scan, heartbeat field ni background crypto. El pipe queda esperando conexiones sin actividad periodica. Identity/acquire ocurren solo cuando LogonUI consulta una activation existente.
+El Service no agrega timer permanente, polling, WMI, disk scan, heartbeat field ni background crypto. El pipe queda esperando conexiones sin actividad periodica. Identity/acquire ocurren solo cuando LogonUI consulta una activation existente. El listener event-driven bloquea sin actividad sana y se cancela en `UnAdvise`.
 
-## Pendiente 19G3
+## Pendiente Posterior
 
-- `LOGON_MANAGED_ACCOUNT` remoto.
-- Capability remota.
-- `OperationRequest` tipado.
-- Creation productiva de activation.
-- Notification event-driven al provider.
-- `ICredentialProviderEvents::CredentialsChanged`.
-- Auto-selection/auto-logon cuando Windows lo permita.
-- Resultado operacional seguro.
+- Endpoint HTTP/BatchOperation/planner/UI para logon.
+- `SWITCH_MANAGED_ACCOUNT`.
+- Validacion manual completa en PC descartable.

@@ -9,7 +9,22 @@ public enum CredentialProviderActivationState
 {
     Pending,
     IdentityResolved,
-    Consumed
+    Consumed,
+    Completed
+}
+
+public enum CredentialProviderActivationSource
+{
+    Local,
+    Remote
+}
+
+public enum CredentialProviderLogonCompletionOutcome
+{
+    Success,
+    Failed,
+    LocalSerializationFailed,
+    TimedOut
 }
 
 public sealed record CredentialProviderActivation(
@@ -17,6 +32,9 @@ public sealed record CredentialProviderActivation(
     string AccountId,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset ExpiresAtUtc,
+    string? OperationId = null,
+    bool AutoSubmitRequested = false,
+    CredentialProviderActivationSource Source = CredentialProviderActivationSource.Local,
     CredentialProviderActivationState State = CredentialProviderActivationState.Pending,
     string? ExpectedWindowsSid = null)
 {
@@ -35,6 +53,7 @@ public sealed record CredentialProviderActivation(
 public enum CredentialProviderActivationSetStatus
 {
     Activated,
+    Busy,
     Rejected
 }
 
@@ -60,6 +79,14 @@ public sealed record CredentialProviderActivationSetResult(
             null,
             errorMessage);
     }
+
+    public static CredentialProviderActivationSetResult Busy(string errorMessage)
+    {
+        return new CredentialProviderActivationSetResult(
+            CredentialProviderActivationSetStatus.Busy,
+            null,
+            errorMessage);
+    }
 }
 
 public interface ICredentialProviderActivationStore
@@ -69,7 +96,25 @@ public interface ICredentialProviderActivationStore
         DateTimeOffset nowUtc,
         TimeSpan ttl);
 
+    CredentialProviderActivationSetResult SetRemotePending(
+        string operationId,
+        string accountId,
+        DateTimeOffset nowUtc,
+        TimeSpan ttl,
+        bool autoSubmitRequested);
+
     CredentialProviderActivation? GetPending(DateTimeOffset nowUtc);
+
+    long CurrentGeneration(DateTimeOffset nowUtc);
+
+    int ListenerCount { get; }
+
+    Task<long> WaitForGenerationChangeAsync(
+        long observedGeneration,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
     bool TrySnapshotIdentity(
         string activationId,
@@ -83,6 +128,22 @@ public interface ICredentialProviderActivationStore
         DateTimeOffset nowUtc,
         out CredentialProviderActivation? activation);
 
+    bool TryComplete(
+        string activationId,
+        CredentialProviderLogonCompletionOutcome outcome,
+        DateTimeOffset nowUtc);
+
+    Task<CredentialProviderLogonCompletionOutcome> WaitForCompletionAsync(
+        string operationId,
+        string activationId,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    bool TryTimeout(
+        string operationId,
+        string activationId,
+        DateTimeOffset nowUtc);
+
     void Clear();
 }
 
@@ -93,6 +154,15 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
 
     private readonly object _syncRoot = new();
     private CredentialProviderActivation? _pending;
+    private long _generation;
+    private int _listenerCount;
+    private TaskCompletionSource<long> _generationChanged =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<bool> _listenerChanged =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<CredentialProviderLogonCompletionOutcome>? _completion;
+    private string? _completionOperationId;
+    private string? _completionActivationId;
 
     public CredentialProviderActivationSetResult SetPending(
         string accountId,
@@ -121,6 +191,68 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
         lock (_syncRoot)
         {
             _pending = activation;
+            _completion = null;
+            _completionOperationId = null;
+            _completionActivationId = null;
+            IncrementGenerationLocked();
+        }
+
+        return CredentialProviderActivationSetResult.Activated(activation);
+    }
+
+    public CredentialProviderActivationSetResult SetRemotePending(
+        string operationId,
+        string accountId,
+        DateTimeOffset nowUtc,
+        TimeSpan ttl,
+        bool autoSubmitRequested)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+        {
+            return CredentialProviderActivationSetResult.Rejected(
+                "Credential Provider activation operationId is required.");
+        }
+
+        if (!ManagedWindowsAccountBinding.IsValidAccountId(accountId))
+        {
+            return CredentialProviderActivationSetResult.Rejected(
+                "Credential Provider activation accountId must be PRIMARY or SECONDARY.");
+        }
+
+        if (ttl <= TimeSpan.Zero || ttl > MaximumTtl)
+        {
+            return CredentialProviderActivationSetResult.Rejected(
+                "Credential Provider activation TTL must be positive and no longer than 60 seconds.");
+        }
+
+        var createdAtUtc = nowUtc.ToUniversalTime();
+        var activation = new CredentialProviderActivation(
+            Guid.NewGuid().ToString("D"),
+            ManagedWindowsAccountBinding.NormalizeAccountId(accountId),
+            createdAtUtc,
+            createdAtUtc.Add(ttl),
+            operationId,
+            autoSubmitRequested,
+            CredentialProviderActivationSource.Remote);
+
+        lock (_syncRoot)
+        {
+            ExpireIfNeeded(nowUtc);
+            if (_pending is not null
+                && _pending.Source == CredentialProviderActivationSource.Remote
+                && _pending.State != CredentialProviderActivationState.Completed
+                && !string.Equals(_pending.OperationId, operationId, StringComparison.Ordinal))
+            {
+                return CredentialProviderActivationSetResult.Busy(
+                    "Another managed Windows logon activation is already pending.");
+            }
+
+            _pending = activation;
+            _completion = new TaskCompletionSource<CredentialProviderLogonCompletionOutcome>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _completionOperationId = operationId;
+            _completionActivationId = activation.ActivationId;
+            IncrementGenerationLocked();
         }
 
         return CredentialProviderActivationSetResult.Activated(activation);
@@ -141,6 +273,97 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             }
 
             return _pending.State == CredentialProviderActivationState.Consumed ? null : _pending;
+        }
+    }
+
+    public long CurrentGeneration(DateTimeOffset nowUtc)
+    {
+        lock (_syncRoot)
+        {
+            ExpireIfNeeded(nowUtc);
+            return _generation;
+        }
+    }
+
+    public int ListenerCount
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _listenerCount;
+            }
+        }
+    }
+
+    public async Task<long> WaitForGenerationChangeAsync(
+        long observedGeneration,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        Task<long> waitTask;
+        lock (_syncRoot)
+        {
+            ExpireIfNeeded(nowUtc);
+            if (_generation != observedGeneration)
+            {
+                return _generation;
+            }
+
+            _listenerCount++;
+            _listenerChanged.TrySetResult(true);
+            _listenerChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            waitTask = _generationChanged.Task;
+        }
+
+        try
+        {
+            return await waitTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_syncRoot)
+            {
+                _listenerCount = Math.Max(0, _listenerCount - 1);
+                _listenerChanged.TrySetResult(true);
+                _listenerChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+    }
+
+    public async Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (timeout <= TimeSpan.Zero)
+        {
+            lock (_syncRoot)
+            {
+                return _listenerCount > 0;
+            }
+        }
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(timeout);
+        while (true)
+        {
+            Task waitTask;
+            lock (_syncRoot)
+            {
+                if (_listenerCount > 0)
+                {
+                    return true;
+                }
+
+                waitTask = _listenerChanged.Task;
+            }
+
+            try
+            {
+                await waitTask.WaitAsync(timeoutSource.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
         }
     }
 
@@ -207,16 +430,143 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
 
             _pending = _pending with { State = CredentialProviderActivationState.Consumed };
             activation = _pending;
+            IncrementGenerationLocked();
             return true;
         }
     }
 
-    public void Clear()
+    public bool TryComplete(
+        string activationId,
+        CredentialProviderLogonCompletionOutcome outcome,
+        DateTimeOffset nowUtc)
     {
+        if (string.IsNullOrWhiteSpace(activationId)
+            || outcome == CredentialProviderLogonCompletionOutcome.TimedOut)
+        {
+            return false;
+        }
+
         lock (_syncRoot)
         {
+            if (ExpireIfNeeded(nowUtc)
+                || _pending is null
+                || _pending.Source != CredentialProviderActivationSource.Remote
+                || _pending.State is CredentialProviderActivationState.Completed
+                || !string.Equals(_pending.ActivationId, activationId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _pending = _pending with { State = CredentialProviderActivationState.Completed };
+            _completion?.TrySetResult(outcome);
             _pending = null;
+            IncrementGenerationLocked();
         }
+
+        return true;
+    }
+
+    public async Task<CredentialProviderLogonCompletionOutcome> WaitForCompletionAsync(
+        string operationId,
+        string activationId,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        Task<CredentialProviderLogonCompletionOutcome>? completionTask = null;
+        Task<CredentialProviderLogonCompletionOutcome>? alreadyCompletedTask = null;
+        TimeSpan remaining;
+        lock (_syncRoot)
+        {
+            if (_completion is not null
+                && string.Equals(_completionOperationId, operationId, StringComparison.Ordinal)
+                && string.Equals(_completionActivationId, activationId, StringComparison.Ordinal)
+                && _completion.Task.IsCompleted)
+            {
+                alreadyCompletedTask = _completion.Task;
+                remaining = TimeSpan.Zero;
+            }
+            else
+            {
+                if (ExpireIfNeeded(nowUtc)
+                    || _pending is null
+                    || _completion is null
+                    || !string.Equals(_pending.OperationId, operationId, StringComparison.Ordinal)
+                    || !string.Equals(_pending.ActivationId, activationId, StringComparison.Ordinal))
+                {
+                    return CredentialProviderLogonCompletionOutcome.TimedOut;
+                }
+
+                completionTask = _completion.Task;
+                remaining = _pending.ExpiresAtUtc - nowUtc.ToUniversalTime();
+            }
+        }
+
+        if (alreadyCompletedTask is not null)
+        {
+            return await alreadyCompletedTask.ConfigureAwait(false);
+        }
+
+        if (remaining <= TimeSpan.Zero)
+        {
+            TryTimeout(operationId, activationId, nowUtc);
+            return CredentialProviderLogonCompletionOutcome.TimedOut;
+        }
+
+        using var timeout = new CancellationTokenSource(remaining);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        try
+        {
+            return await completionTask!.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            TryTimeout(operationId, activationId, DateTimeOffset.UtcNow);
+            return CredentialProviderLogonCompletionOutcome.TimedOut;
+        }
+    }
+
+    public bool TryTimeout(
+        string operationId,
+        string activationId,
+        DateTimeOffset nowUtc)
+    {
+        TaskCompletionSource<CredentialProviderLogonCompletionOutcome>? completion;
+        lock (_syncRoot)
+        {
+            if (_pending is null
+                || _pending.Source != CredentialProviderActivationSource.Remote
+                || !string.Equals(_pending.OperationId, operationId, StringComparison.Ordinal)
+                || !string.Equals(_pending.ActivationId, activationId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _pending = null;
+            completion = _completion;
+            _completion = null;
+            _completionOperationId = null;
+            _completionActivationId = null;
+            IncrementGenerationLocked();
+        }
+
+        completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
+        return true;
+    }
+
+    public void Clear()
+    {
+        TaskCompletionSource<CredentialProviderLogonCompletionOutcome>? completion;
+        lock (_syncRoot)
+        {
+            completion = _completion;
+            _pending = null;
+            _completion = null;
+            _completionOperationId = null;
+            _completionActivationId = null;
+            IncrementGenerationLocked();
+        }
+
+        completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
     }
 
     private bool ExpireIfNeeded(DateTimeOffset nowUtc)
@@ -231,8 +581,21 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             return false;
         }
 
+        var completion = _completion;
         _pending = null;
+        _completion = null;
+        _completionOperationId = null;
+        _completionActivationId = null;
+        IncrementGenerationLocked();
+        completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
         return true;
+    }
+
+    private void IncrementGenerationLocked()
+    {
+        var next = unchecked(++_generation);
+        _generationChanged.TrySetResult(next);
+        _generationChanged = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
 
@@ -325,7 +688,8 @@ public sealed class CredentialProviderActivationService
             AccountId = snapshotted.AccountId,
             UserSid = resolved.WindowsSid,
             Domain = resolved.Domain!,
-            Username = resolved.Username!
+            Username = resolved.Username!,
+            AutoSubmitRequested = snapshotted.AutoSubmitRequested
         };
     }
 
@@ -393,6 +757,73 @@ public sealed class CredentialProviderActivationService
         return CredentialProviderSecretResponse.Success(
             consumed.ActivationId,
             lease.PasswordUtf16LittleEndian.Span);
+    }
+
+    public long CurrentGeneration()
+    {
+        return _activationStore.CurrentGeneration(_clock.UtcNow);
+    }
+
+    public Task<long> WaitForGenerationChangeAsync(
+        long observedGeneration,
+        CancellationToken cancellationToken)
+    {
+        return _activationStore.WaitForGenerationChangeAsync(
+            observedGeneration,
+            _clock.UtcNow,
+            cancellationToken);
+    }
+
+    public Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        return _activationStore.WaitForListenerAsync(timeout, cancellationToken);
+    }
+
+    public bool TryCompleteLogon(
+        string? activationId,
+        string? outcome)
+    {
+        if (!Guid.TryParse(activationId, out _))
+        {
+            return false;
+        }
+
+        CredentialProviderLogonCompletionOutcome completionOutcome = outcome switch
+        {
+            CredentialProviderLogonResultOutcomes.Success => CredentialProviderLogonCompletionOutcome.Success,
+            CredentialProviderLogonResultOutcomes.Failed => CredentialProviderLogonCompletionOutcome.Failed,
+            CredentialProviderLogonResultOutcomes.LocalSerializationFailed =>
+                CredentialProviderLogonCompletionOutcome.LocalSerializationFailed,
+            _ => throw new ArgumentException("Credential Provider logon outcome is invalid.", nameof(outcome))
+        };
+
+        return _activationStore.TryComplete(activationId, completionOutcome, _clock.UtcNow);
+    }
+
+    public CredentialProviderActivationSetResult SetRemotePending(
+        string operationId,
+        string accountId,
+        TimeSpan ttl,
+        bool autoSubmitRequested)
+    {
+        return _activationStore.SetRemotePending(
+            operationId,
+            accountId,
+            _clock.UtcNow,
+            ttl,
+            autoSubmitRequested);
+    }
+
+    public Task<CredentialProviderLogonCompletionOutcome> WaitForCompletionAsync(
+        string operationId,
+        string activationId,
+        CancellationToken cancellationToken)
+    {
+        return _activationStore.WaitForCompletionAsync(
+            operationId,
+            activationId,
+            _clock.UtcNow,
+            cancellationToken);
     }
 
     private async Task<ManagedWindowsAccountBinding?> LoadBindingAsync(

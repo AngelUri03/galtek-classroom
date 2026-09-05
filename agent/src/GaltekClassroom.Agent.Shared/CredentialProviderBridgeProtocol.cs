@@ -22,6 +22,8 @@ public static class CredentialProviderBridgeOperations
     public const string GetPendingActivationMetadata = "GET_PENDING_ACTIVATION_METADATA";
     public const string GetPendingActivationIdentity = "GET_PENDING_ACTIVATION_IDENTITY";
     public const string AcquirePendingCredential = "ACQUIRE_PENDING_CREDENTIAL";
+    public const string WaitForActivationChange = "WAIT_FOR_ACTIVATION_CHANGE";
+    public const string ReportLogonResult = "REPORT_LOGON_RESULT";
 }
 
 public static class CredentialProviderBridgeStatuses
@@ -49,6 +51,13 @@ public static class CredentialProviderBridgeErrorCodes
     public const string MalformedRequest = "CREDENTIAL_PROVIDER_MALFORMED_REQUEST";
     public const string Unauthorized = "CREDENTIAL_PROVIDER_CHANNEL_UNAUTHORIZED";
     public const string InternalError = "CREDENTIAL_PROVIDER_INTERNAL_ERROR";
+}
+
+public static class CredentialProviderLogonResultOutcomes
+{
+    public const string Success = "SUCCESS";
+    public const string Failed = "FAILED";
+    public const string LocalSerializationFailed = "LOCAL_SERIALIZATION_FAILED";
 }
 
 public sealed record CredentialProviderActivationMetadata
@@ -91,6 +100,10 @@ public sealed record CredentialProviderActivationIdentity
     [JsonPropertyName("username")]
     [JsonPropertyOrder(4)]
     public string Username { get; init; } = string.Empty;
+
+    [JsonPropertyName("autoSubmitRequested")]
+    [JsonPropertyOrder(5)]
+    public bool AutoSubmitRequested { get; init; }
 }
 
 public sealed record CredentialProviderBridgeRequest
@@ -111,6 +124,16 @@ public sealed record CredentialProviderBridgeRequest
     [JsonPropertyOrder(3)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ActivationId { get; init; }
+
+    [JsonPropertyName("observedGeneration")]
+    [JsonPropertyOrder(4)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ObservedGeneration { get; init; }
+
+    [JsonPropertyName("outcome")]
+    [JsonPropertyOrder(5)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Outcome { get; init; }
 }
 
 public sealed record CredentialProviderBridgeResponse
@@ -151,6 +174,11 @@ public sealed record CredentialProviderBridgeResponse
     [JsonPropertyOrder(7)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Message { get; init; }
+
+    [JsonPropertyName("generation")]
+    [JsonPropertyOrder(8)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Generation { get; init; }
 
     public static CredentialProviderBridgeResponse Success(string requestId)
     {
@@ -202,6 +230,18 @@ public sealed record CredentialProviderBridgeResponse
             Status = CredentialProviderBridgeStatuses.Failed,
             ErrorCode = errorCode,
             Message = message
+        };
+    }
+
+    public static CredentialProviderBridgeResponse ActivationGeneration(
+        string requestId,
+        long generation)
+    {
+        return new CredentialProviderBridgeResponse
+        {
+            RequestId = requestId,
+            Status = CredentialProviderBridgeStatuses.Success,
+            Generation = generation
         };
     }
 }

@@ -53,6 +53,7 @@ public:
 
 private:
     ~GaltekCredential();
+    void ReportLocalSerializationFailed();
 
     LONG _referenceCount;
     ICredentialProviderCredentialEvents* _events;
@@ -60,5 +61,8 @@ private:
     std::wstring _userSid;
     std::wstring _domain;
     std::wstring _username;
+    bool _autoSubmitRequested;
+    bool _autoSubmitConsumed;
     bool _acquireAttempted;
+    bool _logonResultReported;
 };

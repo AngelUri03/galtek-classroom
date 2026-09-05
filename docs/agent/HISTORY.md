@@ -2267,3 +2267,55 @@
 ### Commit sugerido
 
 `feat(agent): serialize managed logon credentials`
+
+## 2026-09-05 - Prompt 19G3
+
+### Realizado
+
+- Agregado `LOGON_MANAGED_ACCOUNT` remoto tipado con `LogonManagedAccountOperationParameters(account_id)` solo para `PRIMARY`/`SECONDARY`.
+- Agregada capability especifica `WINDOWS_SESSION_LOGON_V1` en Agent y Master.
+- El Agent registra `LogonManagedAccountOperationHandler` y `WindowsSessionLogonService` sobre el `RemoteOperationDispatcher` normal.
+- Preflight de sesion: target ya activo devuelve `SUCCESS` sin activation/DPAPI; `NO_SESSION` continua; otra sesion activa devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+- Preflight de cuenta antes de activation: binding local, SID `SidTypeUser` y credential DPAPI usable ligada al mismo SID.
+- Revalidacion inmediata de `NO_SESSION` antes de crear activation remota.
+- Activation remota efimera in-memory con `operationId`, `accountId`, timestamps, TTL y `autoSubmitRequested=true`.
+- Concurrencia remota fail-closed: una activation remota de otro `operationId` devuelve `WINDOWS_LOGON_BUSY`; duplicados de misma operacion/cuenta conservan idempotencia.
+- Agregado generation counter in-memory y listener count en `CredentialProviderActivationStore`.
+- Agregado pipe op `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` para notification event-driven sin polling sano.
+- Agregado pipe op `REPORT_LOGON_RESULT(activationId,outcome)` con outcomes cerrados `SUCCESS`, `FAILED` y `LOCAL_SERIALIZATION_FAILED`.
+- El Provider nativo inicia worker cancellable en `Advise`, usa COM marshaling inter-thread para `ICredentialProviderEvents` y llama `CredentialsChanged` ante cambios de generation.
+- El Agent espera brevemente listener LogonUI validado antes de activation y devuelve `CREDENTIAL_PROVIDER_UNAVAILABLE` si no existe.
+- Auto-submit remoto: `GetCredentialCount` devuelve default credential 0 y `pbAutoLogonWithDefault=TRUE`; `SetSelected` auto-submit exactly once.
+- `GetSerialization` reporta `LOCAL_SERIALIZATION_FAILED` si falla localmente despues de acquire.
+- `ReportResult(STATUS_SUCCESS)` reporta `SUCCESS`; auth rejection reporta `FAILED`; no hay retry/reacquire.
+- `WindowsSessionLogonService` mapea `SUCCESS` a `OperationResult SUCCESS`, `FAILED`/`LOCAL_SERIALIZATION_FAILED` a `WINDOWS_LOGON_FAILED` y timeout a `WINDOWS_LOGON_NOT_CONFIRMED`.
+- El Master Java agrega `MasterRemoteOperationGateway.logonManagedAccount(...)`, mappings de capability/errores y timeout fijo de resultado de 55s solo para logon.
+- Actualizados docs de protocolo, arquitectura, modelo funcional, reglas, estado, decisiones, Credential Provider, managed accounts, managed credentials, session state y nuevo `WINDOWS_SESSION_LOGON.md`.
+
+### Cambios descartados
+
+- No se agrego endpoint HTTP, BatchOperation, fanout, planner, UI ni `SWITCH_MANAGED_ACCOUNT`.
+- No se envio password desde Master ni username, domain, SID, sessionId, credentialId, vault token, command, args, shell ni payload arbitrario.
+- No se agrego capability generica de session-control.
+- No se implemento unlock, switch ni logoff implicito antes de logon.
+- No se agrego SendKeys, UI Automation, Registry autologon, `DefaultPassword`, `LogonUser`, `CreateProcessAsUser`, `CreateProcessWithLogonW`, PowerShell, `cmd`, scripts ni APIs WinStation no documentadas.
+- No se cambio el timeout global de operaciones remotas del Master.
+- No se agrego retry automatico ni reconciliation para logon.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionLogon|FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~CredentialProviderActivation|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 136 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj` con Visual Studio BuildTools: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+
+### Validacion manual pendiente
+
+- En PC descartable: instalar provider lab, provisionar credential, dejar consola sin usuario, ejecutar `LOGON_MANAGED_ACCOUNT PRIMARY/SECONDARY`, confirmar auto-submit once, confirmar resultado con password correcta/incorrecta, confirmar timeout si se bloquea confirmacion y confirmar que providers estandar siguen disponibles con Service detenido.
+
+### Commit sugerido
+
+`feat(agent): add remote managed account logon`

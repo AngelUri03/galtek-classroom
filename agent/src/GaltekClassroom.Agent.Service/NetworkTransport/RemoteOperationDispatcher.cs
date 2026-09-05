@@ -218,9 +218,12 @@ public sealed class RemoteOperationDispatcher
 
     private TimeSpan TimeoutFor(OperationRequest request)
     {
-        return request.TimeoutMs > 0
-            ? TimeSpan.FromMilliseconds(Math.Min(request.TimeoutMs, (long)_options.Timeout.TotalMilliseconds))
+        var maxTimeout = request.OperationType == NetworkOperationType.LogonManagedAccount
+            ? _options.LogonManagedAccountTimeout
             : _options.Timeout;
+        return request.TimeoutMs > 0
+            ? TimeSpan.FromMilliseconds(Math.Min(request.TimeoutMs, (long)maxTimeout.TotalMilliseconds))
+            : maxTimeout;
     }
 
     private static bool ValidRequestShape(OperationRequest request)
@@ -275,6 +278,8 @@ public sealed class RemoteOperationDispatcher
                     request.ApplyBrowserDownloadPolicy),
                 OperationRequest.OperationParametersOneofCase.ProvisionManagedCredential => ManagedCredentialProvisioningSignature(
                     request.ProvisionManagedCredential),
+                OperationRequest.OperationParametersOneofCase.LogonManagedAccount => ManagedAccountLogonSignature(
+                    request.LogonManagedAccount),
                 OperationRequest.OperationParametersOneofCase.LogoffWindowsSession => LogoffWindowsSessionSignature(
                     request.LogoffWindowsSession),
                 OperationRequest.OperationParametersOneofCase.None => string.Empty,
@@ -314,6 +319,14 @@ public sealed class RemoteOperationDispatcher
 
         private static string LogoffWindowsSessionSignature(
             LogoffWindowsSessionOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
+
+        private static string ManagedAccountLogonSignature(
+            LogonManagedAccountOperationParameters? parameters)
         {
             return parameters is null
                 ? string.Empty

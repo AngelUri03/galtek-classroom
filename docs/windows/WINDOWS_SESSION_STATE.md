@@ -64,9 +64,17 @@ La operacion observa la consola, valida SID, vuelve a observar inmediatamente an
 
 El resultado remoto de logoff no contiene SID, username, domain, `accountReference`, `sessionId` ni token. `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado; una consulta futura explicita de `GET_WINDOWS_SESSION_STATE` puede observar el resultado.
 
+## Relacion Con Logon
+
+Desde Prompt 19G3, `LOGON_MANAGED_ACCOUNT(accountId)` reutiliza este estado como preflight, no como mecanismo de autenticacion. Si el target ya esta activo, devuelve `SUCCESS` idempotente sin crear activation ni consultar DPAPI. Si el estado es `NO_SESSION`, el Agent puede continuar con preflight de binding/credential y luego revalida inmediatamente que siga en `NO_SESSION` antes de activation.
+
+Si aparece cualquier otra sesion activa, incluso otro managed account, el logon remoto devuelve `WINDOWS_SESSION_CHANGED` y no intenta unlock, switch ni logoff. Si la consola no es confiable, devuelve `WINDOWS_SESSION_UNKNOWN`.
+
+La operation result de logon tampoco contiene SID, username, domain, `accountReference`, `sessionId` ni token. `SUCCESS` significa que Winlogon/LSA acepto la autenticacion reportada por `ReportResult(STATUS_SUCCESS)`, no que el escritorio ya este listo.
+
 ## Relacion Con Credential Provider
 
-Desde Prompt 19G1, `Credential Provider V2` queda como foundation para login futuro, pero `GET_WINDOWS_SESSION_STATE` no depende del provider y el provider no lee el estado de sesion por su cuenta. El Agent Service conserva la autoridad local.
+Desde Prompt 19G3, `Credential Provider V2` ejecuta el tramo de serialization/autosubmit de `LOGON_MANAGED_ACCOUNT`, pero `GET_WINDOWS_SESSION_STATE` no depende del provider y el provider no lee el estado de sesion por su cuenta. El Agent Service conserva la autoridad local.
 
 La activation metadata del provider es efimera y no cambia el resultado de `GET_WINDOWS_SESSION_STATE`: no es una sesion, no es proof de login y no contiene SID ni password.
 
@@ -81,6 +89,8 @@ Fast User Switching puede dejar sesiones historicas o disconnected. Galtek no en
 `GET_WINDOWS_SESSION_STATE` no implementa provisioning, login, logoff, switch, Credential Provider, UI, endpoint/batch Master, Local IPC, Session Command, Session Agent dependency, browser policy integration, heartbeat state, polling, WMI, process scans ni writes, y no descifra passwords.
 
 `LOGOFF_WINDOWS_SESSION` no implementa login, switch, Credential Provider usage, endpoint/batch Master, fanout, planner, UI, Session Agent, password usage, DPAPI, force flag, configurable timeout, polling, status heartbeat ni reconciliation.
+
+`LOGON_MANAGED_ACCOUNT` no implementa switch, logoff implicito, unlock de sesion existente, endpoint/batch Master, fanout, planner, UI, configurable timeout desde request, retry automatico, status heartbeat ni reconciliation.
 
 ## Validacion Manual Pendiente
 

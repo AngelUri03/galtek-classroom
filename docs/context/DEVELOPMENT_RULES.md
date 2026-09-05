@@ -152,6 +152,27 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `GetSerialization` usa formato Windows soportado con `KERB_INTERACTIVE_UNLOCK_LOGON`, password protection de Windows y paquete `Negotiate` resuelto por LSA; no implementar autenticacion propia ni crypto propia dentro del provider.
 - Providers estandar de Windows permanecen disponibles aunque Galtek falle.
 - Fallo del Agent/Galtek nunca debe impedir login estandar de Windows.
+- `LOGON_MANAGED_ACCOUNT` remoto acepta solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`); `UNSPECIFIED` se rechaza.
+- Nunca aceptar username, domain, SID, `accountReference`, `sessionId`, `credentialId`, vault token, password, timeout configurable, command, args, shell ni payload arbitrario desde Master para logon.
+- `WINDOWS_SESSION_LOGON_V1` es capability especifica de logon; no introducir capability generica de session-control.
+- `LOGON_MANAGED_ACCOUNT` conserva el dispatcher remoto normal: Master esperado, trust `PAIRED`, no `REVOKED`, Device autorizado, gRPC/mTLS, operacion soportada y Commercial License Client `ACTIVE`.
+- `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe a Commercial License; no extender esa excepcion a logon.
+- Antes de crear activation de logon, el Agent debe observar la consola fisica: target ya activo es `SUCCESS` idempotente; `NO_SESSION` continua; cualquier otra sesion activa es `WINDOWS_SESSION_CHANGED`; estado no confiable es `WINDOWS_SESSION_UNKNOWN`.
+- Antes de activation de logon, validar binding local, SID valido resoluble como `SidTypeUser` y credencial DPAPI usable ligada al mismo SID; sin binding es `ACCOUNT_NOT_CONFIGURED`, sin credencial es `MANAGED_CREDENTIAL_NOT_CONFIGURED`.
+- Revalidar inmediatamente antes de activation que la consola siga en `NO_SESSION`; si cambio, no activar.
+- `LOGON_MANAGED_ACCOUNT` no debe desbloquear, cambiar, cerrar ni forzar sesiones existentes; no usar switch/logoff como parte implicita del logon.
+- Activations remotas de logon son solo in-memory, con `activationId`, `operationId`, `accountId`, timestamps, TTL corto, `autoSubmitRequested=true` y SID esperado cuando exista; nunca persistirlas.
+- Una activation remota productiva no reemplaza otra activation remota de distinto `operationId`; devolver `WINDOWS_LOGON_BUSY`.
+- Duplicado con mismo `operationId + accountId` es idempotente; mismo `operationId` con distinto accountId conserva conflicto de dedupe.
+- El Credential Provider debe enterarse de activations mediante `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)`, generation counter y `ICredentialProviderEvents::CredentialsChanged`; no polling sano.
+- El worker del Credential Provider debe usar marshaling COM inter-thread para `ICredentialProviderEvents`, inicializar COM en el worker y cancelar/join en `UnAdvise`.
+- El Service debe saber que existe al menos un listener LogonUI validado antes de activation; si no aparece tras espera acotada, devolver `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- Auto-submit solo aplica a activation remota con `autoSubmitRequested=true`: una credential, default `0`, `pbAutoLogonWithDefault=TRUE` y `SetSelected` exactly once.
+- Nunca usar SendKeys, UI Automation, Registry autologon, `DefaultPassword`, `LogonUser`, `CreateProcessWithLogonW` ni `CreateProcessAsUser` para implementar logon administrado.
+- Despues de acquire, fallos locales de serialization se reportan como `LOCAL_SERIALIZATION_FAILED`; la activation queda consumida y no se restaura.
+- `REPORT_LOGON_RESULT` acepta solo `activationId` y outcome `SUCCESS`, `FAILED` o `LOCAL_SERIALIZATION_FAILED`; no enviar mensajes, NTSTATUS textual, SID, username, domain, sessionId ni password.
+- `ReportResult(STATUS_SUCCESS)` es el unico camino a `OperationResult SUCCESS` para `LOGON_MANAGED_ACCOUNT`; auth rejection/fallo local es `WINDOWS_LOGON_FAILED` y timeout es `WINDOWS_LOGON_NOT_CONFIRMED`.
+- El Master debe usar timeout de resultado especifico para `LOGON_MANAGED_ACCOUNT` (activation TTL mas margen) sin cambiar el timeout global de otras operaciones.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
 - El transporte gRPC/mTLS de Prompt 13 solo permite conexion, identificacion y heartbeat; no autoriza por si mismo comandos remotos.
 - Cualquier extension del transporte debe exigir TLS/mTLS, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y fallo cerrado.

@@ -4,6 +4,7 @@
 #include "Credential.h"
 
 #include <windows.h>
+#include <objbase.h>
 #include <cstring>
 #include <new>
 
@@ -50,9 +51,10 @@ namespace
 GaltekCredentialProvider::GaltekCredentialProvider()
     : _referenceCount(1),
       _usageScenario(CPUS_INVALID),
-      _events(nullptr),
       _adviseContext(0),
-      _hasCredential(false)
+      _hasCredential(false),
+      _notificationStopEvent(nullptr),
+      _notificationRunning(false)
 {
     InterlockedIncrement(&g_objectCount);
 }
@@ -94,11 +96,7 @@ ULONG GaltekCredentialProvider::Release()
 
 GaltekCredentialProvider::~GaltekCredentialProvider()
 {
-    if (_events != nullptr)
-    {
-        _events->Release();
-        _events = nullptr;
-    }
+    StopNotificationWorker();
 }
 
 HRESULT GaltekCredentialProvider::SetUsageScenario(
@@ -126,17 +124,55 @@ HRESULT GaltekCredentialProvider::SetSerialization(
 
 HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT_PTR adviseContext)
 {
-    if (_events != nullptr)
-    {
-        _events->Release();
-        _events = nullptr;
-    }
+    StopNotificationWorker();
 
     _adviseContext = adviseContext;
-    if (events != nullptr)
+    if (events != nullptr && _usageScenario == CPUS_LOGON)
     {
-        events->AddRef();
-        _events = events;
+        IStream* eventsStream = nullptr;
+        HRESULT hr = CoMarshalInterThreadInterfaceInStream(
+            IID_ICredentialProviderEvents,
+            events,
+            &eventsStream);
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+
+        HANDLE stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (stopEvent == nullptr)
+        {
+            eventsStream->Release();
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        _notificationStopEvent = stopEvent;
+        _notificationRunning = true;
+        try
+        {
+            _notificationThread = std::thread(
+                &GaltekCredentialProvider::NotificationWorker,
+                this,
+                eventsStream,
+                adviseContext,
+                stopEvent);
+        }
+        catch (const std::bad_alloc&)
+        {
+            _notificationRunning = false;
+            _notificationStopEvent = nullptr;
+            CloseHandle(stopEvent);
+            eventsStream->Release();
+            return E_OUTOFMEMORY;
+        }
+        catch (...)
+        {
+            _notificationRunning = false;
+            _notificationStopEvent = nullptr;
+            CloseHandle(stopEvent);
+            eventsStream->Release();
+            return E_FAIL;
+        }
     }
 
     return S_OK;
@@ -144,12 +180,7 @@ HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT
 
 HRESULT GaltekCredentialProvider::UnAdvise()
 {
-    if (_events != nullptr)
-    {
-        _events->Release();
-        _events = nullptr;
-    }
-
+    StopNotificationWorker();
     _adviseContext = 0;
     return S_OK;
 }
@@ -231,6 +262,11 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
         _identity = identity;
         _hasCredential = true;
         *count = 1;
+        if (identity.autoSubmitRequested)
+        {
+            *defaultCredential = 0;
+            *autoLogonWithDefault = TRUE;
+        }
     }
 
     return S_OK;
@@ -259,4 +295,89 @@ HRESULT GaltekCredentialProvider::GetCredentialAt(
 
     *credential = static_cast<ICredentialProviderCredential*>(value);
     return S_OK;
+}
+
+void GaltekCredentialProvider::StopNotificationWorker()
+{
+    HANDLE stopEvent = _notificationStopEvent;
+    if (stopEvent != nullptr)
+    {
+        SetEvent(stopEvent);
+    }
+
+    if (_notificationThread.joinable())
+    {
+        _notificationThread.join();
+    }
+
+    if (stopEvent != nullptr)
+    {
+        CloseHandle(stopEvent);
+    }
+
+    _notificationStopEvent = nullptr;
+    _notificationRunning = false;
+}
+
+void GaltekCredentialProvider::NotificationWorker(
+    IStream* eventsStream,
+    UINT_PTR adviseContext,
+    HANDLE stopEvent)
+{
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ICredentialProviderEvents* events = nullptr;
+    if ((SUCCEEDED(init) || init == RPC_E_CHANGED_MODE) && eventsStream != nullptr)
+    {
+        CoGetInterfaceAndReleaseStream(
+            eventsStream,
+            IID_ICredentialProviderEvents,
+            reinterpret_cast<void**>(&events));
+        eventsStream = nullptr;
+    }
+
+    if (eventsStream != nullptr)
+    {
+        eventsStream->Release();
+    }
+
+    if (events == nullptr)
+    {
+        if (SUCCEEDED(init))
+        {
+            CoUninitialize();
+        }
+
+        return;
+    }
+
+    BridgeClient bridge;
+    long long observedGeneration = 0;
+    DWORD reconnectDelay = 250;
+    while (WaitForSingleObject(stopEvent, 0) == WAIT_TIMEOUT)
+    {
+        long long generation = observedGeneration;
+        if (bridge.WaitForActivationChange(observedGeneration, stopEvent, &generation))
+        {
+            observedGeneration = generation;
+            reconnectDelay = 250;
+            events->CredentialsChanged(adviseContext);
+            continue;
+        }
+
+        if (WaitForSingleObject(stopEvent, reconnectDelay) != WAIT_TIMEOUT)
+        {
+            break;
+        }
+
+        if (reconnectDelay < 1000)
+        {
+            reconnectDelay *= 2;
+        }
+    }
+
+    events->Release();
+    if (SUCCEEDED(init))
+    {
+        CoUninitialize();
+    }
 }

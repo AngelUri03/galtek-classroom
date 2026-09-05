@@ -112,6 +112,69 @@ public sealed class CredentialProviderBridgeTests
     }
 
     [Fact]
+    public async Task ActivationStore_WaitForActivationChangeRegistersListenerAndWakesOnRemoteActivation()
+    {
+        var store = new CredentialProviderActivationStore();
+        var observedGeneration = store.CurrentGeneration(FixedNow);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var waitTask = store.WaitForGenerationChangeAsync(
+            observedGeneration,
+            FixedNow,
+            cancellation.Token);
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
+        Assert.Equal(1, store.ListenerCount);
+
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true);
+
+        Assert.True(activation.Succeeded);
+        Assert.True(await waitTask > observedGeneration);
+        Assert.Equal(0, store.ListenerCount);
+    }
+
+    [Fact]
+    public async Task ActivationStore_WaitForListenerReturnsFalseWhenNoValidatedListenerArrives()
+    {
+        var store = new CredentialProviderActivationStore();
+
+        var available = await store.WaitForListenerAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        Assert.False(available);
+    }
+
+    [Fact]
+    public async Task ActivationStore_ReportBeforeWaitCompletionIsObserved()
+    {
+        var store = new CredentialProviderActivationStore();
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+        store.TrySnapshotIdentity(activation.ActivationId, PrimarySid, FixedNow, out _);
+        store.TryConsume(activation.ActivationId, PrimarySid, FixedNow, out _);
+
+        Assert.True(store.TryComplete(
+            activation.ActivationId,
+            CredentialProviderLogonCompletionOutcome.LocalSerializationFailed,
+            FixedNow));
+
+        var outcome = await store.WaitForCompletionAsync(
+            "operation-1",
+            activation.ActivationId,
+            FixedNow,
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderLogonCompletionOutcome.LocalSerializationFailed, outcome);
+    }
+
+    [Fact]
     public async Task RequestHandler_WhenNoActivation_ReturnsNone()
     {
         var handler = CreateHandler(new MutableClock(FixedNow));
@@ -329,6 +392,103 @@ public sealed class CredentialProviderBridgeTests
 
         Assert.Equal(1, fixture.Protector.UnprotectCalls);
         Assert.Null(fixture.Store.GetPending(FixedNow));
+    }
+
+    [Fact]
+    public async Task RequestHandler_WaitForActivationChangeReturnsNewGeneration()
+    {
+        var clock = new MutableClock(FixedNow);
+        var store = new CredentialProviderActivationStore();
+        var service = new CredentialProviderActivationService(store, clock);
+        var handler = new CredentialProviderBridgeRequestHandler(service);
+        var observedGeneration = service.CurrentGeneration();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var waitTask = handler.HandleAsync(
+            Request(
+                CredentialProviderBridgeOperations.WaitForActivationChange,
+                observedGeneration: observedGeneration),
+            AuthorizedCaller(),
+            cancellation.Token);
+        Assert.True(await service.WaitForListenerAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
+
+        var activation = service.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true);
+
+        Assert.True(activation.Succeeded);
+        var response = await waitTask;
+
+        Assert.Equal(CredentialProviderBridgeStatuses.Success, response.Status);
+        Assert.True(response.Generation > observedGeneration);
+    }
+
+    [Theory]
+    [InlineData(CredentialProviderLogonResultOutcomes.Success, CredentialProviderLogonCompletionOutcome.Success)]
+    [InlineData(CredentialProviderLogonResultOutcomes.Failed, CredentialProviderLogonCompletionOutcome.Failed)]
+    [InlineData(
+        CredentialProviderLogonResultOutcomes.LocalSerializationFailed,
+        CredentialProviderLogonCompletionOutcome.LocalSerializationFailed)]
+    public async Task RequestHandler_ReportLogonResultCompletesActivation(
+        string reportedOutcome,
+        CredentialProviderLogonCompletionOutcome expectedOutcome)
+    {
+        var clock = new MutableClock(FixedNow);
+        var store = new CredentialProviderActivationStore();
+        var service = new CredentialProviderActivationService(store, clock);
+        var handler = new CredentialProviderBridgeRequestHandler(service);
+        var activation = service.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+        store.TrySnapshotIdentity(activation.ActivationId, PrimarySid, FixedNow, out _);
+        store.TryConsume(activation.ActivationId, PrimarySid, FixedNow, out _);
+
+        var response = await handler.HandleAsync(
+            Request(
+                CredentialProviderBridgeOperations.ReportLogonResult,
+                activation.ActivationId,
+                outcome: reportedOutcome),
+            AuthorizedCaller(),
+            CancellationToken.None);
+        var completed = await service.WaitForCompletionAsync(
+            "operation-1",
+            activation.ActivationId,
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderBridgeStatuses.Success, response.Status);
+        Assert.Equal(expectedOutcome, completed);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("TIMED_OUT")]
+    [InlineData("SUCCESS_WITH_MESSAGE")]
+    public async Task RequestHandler_ReportLogonResultRejectsUnsupportedOutcomes(string outcome)
+    {
+        var clock = new MutableClock(FixedNow);
+        var store = new CredentialProviderActivationStore();
+        var service = new CredentialProviderActivationService(store, clock);
+        var handler = new CredentialProviderBridgeRequestHandler(service);
+        var activation = service.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+
+        var response = await handler.HandleAsync(
+            Request(
+                CredentialProviderBridgeOperations.ReportLogonResult,
+                activation.ActivationId,
+                outcome: outcome),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderBridgeStatuses.Failed, response.Status);
+        Assert.Equal(CredentialProviderBridgeErrorCodes.MalformedRequest, response.ErrorCode);
     }
 
     [Fact]
@@ -598,7 +758,9 @@ public sealed class CredentialProviderBridgeTests
     private static string Request(
         string operation,
         string? activationId = null,
-        int protocolVersion = CredentialProviderBridgeProtocol.ProtocolVersion)
+        int protocolVersion = CredentialProviderBridgeProtocol.ProtocolVersion,
+        long? observedGeneration = null,
+        string? outcome = null)
     {
         return JsonSerializer.Serialize(
             new CredentialProviderBridgeRequest
@@ -606,7 +768,9 @@ public sealed class CredentialProviderBridgeTests
                 ProtocolVersion = protocolVersion,
                 RequestId = Guid.NewGuid().ToString("D"),
                 Operation = operation,
-                ActivationId = activationId
+                ActivationId = activationId,
+                ObservedGeneration = observedGeneration,
+                Outcome = outcome
             },
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }

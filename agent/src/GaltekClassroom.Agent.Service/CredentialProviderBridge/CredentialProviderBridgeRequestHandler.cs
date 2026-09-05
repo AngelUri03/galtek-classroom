@@ -35,7 +35,9 @@ public sealed class CredentialProviderBridgeRequestHandler
         "protocolVersion",
         "requestId",
         "operation",
-        "activationId"
+        "activationId",
+        "observedGeneration",
+        "outcome"
     };
 
     private readonly CredentialProviderActivationService _activationService;
@@ -118,10 +120,40 @@ public sealed class CredentialProviderBridgeRequestHandler
             CredentialProviderBridgeOperations.AcquirePendingCredential =>
                 CredentialProviderBridgeHandlerResult.Binary(
                     await BuildAcquireResponseAsync(request.ActivationId, cancellationToken).ConfigureAwait(false)),
+            CredentialProviderBridgeOperations.WaitForActivationChange =>
+                CredentialProviderBridgeHandlerResult.Json(
+                    CredentialProviderBridgeResponse.ActivationGeneration(
+                        request.RequestId,
+                        await _activationService.WaitForGenerationChangeAsync(
+                            request.ObservedGeneration ?? _activationService.CurrentGeneration(),
+                            cancellationToken).ConfigureAwait(false))),
+            CredentialProviderBridgeOperations.ReportLogonResult =>
+                CredentialProviderBridgeHandlerResult.Json(ReportLogonResult(request)),
             _ => CredentialProviderBridgeHandlerResult.Json(CredentialProviderBridgeResponse.Error(
                 request.RequestId,
                 CredentialProviderBridgeErrorCodes.OperationNotSupported))
         };
+    }
+
+    private CredentialProviderBridgeResponse ReportLogonResult(CredentialProviderBridgeRequest request)
+    {
+        if (!Guid.TryParse(request.ActivationId, out _)
+            || request.Outcome is null
+            || request.Outcome is not (
+                CredentialProviderLogonResultOutcomes.Success
+                or CredentialProviderLogonResultOutcomes.Failed
+                or CredentialProviderLogonResultOutcomes.LocalSerializationFailed))
+        {
+            return CredentialProviderBridgeResponse.Error(
+                request.RequestId,
+                CredentialProviderBridgeErrorCodes.MalformedRequest);
+        }
+
+        return _activationService.TryCompleteLogon(request.ActivationId, request.Outcome)
+            ? CredentialProviderBridgeResponse.Success(request.RequestId)
+            : CredentialProviderBridgeResponse.Error(
+                request.RequestId,
+                CredentialProviderBridgeErrorCodes.OperationNotSupported);
     }
 
     private async Task<byte[]> BuildAcquireResponseAsync(

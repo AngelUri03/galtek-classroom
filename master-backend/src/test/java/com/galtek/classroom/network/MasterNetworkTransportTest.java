@@ -310,6 +310,28 @@ class MasterNetworkTransportTest {
     }
 
     @Test
+    void windowsSessionLogonCapabilityIsMappedFromClientHello() throws Exception {
+        Fixture fixture = createFixture("windows-session-logon-capability");
+        TestClientIdentity client = TestClientIdentity.create("PC01");
+        fixture.pair(client);
+        RecordingObserver<MasterEnvelope> responses = new RecordingObserver<>();
+        StreamObserver<ClientEnvelope> requests = openStream(fixture.service, client.fingerprint(), responses);
+
+        requests.onNext(helloEnvelope(client, "PC01", List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
+                NetworkCapability.NETWORK_CAPABILITY_WINDOWS_SESSION_LOGON_V1), null));
+
+        assertThat(fixture.registry.find(client.descriptor().clientNetworkIdentityId()))
+                .get()
+                .satisfies(snapshot -> assertThat(snapshot.capabilities())
+                        .contains(
+                                DeviceCapability.HEARTBEAT_V1,
+                                DeviceCapability.OPERATION_FRAMEWORK_V1,
+                                DeviceCapability.WINDOWS_SESSION_LOGON_V1));
+    }
+
+    @Test
     void windowsSessionLogoffCapabilityIsMappedFromClientHello() throws Exception {
         Fixture fixture = createFixture("windows-session-logoff-capability");
         TestClientIdentity client = TestClientIdentity.create("PC01");

@@ -147,6 +147,8 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.WindowsSessionChanged, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonBusy, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonNotConfirmed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.CredentialProviderUnavailable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.OperationNotImplemented, errorCodes);
@@ -378,6 +380,54 @@ public sealed class OperationContractsTests
             "WINDOWS_SESSION_LOGOFF_V1",
             ClassroomCapabilities.WindowsSessionLogoffV1);
         Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionLogoffV1));
+    }
+
+    [Fact]
+    public void LogonManagedAccountRemoteContract_IsExpectedAccountIdOnly()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.LogonManagedAccount,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1",
+            LogonManagedAccount = new LogonManagedAccountOperationParameters
+            {
+                AccountId = ManagedWindowsAccountId.Primary
+            }
+        };
+
+        Assert.Equal(NetworkOperationType.LogonManagedAccount, request.OperationType);
+        Assert.Equal(
+            OperationRequest.OperationParametersOneofCase.LogonManagedAccount,
+            request.OperationParametersCase);
+        Assert.Equal(ManagedWindowsAccountId.Primary, request.LogonManagedAccount.AccountId);
+
+        var parameterNames = typeof(LogonManagedAccountOperationParameters)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AccountId", parameterNames);
+        Assert.DoesNotContain("Username", parameterNames);
+        Assert.DoesNotContain("Domain", parameterNames);
+        Assert.DoesNotContain("WindowsSid", parameterNames);
+        Assert.DoesNotContain("Sid", parameterNames);
+        Assert.DoesNotContain("SessionId", parameterNames);
+        Assert.DoesNotContain("Password", parameterNames);
+        Assert.DoesNotContain("CredentialId", parameterNames);
+        Assert.DoesNotContain("VaultSessionToken", parameterNames);
+        Assert.DoesNotContain("Command", parameterNames);
+        Assert.DoesNotContain("Arguments", parameterNames);
+        Assert.DoesNotContain("Shell", parameterNames);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeWindowsSessionLogonV1()
+    {
+        Assert.Equal(
+            "WINDOWS_SESSION_LOGON_V1",
+            ClassroomCapabilities.WindowsSessionLogonV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionLogonV1));
     }
 
     [Fact]
