@@ -8,7 +8,8 @@ Prompt 19A implementa el nucleo seguro local para que la profesora administrador
 - Usa el Master data directory y sus overrides existentes: `GALTEK_CLASSROOM_MASTER_DATA_DIR` y `galtek.classroom.master.storage.data-dir`.
 - No usa `classroom.db`, migrations SQLite, BrowserProfile, environment variables, registry, logs ni browser storage para secretos.
 - Tipos iniciales: `WINDOWS_ACCOUNT` y `GOOGLE_ACCOUNT`.
-- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, Protobuf, gRPC, Client credential store, provisioning remoto, login Windows ni Google browser automation.
+- No implementa UI, Tauri/React, clipboard, HTTP reveal endpoint, Protobuf, gRPC, provisioning remoto, login Windows ni Google browser automation.
+- El Client credential store operativo de Prompt 19D es `managed-windows-credentials.dat` en el Agent Service y esta separado de esta boveda.
 
 ## Modelo
 
@@ -65,7 +66,7 @@ updatedAtUtc
 - Passwords prohibidas en `classroom.db`, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State y StudentWorkspace metadata.
 - Las credenciales Google no autorizan leer Chrome passwords, copiar cookies/tokens, copiar `Login Data`, copiar `Local State`, browser automation, SendKeys, auto-login ni autofill.
 - Las operaciones Windows normales futuras siguen usando `accountId = PRIMARY/SECONDARY`; no envian passwords.
-- El Client credential store seguro queda pendiente para una fase posterior.
+- El Client credential store seguro existe desde Prompt 19D, usa DPAPI bajo LocalSystem y no ofrece reveal. La boveda del Master sigue siendo la superficie humana futura para consultar passwords.
 
 ## Recovery
 

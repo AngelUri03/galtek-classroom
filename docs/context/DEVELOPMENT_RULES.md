@@ -88,7 +88,18 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `GET_WINDOWS_SESSION_STATE` es on-demand y nunca debe convertirse en polling, timer, startup scan o heartbeat field.
 - Ningun token, SID, username, domain, `accountReference` ni `sessionId` debe salir en el result remoto de `GET_WINDOWS_SESSION_STATE`.
 - `SESSION_AGENT_AVAILABLE` no es requisito para consultar `WindowsSessionState`.
-- El futuro Client credential store sera separado del binding SID de cuentas administradas.
+- El Client credential store es `managed-windows-credentials.dat` y siempre permanece separado del binding SID de cuentas administradas en `managed-windows-accounts.json`.
+- Client credentials nunca van en `managed-windows-accounts.json`.
+- El Client password store usa Windows DPAPI bajo LocalSystem con scope de usuario actual; no usar LocalMachine.
+- Nunca hacer fallback a plaintext, LocalMachine u otra cuenta si DPAPI falla o si el proceso no corre como LocalSystem.
+- Passwords Windows administradas del Client nunca salen por CLI, Local IPC, Protobuf, UI, logs, heartbeat ni diagnostics.
+- Cada Client credential queda ligada al SID del binding vigente dentro del payload protegido.
+- Rebind a un SID nuevo invalida logicamente la credencial anterior; no adoptarla ni borrarla automaticamente.
+- Passwords Windows administradas solo viven durante operaciones explicitas; limpiar buffers mutables controlados con `CryptographicOperations.ZeroMemory` o equivalente.
+- El Session Agent nunca recibe passwords Windows administradas; el secreto pertenece al Agent Service.
+- El Client no ofrece reveal/export/dump; reveal humano pertenece al Credential Vault del Master.
+- No validar passwords provocando `LogonUser`, Credential Provider, Winlogon, LSA ni ningun logon durante storage/provisioning.
+- No usar DPAPI en heartbeat, startup, idle, timers, polling ni scans.
 - No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
 - El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.

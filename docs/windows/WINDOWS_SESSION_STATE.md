@@ -50,6 +50,10 @@ Si `managed-windows-accounts.json` existe pero es invalido, corrupto o de otra i
 
 El resultado remoto no contiene SID, username, domain, `accountReference`, `sessionId`, token handle, path de perfil ni passwords. El Master solo necesita el significado logico `PRIMARY`/`SECONDARY`.
 
+## Relacion Con Credenciales
+
+Desde Prompt 19D, `READY` de una cuenta administrada depende tambien de una credencial DPAPI usable en `managed-windows-credentials.dat`, ligada al mismo SID del binding. `GET_WINDOWS_SESSION_STATE` no consulta ni descifra ese credential store: sigue observando solo la sesion de consola actual y clasificandola por SID contra `managed-windows-accounts.json`.
+
 ## Locked, Disconnected Y RDP
 
 Una sesion bloqueada sigue siendo una sesion logueada: `PRIMARY` bloqueado sigue siendo `PRIMARY_ACTIVE`.
@@ -58,7 +62,7 @@ Fast User Switching puede dejar sesiones historicas o disconnected. Galtek no en
 
 ## Limites
 
-`GET_WINDOWS_SESSION_STATE` no implementa passwords, credential store, provisioning, login, logoff, switch, Credential Provider, UI, endpoint/batch Master, Local IPC, Session Command, Session Agent dependency, browser policy integration, heartbeat state, polling, WMI, process scans ni writes.
+`GET_WINDOWS_SESSION_STATE` no implementa provisioning, login, logoff, switch, Credential Provider, UI, endpoint/batch Master, Local IPC, Session Command, Session Agent dependency, browser policy integration, heartbeat state, polling, WMI, process scans ni writes, y no descifra passwords.
 
 ## Validacion Manual Pendiente
 

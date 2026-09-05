@@ -2,6 +2,8 @@
 
 ## Estado general
 
+Prompt 19D implementa en `GaltekClassroom.Agent.Service` el Client secure credential store para passwords Windows de `PRIMARY`/`SECONDARY`. La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\managed-windows-credentials.dat` usando `GALTEK_CLASSROOM_DATA_DIR`, separada de `managed-windows-accounts.json` y del `credential-vault.dat` del Master. El envelope externo solo conserva `schemaVersion`, `installationId`, `accountId`, `protectedData` y timestamps; el payload interno binario protegido por DPAPI contiene `accountId`, `windowsSid` y password. DPAPI usa scope de usuario actual del proceso productivo, exige LocalSystem (`S-1-5-18`), usa `CRYPTPROTECT_UI_FORBIDDEN`, no usa LocalMachine ni fallback plaintext, y agrega optional entropy deterministica por `schemaVersion`/`installationId`/`accountId`. El store interno expone GetStatus/Add/Replace/Remove/Acquire con lease disposable y limpieza de buffers controlados; no agrega CLI password, reveal, Local IPC, Protobuf, UI, provisioning remoto, login/logoff/switch, heartbeat fields, polling ni trabajo idle.
+
 Prompt 19C implementa en el Agent Service del Client `GET_WINDOWS_SESSION_STATE` productivo y read-only. La autoridad es la sesion asociada a la consola fisica por `WTSGetActiveConsoleSessionId()`, no procesos, username, foreground window, WMI, Registry, perfiles ni Session Agent. Si la consola no tiene usuario, se devuelve `NO_SESSION`; si el SID real del `TokenUser` de la sesion fisica coincide con el binding local `PRIMARY` o `SECONDARY`, se devuelve `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`; si hay un usuario real con SID no administrado o sin bindings configurados, se devuelve `OTHER_SESSION_ACTIVE`; condiciones transitorias o no confiables devuelven `UNKNOWN` o error estructurado `WINDOWS_SESSION_UNKNOWN`. El resultado remoto usa `WindowsSessionStateResult` tipado y no expone SID, username, accountReference ni sessionId. La capability `WINDOWS_SESSION_STATE_V1` se anuncia por `ClientCapabilityProvider`. No agrega UI, endpoint/batch Master, heartbeat state, polling, Local IPC, Session Command, Session Agent dependency, browser policy integration, passwords, credential store, login/logoff/switch ni writes.
 
 Prompt 19B agrega en cada Client la fuente de verdad local `managed-windows-accounts.json` para vincular los slots logicos exactos `PRIMARY` y `SECONDARY` con cuentas Windows reales por SID. El documento vive en `<CommonApplicationData>\Galtek\Classroom\`, usa el data directory/override vigente del Agent, queda ligado al `installationId`, se escribe con `DurableFileWriter` y ACL restringida a `LocalSystem`/`Builtin Administrators`, y falla cerrado como `MANAGED_ACCOUNT_BINDINGS_INVALID` ante corrupcion, schema desconocido, mismatch de instalacion, slots duplicados, accountId desconocido, SID invalido o SID compartido. El binding guarda solo `accountId`, `windowsSid`, `accountReference`, `createdAtUtc` y `updatedAtUtc`; no guarda passwords, hashes, credentialId, tokens, profile paths ni session data. La CLI local administrativa agrega list/bind/remove con replace explicito y mutaciones elevadas. No agrega Local IPC, Protobuf, gRPC, Session Agent, browser policy integration, Credential Vault integration, DPAPI, Client credential store, login/logoff/switch ni Java productivo.
@@ -918,12 +920,16 @@ IMPLEMENTADO:
 - Archivo `authorized-masters.json` para trust persistido de Masters emparejados con el Client.
 - Archivo `application-bindings.json` para vincular `applicationId` logico Galtek con un launch target local configurado por administrador.
 - Archivo `managed-windows-accounts.json` para vincular los slots logicos `PRIMARY`/`SECONDARY` con cuentas Windows reales mediante SID.
+- Archivo `managed-windows-credentials.dat` para almacenar solo ciphertext DPAPI de passwords Windows administradas `PRIMARY`/`SECONDARY`.
 - `application-bindings.json` queda separado de identidad, licencia, Master binding, Network Identity, trust stores y state/journals de browser policy.
 - `managed-windows-accounts.json` queda separado de `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json`, `application-bindings.json`, browser policy state/journals y `credential-vault.dat`.
+- `managed-windows-credentials.dat` queda separado de `managed-windows-accounts.json`, `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json`, `application-bindings.json`, browser policy state/journals y `credential-vault.dat`.
 - El catalogo local de aplicaciones usa `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
 - El catalogo de cuentas Windows administradas usa `DurableFileWriter`, temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
+- El credential store del Client usa `DurableFileWriter` y escribe solo el envelope cifrado; nunca escribe plaintext en temp, journal, backup ni log.
 - ACL de `application-bindings.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; `Builtin Users` y `Authenticated Users` solo lectura para compatibilidad read-only futura.
 - ACL de `managed-windows-accounts.json`: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales no reciben read/write.
+- ACL de `managed-windows-credentials.dat`: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales y `Authenticated Users` no reciben read/write explicito.
 - CLI local administrativa: `--application-bind-list`, `--application-bind-exe`, `--application-bind-app-path`, `--application-bind-disable`, `--application-bind-enable`, `--application-bind-remove` y `--replace-application-binding`.
 - CLI local administrativa de managed accounts: `--managed-account-list`, `--managed-account-bind <PRIMARY|SECONDARY> <WINDOWS_ACCOUNT>`, `--managed-account-remove <PRIMARY|SECONDARY>` y `--replace-managed-account-binding`.
 - Las mutaciones del catalogo requieren consola elevada; list/read-only no requiere elevacion y no crea ni modifica el archivo.
@@ -941,9 +947,12 @@ IMPLEMENTADO:
 - `license.dat` guarda solo el JWT recibido.
 - `master-binding.json` no guarda password, hashes de password, tokens, credenciales ni JWT.
 - `managed-windows-accounts.json` no guarda password, hashes de password, credentialId, tokens, credenciales, sessionId, profile path ni membership/admin flag.
+- `managed-windows-credentials.dat` no guarda SID, accountReference, username, domain, password, hash, credentialId Master ni vault entry id fuera del ciphertext.
+- Las passwords Windows administradas del Client se protegen con DPAPI user scope bajo LocalSystem, optional entropy por instalacion/slot y SID dentro del payload protegido.
+- Rebind de un slot a otro SID invalida logicamente la credencial anterior sin borrarla automaticamente.
+- Acquire de credenciales devuelve un lease disposable con buffer mutable y no un string.
 - `network-identity.json` no guarda private key, secretos ni licencia comercial.
 - `authorized-masters.json` no guarda private keys, passwords, JWT ni secretos; guarda public keys/fingerprints y estados de trust.
-- No existe todavia almacenamiento de credenciales de cuentas Windows administradas de Client; el futuro Client credential store sera separado del binding SID.
 - Los scripts de instalacion separan binarios en `<ProgramFiles>\Galtek\Classroom\Agent\` y datos persistentes en `<CommonApplicationData>\Galtek\Classroom\`.
 - Actualizar o desinstalar normalmente no borra `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json` ni la llave CNG de Network Identity.
 
@@ -953,7 +962,7 @@ NO IMPLEMENTADO:
 - Logs persistentes en disco.
 - DPAPI/ACL hardening avanzado para `license.dat`.
 - Almacenamiento seguro futuro de credenciales `PRIMARY`/`SECONDARY`.
-- Integracion de `managed-windows-accounts.json` con browser policies, Local IPC, Protobuf, login/logoff/switch o Credential Vault.
+- Integracion de `managed-windows-accounts.json` y `managed-windows-credentials.dat` con browser policies, Local IPC, Protobuf, login/logoff/switch o Credential Vault.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
@@ -976,6 +985,8 @@ VIGENTE DESDE AHORA:
 - Sesiones locked siguen clasificandose por el usuario logueado; sesiones RDP o disconnected historicas no sustituyen automaticamente la consola fisica.
 - El resultado remoto de `GET_WINDOWS_SESSION_STATE` contiene solo `WindowsSessionStateResult.state`, sin SID, username, domain, accountReference ni sessionId.
 - Los comandos futuros para cuentas administradas solo enviaran `accountId` logico (`PRIMARY`/`SECONDARY`), nunca passwords.
+- El Client credential store para `PRIMARY`/`SECONDARY` no ofrece reveal, export, dump, CLI password ni Local IPC; la consulta humana de passwords pertenece al Credential Vault del Master.
+- El credential store del Client requiere LocalSystem para protect/unprotect y no usa `CRYPTPROTECT_LOCAL_MACHINE` ni fallback si DPAPI falla.
 - El Master no almacenara passwords de cuentas Windows administradas en `classroom.db` ni los enviara en comandos normales.
 - La UI no recibe passwords por defecto. La unica excepcion futura es una operacion explicita `REVEAL CREDENTIAL` despues de `MasterAccessGuard.requireAuthorized()`, vault unlock valido y sesion de boveda no expirada; solo se entrega el secreto de la credencial solicitada.
 - Las passwords Windows y Google escolares solo pueden persistirse dentro de `credential-vault.dat` cifrado; nunca en SQLite, logs, BatchOperation, heartbeat, ClientHello, OperationRequest normal, BrowserProfile, Cookies, Login Data, Local State ni StudentWorkspace metadata.

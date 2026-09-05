@@ -1,5 +1,34 @@
 # Decisiones vigentes
 
+## 2026-09-04 - Prompt 19D
+
+- El Client secure credential store queda implementado solo del lado `GaltekClassroom.Agent.Service`.
+- La fuente de verdad es `<CommonApplicationData>\Galtek\Classroom\managed-windows-credentials.dat`, con override `GALTEK_CLASSROOM_DATA_DIR`.
+- `managed-windows-credentials.dat` esta separado de `managed-windows-accounts.json`, Installation Identity, licencia, Master binding, Network Identity, trust stores, application bindings, browser policy state/journals y `credential-vault.dat`.
+- El envelope externo contiene solo `schemaVersion`, `installationId`, `accountId`, `protectedData`, `createdAtUtc` y `updatedAtUtc`.
+- Fuera del ciphertext no se guarda `windowsSid`, `accountReference`, username, domain, password, hash, credentialId Master ni vault entry id.
+- `installationId` debe coincidir exactamente con la Installation Identity actual; mismatch falla cerrado como `MANAGED_CREDENTIAL_STORE_INVALID`.
+- Archivo ausente significa ninguna credencial configurada; status/read no crea archivo.
+- JSON corrupto, schema desconocido, accountId desconocido/duplicado, installation mismatch, Base64 invalido, campos faltantes o protected blob vacio invalidan todo el store y preservan el archivo.
+- La implementacion productiva usa `CryptProtectData`/`CryptUnprotectData` con scope de usuario actual del proceso Agent Service.
+- El Agent Service productivo debe correr como LocalSystem (`S-1-5-18`) para protect/unprotect; si no, falla cerrado.
+- No se usa `CRYPTPROTECT_LOCAL_MACHINE`, `DataProtectionScope.LocalMachine`, fallback plaintext, fallback a otra cuenta ni prompt interactivo.
+- DPAPI se invoca con `CRYPTPROTECT_UI_FORBIDDEN`.
+- Optional entropy se deriva deterministicamente de `GaltekClassroom.ManagedWindowsCredential.v1|<installationId>|<accountId>`.
+- El payload protegido es binario versionado e incluye `accountId`, `windowsSid` y password.
+- `Add`/`Replace` requieren binding vigente en `managed-windows-accounts.json`, SID valido y resoluble como `SidTypeUser`; sin binding devuelve `ACCOUNT_NOT_CONFIGURED` y cuenta borrada devuelve `ACCOUNT_NOT_FOUND`.
+- `Acquire` carga binding vigente, descifra, lee el SID interno y exige match exacto con el SID actual del binding.
+- Rebind de `PRIMARY`/`SECONDARY` a otro SID deja la credencial vieja fisicamente presente pero logicamente no usable; no se borra automaticamente.
+- Renombrar cuenta conserva la credencial si el SID no cambia.
+- `Acquire` devuelve `ManagedWindowsCredentialLease` disposable con buffer mutable UTF-16LE; no devuelve string ni cachea passwords.
+- Buffers plaintext controlados se limpian con `CryptographicOperations.ZeroMemory`.
+- `ToString()` de entry/envelope/lease no imprime protected blob ni secreto.
+- El credential store tiene ACL `LocalSystem` y `Builtin Administrators` `FullControl`; usuarios estandar y `Authenticated Users` no reciben read/write explicito.
+- El threat model no promete defensa fuerte ante administrador local malicioso con control total de Windows.
+- `READY` para una cuenta administrada requiere binding configurado, SID resoluble como User y credencial usable ligada al mismo SID; no implica password validada por logon.
+- La CLI vigente sigue siendo binding-only: no acepta password/credential/secret/token/PIN, no descifra DPAPI y no revela credenciales.
+- 19D no modifica Local IPC, Protobuf, gRPC, Session Agent, Master Backend Java productivo, Credential Vault, provisioning remoto, login/logoff/switch, Credential Provider, password verification, heartbeat state, startup scan, timers ni polling.
+
 ## 2026-09-04 - Prompt 19C
 
 - `GET_WINDOWS_SESSION_STATE` queda implementado productivamente solo del lado Client como operacion remota read-only y on-demand.

@@ -17,7 +17,7 @@ El archivo es:
 
 En desarrollo y tests usa el mismo override vigente del Agent: `GALTEK_CLASSROOM_DATA_DIR`.
 
-Este archivo pertenece al Client y esta separado de `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json`, `application-bindings.json`, browser policy state/journals y `credential-vault.dat`.
+Este archivo pertenece al Client y esta separado de `installation.json`, `license.dat`, `master-binding.json`, `network-identity.json`, `authorized-masters.json`, `application-bindings.json`, browser policy state/journals, `managed-windows-credentials.dat` y `credential-vault.dat`.
 
 ## Modelo
 
@@ -73,7 +73,19 @@ CREDENTIAL_NOT_CONFIGURED
 ACCOUNT_NOT_FOUND
 ```
 
-En 19B `credentialConfigured` siempre es `false` y ningun slot devuelve `READY`. `READY` queda reservado para una fase futura con credential store del Client.
+Desde 19D, el status interno productivo puede marcar `credentialConfigured=true` solo si `managed-windows-credentials.dat` contiene una credencial DPAPI usable ligada al mismo `windowsSid` del binding vigente.
+
+`READY` requiere:
+
+```text
+binding configurado
++ SID resoluble como SidTypeUser
++ credencial usable ligada al mismo SID
+```
+
+No significa que la password haya sido validada contra Windows mediante logon real. Si falta credencial, el estado es `CREDENTIAL_NOT_CONFIGURED`; si el SID del binding no resuelve a cuenta User, `ACCOUNT_NOT_FOUND`.
+
+La CLI `--managed-account-list` sigue siendo diagnostico local de binding y no descifra DPAPI desde una consola administrativa normal.
 
 ## CLI
 
@@ -108,17 +120,16 @@ La salida normal no muestra SID. No se aceptan parametros de password, credentia
 - admin flag;
 - group membership.
 
+Las passwords Windows administradas viven en `managed-windows-credentials.dat`, cifradas con DPAPI bajo LocalSystem y separadas de este archivo. El binding sigue siendo la autoridad del SID; el credential store no almacena `accountReference` visible.
+
 El archivo se escribe con `DurableFileWriter`: temp file en el mismo directorio, flush/fsync, replace/move atomico y verificacion posterior.
 
 ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuarios normales sin read/write explicito.
 
 ## Limites 19B
 
-19B no implementa:
+19B/19D no implementan:
 
-- passwords;
-- DPAPI;
-- Client credential store;
 - Credential Vault integration;
 - Master HTTP API;
 - Java productivo;
@@ -129,6 +140,8 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - browser policy integration por `PRIMARY`/`SECONDARY`;
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
+
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service; no implementa provisioning remoto ni reveal.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -148,15 +161,15 @@ En una PC descartable:
 2. Ejecutar bind de `PRIMARY -> Primaria` y `SECONDARY -> Secundaria`.
 3. Verificar que list muestre ambas con `CREDENTIAL_NOT_CONFIGURED`.
 4. Renombrar `Primaria`; el SID permanece y el binding sigue valido.
-5. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND`.
-6. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente.
-7. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
+5. Provisionar credencial desde la futura operacion 19E y confirmar status interno `READY`.
+6. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND`.
+7. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
+8. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
 
 Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticamente en 19B.
 
 ## Pendiente
 
-- 19D: Client secure credential store.
 - 19E: provisioning administrativo seguro Master -> Client.
 - 19F: `LOGOFF_WINDOWS_SESSION`.
 - 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.

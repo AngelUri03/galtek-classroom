@@ -2019,3 +2019,41 @@
 ### Commit sugerido
 
 `feat(agent): observe managed windows session state`
+
+## 2026-09-04 - Prompt 19D
+
+### Realizado
+
+- Implementado Client secure credential store para passwords Windows administradas `PRIMARY`/`SECONDARY`.
+- Agregado `managed-windows-credentials.dat` en el data directory del Agent, separado de `managed-windows-accounts.json` y `credential-vault.dat`.
+- El envelope externo versionado conserva solo `schemaVersion`, `installationId`, `accountId`, `protectedData` y timestamps.
+- Agregado payload binario protegido con `accountId`, `windowsSid` y password UTF-16LE; SID y password no quedan en plaintext fuera del DPAPI blob.
+- Agregada abstraccion `IManagedWindowsCredentialProtector` y protector productivo DPAPI con `CryptProtectData`/`CryptUnprotectData`.
+- DPAPI productivo exige Windows + LocalSystem, usa scope de usuario actual, `CRYPTPROTECT_UI_FORBIDDEN`, optional entropy por instalacion/slot y no usa LocalMachine ni fallback plaintext.
+- Agregado `IManagedWindowsCredentialStore`/`ManagedWindowsCredentialStore` con GetStatus/Add/Replace/Remove/Acquire.
+- `Add`/`Replace` exigen binding vigente, catalogo valido, SID valido y resoluble como `SidTypeUser`; sin binding devuelve `ACCOUNT_NOT_CONFIGURED` y cuenta borrada `ACCOUNT_NOT_FOUND`.
+- `Acquire` compara el SID del payload protegido contra el binding vigente; rebind a otro SID deja la credencial vieja logicamente no usable.
+- Agregado `ManagedWindowsCredentialLease` disposable con buffer mutable UTF-16LE y limpieza por `Dispose`.
+- Agregado ACL especifico para `managed-windows-credentials.dat` con `LocalSystem` y `Builtin Administrators` `FullControl`, sin read/write explicito para usuarios normales.
+- Agregados error codes compartidos internos para `MANAGED_CREDENTIAL_STORE_INVALID` y `MANAGED_CREDENTIAL_PROTECTION_FAILED`.
+- Agregados tests dirigidos de store, envelope, corrupcion, plaintext, binding/SID, rebind, entropy, LocalSystem/flags DPAPI, memoria sensible, ACL y API sin reveal.
+- Creado `docs/windows/MANAGED_WINDOWS_CREDENTIALS.md` y actualizados arquitectura, modelo funcional, reglas, decisiones, estado, managed accounts, session state y Credential Vault.
+
+### Cambios descartados
+
+- No se implemento provisioning remoto, Protobuf credential operation, gRPC password transport, Local IPC credential methods, Credential Vault integration, Master API, BatchOperation, Client capability, login, logoff, switch, Credential Provider, `LogonUser`, password verification, password change, account creation, autologon, Session Agent password handling, CLI password args, reveal, export, browser automation, heartbeat credential state, startup scan, polling ni timers.
+- `--managed-account-list` sigue siendo binding-only y no intenta descifrar DPAPI desde consola administrativa normal.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~ManagedWindowsCredential|FullyQualifiedName~ManagedWindowsAccount|FullyQualifiedName~AgentCommandLineTests|FullyQualifiedName~OperationContractsTests"` en `agent`: correcto, 112 pruebas Service y 6 pruebas Session superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Validacion manual pendiente
+
+- Service corriendo como LocalSystem; provisionar `PRIMARY` desde futura operacion 19E; confirmar que `managed-windows-credentials.dat` no contiene password/SID plaintext; reiniciar Service y confirmar credencial usable; copiar store a otra instalacion y confirmar fail closed; rebind a otro SID y confirmar credentialConfigured false; re-provisionar y confirmar READY; verificar que usuario Windows estandar no puede leer el archivo.
+
+### Commit sugerido
+
+`feat(agent): protect managed windows credentials`

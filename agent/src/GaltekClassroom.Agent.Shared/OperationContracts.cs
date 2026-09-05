@@ -253,6 +253,8 @@ public static class ClassroomOperationErrorCodes
     public const string AccountNotConfigured = "ACCOUNT_NOT_CONFIGURED";
     public const string AccountNotFound = "ACCOUNT_NOT_FOUND";
     public const string ManagedCredentialNotConfigured = "MANAGED_CREDENTIAL_NOT_CONFIGURED";
+    public const string ManagedCredentialStoreInvalid = "MANAGED_CREDENTIAL_STORE_INVALID";
+    public const string ManagedCredentialProtectionFailed = "MANAGED_CREDENTIAL_PROTECTION_FAILED";
     public const string WindowsSessionUnknown = "WINDOWS_SESSION_UNKNOWN";
     public const string WindowsLogonFailed = "WINDOWS_LOGON_FAILED";
     public const string WindowsLogoffFailed = "WINDOWS_LOGOFF_FAILED";
