@@ -266,6 +266,12 @@ public interface IManagedWindowsCredentialStore
         Guid currentInstallationId,
         string accountId,
         CancellationToken cancellationToken);
+
+    Task<ManagedWindowsCredentialAcquireResult> AcquireForWindowsSidAsync(
+        Guid currentInstallationId,
+        string accountId,
+        string expectedWindowsSid,
+        CancellationToken cancellationToken);
 }
 
 public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialStore
@@ -471,6 +477,41 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         string accountId,
         CancellationToken cancellationToken)
     {
+        return await AcquireCoreAsync(
+            currentInstallationId,
+            accountId,
+            expectedWindowsSid: null,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ManagedWindowsCredentialAcquireResult> AcquireForWindowsSidAsync(
+        Guid currentInstallationId,
+        string accountId,
+        string expectedWindowsSid,
+        CancellationToken cancellationToken)
+    {
+        if (!MasterBindingValidator.IsValidSid(expectedWindowsSid))
+        {
+            return ManagedWindowsCredentialAcquireResult.Failure(
+                ManagedWindowsCredentialAcquireStatus.Invalid,
+                _filePath,
+                ManagedWindowsCredentialErrorCodes.ManagedCredentialInvalid,
+                "Managed Windows expected SID is invalid.");
+        }
+
+        return await AcquireCoreAsync(
+            currentInstallationId,
+            accountId,
+            expectedWindowsSid,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ManagedWindowsCredentialAcquireResult> AcquireCoreAsync(
+        Guid currentInstallationId,
+        string accountId,
+        string? expectedWindowsSid,
+        CancellationToken cancellationToken)
+    {
         var idValidation = ManagedWindowsAccountBindingValidator.ValidateAccountId(accountId);
         if (!idValidation.IsValid)
         {
@@ -498,6 +539,16 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         if (!context.Succeeded)
         {
             return ToAcquireFailure(context);
+        }
+
+        if (expectedWindowsSid is not null
+            && !string.Equals(context.Binding!.WindowsSid, expectedWindowsSid, StringComparison.OrdinalIgnoreCase))
+        {
+            return ManagedWindowsCredentialAcquireResult.Failure(
+                ManagedWindowsCredentialAcquireStatus.CredentialNotConfigured,
+                _filePath,
+                ManagedWindowsCredentialErrorCodes.ManagedCredentialNotConfigured,
+                "Managed Windows credential is not usable for the expected SID.");
         }
 
         var entry = Find(load.Entries, context.Binding!.AccountId);

@@ -141,7 +141,16 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - El pipe Service <-> Credential Provider debe ser dedicado, no reutilizar Local IPC v1 ni Session Command v1.
 - El pipe Service <-> Credential Provider debe ser accesible solo por LocalSystem y el Service debe validar PID real del pipe, image path real de `%SystemRoot%\System32\LogonUI.exe`, sesion esperada y token LocalSystem.
 - No confiar en PID, SID, username, process name ni sessionId enviados por payload para autorizar al Credential Provider.
-- En 19G1 y hasta alcance explicito futuro, `GetSerialization` no debe devolver credential serialization autenticable ni construir `KERB_INTERACTIVE_UNLOCK_LOGON`.
+- La password almacenada en el Client solo puede salir del Agent Service hacia Galtek Credential Provider mediante `GaltekClassroom.CredentialProvider.v1`, con caller LogonUI validado y activation one-time vigente.
+- Esta excepcion no habilita reveal, Local IPC generico, Session Command, red, Master, UI, temp files, Registry ni ningun canal alterno.
+- Password Service -> Provider nunca viaja como JSON, Base64, hexadecimal, XML, protobuf ni string de contrato; la unica respuesta secreta vigente del bridge es binaria, versionada y acotada.
+- Provider mantiene secretos en buffers mutables propios y usa `SecureZeroMemory`; no guardar password en `std::wstring`, `CString`, `BSTR`, singletons, globals ni fields permanentes.
+- Una activation puede liberar credential como maximo una vez. El Service debe marcarla `CONSUMED` antes de revelar el secreto; fallo de envio, packing o auth package despues de consume no restaura activation.
+- Provider nunca reintenta password automaticamente: una segunda llamada a `GetSerialization` sobre la misma credential no vuelve a adquirir secreto.
+- Account identity del Provider se deriva del SID local por Agent Service y APIs Windows soportadas, nunca desde Master, username remoto ni `accountReference`.
+- La primera identity exitosa fija el SID esperado de la activation; un rebind entre identity y acquire bloquea el secreto.
+- `GetSerialization` usa formato Windows soportado con `KERB_INTERACTIVE_UNLOCK_LOGON`, password protection de Windows y paquete `Negotiate` resuelto por LSA; no implementar autenticacion propia ni crypto propia dentro del provider.
+- Providers estandar de Windows permanecen disponibles aunque Galtek falle.
 - Fallo del Agent/Galtek nunca debe impedir login estandar de Windows.
 - Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
 - El transporte gRPC/mTLS de Prompt 13 solo permite conexion, identificacion y heartbeat; no autoriza por si mismo comandos remotos.

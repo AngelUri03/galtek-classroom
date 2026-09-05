@@ -150,9 +150,18 @@ public sealed class CredentialProviderBridgeServer : BackgroundService
 
         var requestJson = await CredentialProviderBridgeFraming.ReadJsonAsync(pipe, cancellationToken)
             .ConfigureAwait(false);
-        var response = await _requestHandler.HandleAsync(requestJson, caller, cancellationToken)
+        using var response = await _requestHandler.HandleFrameAsync(requestJson, caller, cancellationToken)
             .ConfigureAwait(false);
-        await WriteResponseAsync(pipe, response, cancellationToken).ConfigureAwait(false);
+        if (response.BinaryPayload is not null)
+        {
+            await CredentialProviderBridgeFraming.WritePayloadAsync(
+                pipe,
+                response.BinaryPayload,
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await WriteResponseAsync(pipe, response.JsonResponse!, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task WriteResponseAsync(

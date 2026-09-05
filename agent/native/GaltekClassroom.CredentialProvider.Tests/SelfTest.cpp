@@ -3,6 +3,7 @@
 #include "../GaltekClassroom.CredentialProvider/CredentialProvider.h"
 
 #include <credentialprovider.h>
+#include <cstring>
 #include <iostream>
 #include <new>
 
@@ -58,6 +59,38 @@ int wmain()
         return Fail(L"CPUS_LOGON should be accepted");
     }
 
+    DWORD fieldCount = 0;
+    if (Failed(providerInterface->GetFieldDescriptorCount(&fieldCount))
+        || fieldCount != GaltekFieldCount)
+    {
+        providerInterface->Release();
+        provider->Release();
+        return Fail(L"provider should expose Galtek tile field descriptors");
+    }
+
+    for (DWORD field = 0; field < fieldCount; field++)
+    {
+        CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* descriptor = nullptr;
+        if (Failed(providerInterface->GetFieldDescriptorAt(field, &descriptor)) || descriptor == nullptr)
+        {
+            providerInterface->Release();
+            provider->Release();
+            return Fail(L"field descriptor should allocate");
+        }
+
+        if (descriptor->cpft == CPFT_PASSWORD_TEXT)
+        {
+            CoTaskMemFree(descriptor->pszLabel);
+            CoTaskMemFree(descriptor);
+            providerInterface->Release();
+            provider->Release();
+            return Fail(L"Galtek tile must not expose a password field");
+        }
+
+        CoTaskMemFree(descriptor->pszLabel);
+        CoTaskMemFree(descriptor);
+    }
+
     DWORD count = 99;
     DWORD defaultCredential = 0;
     BOOL autoLogon = TRUE;
@@ -81,7 +114,12 @@ int wmain()
     providerInterface->Release();
     provider->Release();
 
-    GaltekCredential* credential = new (std::nothrow) GaltekCredential();
+    BridgeActivationIdentity identity;
+    identity.userSid = L"S-1-5-21-1000000000-1000000000-1000000000-1004";
+    identity.domain = L"AULA";
+    identity.username = L"Primaria";
+
+    GaltekCredential* credential = new (std::nothrow) GaltekCredential(identity);
     if (credential == nullptr)
     {
         return Fail(L"credential allocation");
@@ -114,8 +152,33 @@ int wmain()
     {
         credential2->Release();
         credential->Release();
-        return Fail(L"GetSerialization must not return an authenticable credential in 19G1");
+        return Fail(L"GetSerialization without activation id must not return a credential");
     }
+
+    BOOL selectedAutoLogon = TRUE;
+    if (Failed(credential2->SetSelected(&selectedAutoLogon)) || selectedAutoLogon != FALSE)
+    {
+        credential2->Release();
+        credential->Release();
+        return Fail(L"SetSelected must not request auto-logon in 19G2");
+    }
+
+    PWSTR sid = nullptr;
+    if (Failed(credential2->GetUserSid(&sid))
+        || sid == nullptr
+        || wcscmp(sid, identity.userSid.c_str()) != 0)
+    {
+        if (sid != nullptr)
+        {
+            CoTaskMemFree(sid);
+        }
+
+        credential2->Release();
+        credential->Release();
+        return Fail(L"GetUserSid should return service-derived SID");
+    }
+
+    CoTaskMemFree(sid);
 
     credential2->Release();
     credential->Release();

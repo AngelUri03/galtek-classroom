@@ -2218,3 +2218,52 @@
 ### Commit sugerido
 
 `feat(agent): add credential provider foundation`
+
+## 2026-09-05 - Prompt 19G2
+
+### Realizado
+
+- Agregada identity local para activations existentes mediante `GET_PENDING_ACTIVATION_IDENTITY` en `GaltekClassroom.CredentialProvider.v1`.
+- El Agent Service deriva identity desde activation `accountId`, Installation Identity, binding local `managed-windows-accounts.json`, SID valido y resolver Windows `SidTypeUser`.
+- La respuesta identity incluye `activationId`, `accountId`, `userSid`, `domain` y `username`; no usa `accountReference` como autoridad.
+- La primera identity exitosa fija `expectedWindowsSid` efimero en la activation.
+- Agregado estado efimero `PENDING` / `IDENTITY_RESOLVED` / `CONSUMED`.
+- Agregado `ACQUIRE_PENDING_CREDENTIAL(activationId)` como operacion one-time secreta local, sin aceptar accountId, SID, username, domain, password, credentialId, token, PID, proceso, sessionId ni payload arbitrario.
+- Antes de acquire, el Service relee binding vigente y exige match con `expectedWindowsSid`; rebind entre identity y acquire falla cerrado.
+- La activation se marca `CONSUMED` antes de llamar `ManagedWindowsCredentialStore.AcquireForWindowsSidAsync(...)`; segundo acquire no llama DPAPI.
+- Agregado `AcquireForWindowsSidAsync` al Client credential store para reforzar el expected SID dentro de la ruta DPAPI.
+- La respuesta secreta es binaria, versionada y acotada dentro del framing big-endian: magic/version/status/activationId/passwordByteLength/password UTF-16LE.
+- Password Service -> Provider no viaja como JSON, Base64, hexadecimal, XML, Protobuf ni string de contrato.
+- El provider nativo enumera 0 credentials sin activation/identity valida y 1 credential Galtek con activation + identity valida.
+- La tile Galtek no contiene field password visible/editable y `SetSelected` no solicita auto-logon.
+- `GetUserSid` devuelve el SID obtenido desde el Agent Service con ownership COM.
+- `GetSerialization` adquiere password una sola vez, valida activationId, usa buffers RAII, protege password con `CredProtectW`, construye `KERB_INTERACTIVE_UNLOCK_LOGON` con `KerbInteractiveLogon`, resuelve `Negotiate` via LSA y entrega serialization con CLSID Galtek vigente.
+- Fallos despues de acquire no restauran activation y no reintentan.
+- El provider limpia receive buffer, plaintext y buffers intermedios propios con `SecureZeroMemory`; el Service dispone leases y zeroiza payload binario propio despues del write.
+- `Advise`/`UnAdvise` del provider y credential manejan ownership COM sin background listener.
+- Actualizados docs de arquitectura, modelo funcional, reglas, estado, decisiones, Credential Provider, managed accounts y managed credentials.
+
+### Cambios descartados
+
+- No se agrego `LOGON_MANAGED_ACCOUNT` remoto, capability remota, Protobuf, OperationRequest remoto, endpoint HTTP, BatchOperation, fanout, planner, Master Java, Session Agent, SWITCH, notification remoto, auto-logon remoto, UI ni background polling.
+- No se agrego Credential Provider Filter ni ocultamiento de providers estandar.
+- No se agrego CLI de password, Local IPC reveal, Session Command credential, Registry autologon, `DefaultPassword`, `LogonUser`, `CreateProcessAsUser`, `CreateProcessWithLogonW`, shell, PowerShell, `cmd`, WinHTTP/WinINet ni sockets.
+- No se ejecuto login real ni registro automatico del DLL en esta maquina.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~CredentialProviderActivation|FullyQualifiedName~ManagedWindowsCredential"` en `agent`: correcto, 73 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `rg` dirigido sobre provider/bridge/scripts para APIs prohibidas/filtro/provider network APIs: sin coincidencias productivas; solo aparece la asercion del self-test que confirma que Galtek no implementa `ICredentialProviderFilter`.
+
+### Validacion manual pendiente
+
+- En PC descartable/laboratorio: instalar provider lab, confirmar ACL sin write para usuarios estandar, crear activation solo cuando exista mecanismo seguro en 19G3, confirmar tile Galtek solo con activation, confirmar providers estandar visibles, intentar login controlado con password correcta/incorrecta, confirmar que segundo intento exige nueva activation, detener Agent Service y verificar login estandar.
+
+### Commit sugerido
+
+`feat(agent): serialize managed logon credentials`

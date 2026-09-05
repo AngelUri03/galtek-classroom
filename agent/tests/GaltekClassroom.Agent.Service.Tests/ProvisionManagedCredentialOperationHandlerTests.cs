@@ -362,6 +362,15 @@ public sealed class ProvisionManagedCredentialOperationHandlerTests : IDisposabl
             throw new NotSupportedException();
         }
 
+        public Task<ManagedWindowsCredentialAcquireResult> AcquireForWindowsSidAsync(
+            Guid currentInstallationId,
+            string accountId,
+            string expectedWindowsSid,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         private Task<ManagedWindowsCredentialWriteResult> CaptureAndReturn(
             Guid currentInstallationId,
             string accountId,

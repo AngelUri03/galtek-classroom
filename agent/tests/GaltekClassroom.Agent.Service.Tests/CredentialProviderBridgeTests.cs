@@ -2,11 +2,14 @@ using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Reflection;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using GaltekClassroom.Agent.Service.CredentialProviderBridge;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.ManagedAccounts;
+using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Shared;
 
 namespace GaltekClassroom.Agent.Service.Tests;
@@ -14,6 +17,9 @@ namespace GaltekClassroom.Agent.Service.Tests;
 public sealed class CredentialProviderBridgeTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Guid InstallationId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    private const string PrimarySid = "S-1-5-21-1000000000-1000000000-1000000000-1004";
+    private const string SecondarySid = "S-1-5-21-1000000000-1000000000-1000000000-1005";
 
     [Fact]
     public void ActivationStore_WhenNoActivation_ReturnsNone()
@@ -161,6 +167,202 @@ public sealed class CredentialProviderBridgeTests
 
         Assert.Equal(CredentialProviderActivationStatuses.Pending, response.ActivationStatus);
         Assert.Equal(ClassroomManagedWindowsAccountTypes.Secondary, response.PendingActivation!.AccountId);
+    }
+
+    [Theory]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Primary, PrimarySid, "AULA", "Primaria")]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Secondary, SecondarySid, "AULA", "Secundaria")]
+    public async Task RequestHandler_ReturnsServiceDerivedActivationIdentity(
+        string accountId,
+        string windowsSid,
+        string domain,
+        string username)
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        fixture.Resolver.Add(windowsSid, domain, username, WindowsAccountSidNameUse.User);
+        await fixture.SaveBindingAsync(accountId, windowsSid, "WRONG\\Metadata");
+        CredentialProviderActivationSetResult activation = fixture.Store.SetPending(accountId, FixedNow, TimeSpan.FromSeconds(30));
+        var handler = fixture.CreateHandler();
+
+        var result = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.NotNull(result.JsonResponse);
+        Assert.Equal(CredentialProviderBridgeStatuses.Success, result.JsonResponse!.Status);
+        Assert.Equal(CredentialProviderActivationStatuses.Pending, result.JsonResponse.ActivationStatus);
+        Assert.Equal(activation.Activation!.ActivationId, result.JsonResponse.PendingIdentity!.ActivationId);
+        Assert.Equal(accountId, result.JsonResponse.PendingIdentity.AccountId);
+        Assert.Equal(windowsSid, result.JsonResponse.PendingIdentity.UserSid);
+        Assert.Equal(domain, result.JsonResponse.PendingIdentity.Domain);
+        Assert.Equal(username, result.JsonResponse.PendingIdentity.Username);
+        Assert.DoesNotContain("WRONG", result.JsonResponse.PendingIdentity.Domain, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RequestHandler_WhenBindingIsMissing_ReturnsNoIdentity()
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        fixture.Store.SetPending(ClassroomManagedWindowsAccountTypes.Primary, FixedNow, TimeSpan.FromSeconds(30));
+        var handler = fixture.CreateHandler();
+
+        var result = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderActivationStatuses.None, result.JsonResponse!.ActivationStatus);
+        Assert.Null(result.JsonResponse.PendingIdentity);
+    }
+
+    [Fact]
+    public async Task RequestHandler_WhenSidIsNotUser_ReturnsNoIdentity()
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        fixture.Resolver.Add(PrimarySid, "AULA", "Teachers", WindowsAccountSidNameUse.Group);
+        await fixture.SaveBindingAsync(ClassroomManagedWindowsAccountTypes.Primary, PrimarySid, "AULA\\Teachers");
+        fixture.Store.SetPending(ClassroomManagedWindowsAccountTypes.Primary, FixedNow, TimeSpan.FromSeconds(30));
+        var handler = fixture.CreateHandler();
+
+        var result = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderActivationStatuses.None, result.JsonResponse!.ActivationStatus);
+        Assert.Null(result.JsonResponse.PendingIdentity);
+    }
+
+    [Fact]
+    public async Task ActivationStore_SnapshotsExpectedSidAfterIdentity()
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        fixture.Resolver.Add(PrimarySid, "AULA", "Primaria", WindowsAccountSidNameUse.User);
+        await fixture.SaveBindingAsync(ClassroomManagedWindowsAccountTypes.Primary, PrimarySid, "AULA\\Primaria");
+        fixture.Store.SetPending(ClassroomManagedWindowsAccountTypes.Primary, FixedNow, TimeSpan.FromSeconds(30));
+
+        await fixture.CreateHandler().HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        var pending = fixture.Store.GetPending(FixedNow);
+        Assert.Equal(CredentialProviderActivationState.IdentityResolved, pending!.State);
+        Assert.Equal(PrimarySid, pending.ExpectedWindowsSid);
+    }
+
+    [Fact]
+    public async Task AcquirePendingCredential_WhenBindingReboundAfterIdentity_ReturnsNoSecretWithoutDpapi()
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        const string reboundSid = "S-1-5-21-1000000000-1000000000-1000000000-7777";
+        fixture.Resolver.Add(PrimarySid, "AULA", "Primaria", WindowsAccountSidNameUse.User);
+        fixture.Resolver.Add(reboundSid, "AULA", "Nueva", WindowsAccountSidNameUse.User);
+        await fixture.SaveBindingAsync(ClassroomManagedWindowsAccountTypes.Primary, PrimarySid, "AULA\\Primaria");
+        var activation = fixture.Store.SetPending(ClassroomManagedWindowsAccountTypes.Primary, FixedNow, TimeSpan.FromSeconds(30));
+        var handler = fixture.CreateHandler();
+        await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+        await fixture.ReplaceBindingAsync(ClassroomManagedWindowsAccountTypes.Primary, reboundSid, "AULA\\Nueva");
+
+        using var result = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.AcquirePendingCredential, activation.Activation!.ActivationId),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.NotNull(result.BinaryPayload);
+        Assert.True(CredentialProviderSecretResponse.TryParse(result.BinaryPayload, out var parsed));
+        using (parsed)
+        {
+            Assert.False(parsed!.Succeeded);
+            Assert.Empty(parsed.PasswordUtf16LittleEndian);
+        }
+
+        Assert.Equal(0, fixture.Protector.UnprotectCalls);
+    }
+
+    [Fact]
+    public async Task AcquirePendingCredential_WhenValid_ReturnsBinarySecretOnceAndConsumesActivation()
+    {
+        await using var fixture = await BridgeFixture.CreateAsync(FixedNow);
+        byte[] password = [0x41, 0x00, 0x00, 0xD8, 0x42, 0x00];
+        fixture.Resolver.Add(PrimarySid, "AULA", "Primaria", WindowsAccountSidNameUse.User);
+        await fixture.SaveBindingAsync(ClassroomManagedWindowsAccountTypes.Primary, PrimarySid, "AULA\\Primaria");
+        await fixture.CredentialStore.ReplaceUtf16LittleEndianAsync(
+            InstallationId,
+            ClassroomManagedWindowsAccountTypes.Primary,
+            password,
+            CancellationToken.None);
+        var activation = fixture.Store.SetPending(ClassroomManagedWindowsAccountTypes.Primary, FixedNow, TimeSpan.FromSeconds(30));
+        var handler = fixture.CreateHandler();
+        await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.GetPendingActivationIdentity),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        using var first = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.AcquirePendingCredential, activation.Activation!.ActivationId),
+            AuthorizedCaller(),
+            CancellationToken.None);
+        using var second = await handler.HandleFrameAsync(
+            Request(CredentialProviderBridgeOperations.AcquirePendingCredential, activation.Activation!.ActivationId),
+            AuthorizedCaller(),
+            CancellationToken.None);
+
+        Assert.NotNull(first.BinaryPayload);
+        Assert.True(CredentialProviderSecretResponse.TryParse(first.BinaryPayload, out var parsedFirst));
+        using (parsedFirst)
+        {
+            Assert.True(parsedFirst!.Succeeded);
+            Assert.Equal(activation.Activation.ActivationId, parsedFirst.ActivationId);
+            Assert.Equal(password, parsedFirst.PasswordUtf16LittleEndian);
+        }
+
+        Assert.True(CredentialProviderSecretResponse.TryParse(second.BinaryPayload!, out var parsedSecond));
+        using (parsedSecond)
+        {
+            Assert.False(parsedSecond!.Succeeded);
+        }
+
+        Assert.Equal(1, fixture.Protector.UnprotectCalls);
+        Assert.Null(fixture.Store.GetPending(FixedNow));
+    }
+
+    [Fact]
+    public void SecretResponse_RejectsMalformedFrames()
+    {
+        var activationId = Guid.NewGuid().ToString("D");
+        var valid = CredentialProviderSecretResponse.Success(activationId, [0x41, 0x00]);
+
+        var trailing = new byte[valid.Length + 1];
+        valid.CopyTo(trailing, 0);
+        Assert.False(CredentialProviderSecretResponse.TryParse(trailing, out _));
+
+        var oddLength = valid.ToArray();
+        BinaryPrimitives.WriteInt32BigEndian(oddLength.AsSpan(5 + 2 + 2 + 2 + activationId.Length, sizeof(int)), 1);
+        Assert.False(CredentialProviderSecretResponse.TryParse(oddLength, out _));
+
+        var unknownVersion = valid.ToArray();
+        BinaryPrimitives.WriteUInt16BigEndian(unknownVersion.AsSpan(5, sizeof(ushort)), 99);
+        Assert.False(CredentialProviderSecretResponse.TryParse(unknownVersion, out _));
+
+        Assert.False(CredentialProviderSecretResponse.TryParse(valid.AsSpan(0, valid.Length - 1), out _));
+    }
+
+    [Fact]
+    public void SecretResponse_DoesNotContainIdentityOrJsonPassword()
+    {
+        var payload = CredentialProviderSecretResponse.Success(Guid.NewGuid().ToString("D"), [0x41, 0x00]);
+        var text = Encoding.UTF8.GetString(payload);
+
+        Assert.DoesNotContain("{", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("userSid", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("accountReference", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("vault", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credentialId", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -395,6 +597,7 @@ public sealed class CredentialProviderBridgeTests
 
     private static string Request(
         string operation,
+        string? activationId = null,
         int protocolVersion = CredentialProviderBridgeProtocol.ProtocolVersion)
     {
         return JsonSerializer.Serialize(
@@ -402,7 +605,8 @@ public sealed class CredentialProviderBridgeTests
             {
                 ProtocolVersion = protocolVersion,
                 RequestId = Guid.NewGuid().ToString("D"),
-                Operation = operation
+                Operation = operation,
+                ActivationId = activationId
             },
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
@@ -487,5 +691,188 @@ public sealed class CredentialProviderBridgeTests
         }
 
         public DateTimeOffset UtcNow { get; set; }
+    }
+
+    private sealed class BridgeFixture : IAsyncDisposable
+    {
+        private readonly string _dataDirectory;
+        private readonly MutableClock _clock;
+        private readonly ManagedWindowsAccountBindingStore _bindingStore;
+
+        private BridgeFixture(
+            string dataDirectory,
+            MutableClock clock,
+            CredentialProviderActivationStore store,
+            FakeWindowsAccountResolver resolver,
+            FakeCredentialProtector protector,
+            ManagedWindowsAccountBindingStore bindingStore,
+            ManagedWindowsCredentialStore credentialStore)
+        {
+            _dataDirectory = dataDirectory;
+            _clock = clock;
+            Store = store;
+            Resolver = resolver;
+            Protector = protector;
+            _bindingStore = bindingStore;
+            CredentialStore = credentialStore;
+        }
+
+        public CredentialProviderActivationStore Store { get; }
+
+        public FakeWindowsAccountResolver Resolver { get; }
+
+        public FakeCredentialProtector Protector { get; }
+
+        public ManagedWindowsCredentialStore CredentialStore { get; }
+
+        public static async Task<BridgeFixture> CreateAsync(DateTimeOffset nowUtc)
+        {
+            var dataDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "GaltekClassroom.Agent.CredentialProviderBridge.Tests",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dataDirectory);
+
+            var clock = new MutableClock(nowUtc);
+            var identity = InstallationIdentity.Create(
+                InstallationId,
+                HardwareFingerprintFactory.FromRawValues(
+                    ["CPU"],
+                    ["BOARD"],
+                    ["AA11BB22CC33"],
+                    ["DISK"]),
+                nowUtc);
+            var identityStore = new InstallationIdentityStore(new InstallationIdentityStoreOptions(dataDirectory));
+            await identityStore.WriteNewAsync(identity, CancellationToken.None);
+
+            var bindingStore = new ManagedWindowsAccountBindingStore(
+                new ManagedWindowsAccountBindingStoreOptions(dataDirectory),
+                new NoOpManagedWindowsAccountBindingFileSecurity());
+            var resolver = new FakeWindowsAccountResolver();
+            var protector = new FakeCredentialProtector();
+            var credentialStore = new ManagedWindowsCredentialStore(
+                new ManagedWindowsCredentialStoreOptions(dataDirectory),
+                bindingStore,
+                resolver,
+                protector,
+                new NoOpManagedWindowsCredentialFileSecurity(),
+                clock);
+
+            return new BridgeFixture(
+                dataDirectory,
+                clock,
+                new CredentialProviderActivationStore(),
+                resolver,
+                protector,
+                bindingStore,
+                credentialStore);
+        }
+
+        public CredentialProviderBridgeRequestHandler CreateHandler()
+        {
+            var identityStore = new InstallationIdentityStore(new InstallationIdentityStoreOptions(_dataDirectory));
+            var service = new CredentialProviderActivationService(
+                Store,
+                _clock,
+                identityStore,
+                _bindingStore,
+                Resolver,
+                CredentialStore);
+
+            return new CredentialProviderBridgeRequestHandler(service);
+        }
+
+        public async Task SaveBindingAsync(string accountId, string windowsSid, string accountReference)
+        {
+            var binding = ManagedWindowsAccountBinding.Create(accountId, windowsSid, accountReference, _clock.UtcNow);
+            var result = await _bindingStore.AddAsync(InstallationId, binding, CancellationToken.None);
+            Assert.True(result.Succeeded, result.ErrorMessage);
+        }
+
+        public async Task ReplaceBindingAsync(string accountId, string windowsSid, string accountReference)
+        {
+            var binding = ManagedWindowsAccountBinding.Create(accountId, windowsSid, accountReference, _clock.UtcNow);
+            var result = await _bindingStore.ReplaceAsync(InstallationId, binding, CancellationToken.None);
+            Assert.True(result.Succeeded, result.ErrorMessage);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            if (Directory.Exists(_dataDirectory))
+            {
+                Directory.Delete(_dataDirectory, recursive: true);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FakeWindowsAccountResolver : IWindowsAccountResolver
+    {
+        private readonly Dictionary<string, WindowsAccountIdentity> _bySid = new(StringComparer.OrdinalIgnoreCase);
+
+        public void Add(
+            string windowsSid,
+            string domain,
+            string username,
+            WindowsAccountSidNameUse use)
+        {
+            _bySid[windowsSid] = new WindowsAccountIdentity(
+                windowsSid,
+                $"{domain}\\{username}",
+                use)
+            {
+                Domain = domain,
+                Username = username
+            };
+        }
+
+        public WindowsAccountResolution ResolveCurrentUser()
+        {
+            throw new NotSupportedException();
+        }
+
+        public WindowsAccountResolution ResolveAccount(string accountName)
+        {
+            throw new NotSupportedException();
+        }
+
+        public WindowsAccountResolution ResolveSid(string windowsSid)
+        {
+            return _bySid.TryGetValue(windowsSid, out var identity)
+                ? WindowsAccountResolution.Resolved(identity)
+                : WindowsAccountResolution.NotFound("not found");
+        }
+    }
+
+    private sealed class FakeCredentialProtector : IManagedWindowsCredentialProtector
+    {
+        public int UnprotectCalls { get; private set; }
+
+        public ManagedWindowsCredentialProtectionResult Protect(
+            byte[] plaintext,
+            byte[] optionalEntropy)
+        {
+            return ManagedWindowsCredentialProtectionResult.Protected(Transform(plaintext));
+        }
+
+        public ManagedWindowsCredentialProtectionResult Unprotect(
+            byte[] protectedData,
+            byte[] optionalEntropy)
+        {
+            UnprotectCalls++;
+            return ManagedWindowsCredentialProtectionResult.Unprotected(Transform(protectedData));
+        }
+
+        private static byte[] Transform(byte[] data)
+        {
+            var copy = data.ToArray();
+            for (var index = 0; index < copy.Length; index++)
+            {
+                copy[index] ^= 0xA5;
+            }
+
+            return copy;
+        }
     }
 }

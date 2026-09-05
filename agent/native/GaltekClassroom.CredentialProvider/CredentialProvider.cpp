@@ -1,14 +1,58 @@
 #include "CredentialProvider.h"
 
 #include "BridgeClient.h"
+#include "Credential.h"
 
 #include <windows.h>
+#include <cstring>
+#include <new>
 
 extern long g_objectCount;
 
+namespace
+{
+    struct GaltekFieldDescriptorDefinition
+    {
+        DWORD fieldId;
+        CREDENTIAL_PROVIDER_FIELD_TYPE fieldType;
+        PCWSTR label;
+    };
+
+    constexpr GaltekFieldDescriptorDefinition kFieldDescriptors[] =
+    {
+        { GaltekFieldTitle, CPFT_LARGE_TEXT, L"Galtek Classroom" },
+        { GaltekFieldSubtitle, CPFT_SMALL_TEXT, L"Cuenta escolar" },
+        { GaltekFieldSubmit, CPFT_SUBMIT_BUTTON, L"Iniciar sesion" }
+    };
+
+    HRESULT AllocCoTaskString(PCWSTR source, PWSTR* value)
+    {
+        if (value == nullptr)
+        {
+            return E_POINTER;
+        }
+
+        *value = nullptr;
+        const size_t charCount = wcslen(source) + 1u;
+        const size_t byteCount = charCount * sizeof(wchar_t);
+        PWSTR copy = static_cast<PWSTR>(CoTaskMemAlloc(byteCount));
+        if (copy == nullptr)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        memcpy(copy, source, byteCount);
+        *value = copy;
+        return S_OK;
+    }
+}
+
 GaltekCredentialProvider::GaltekCredentialProvider()
     : _referenceCount(1),
-      _usageScenario(CPUS_INVALID)
+      _usageScenario(CPUS_INVALID),
+      _events(nullptr),
+      _adviseContext(0),
+      _hasCredential(false)
 {
     InterlockedIncrement(&g_objectCount);
 }
@@ -48,6 +92,15 @@ ULONG GaltekCredentialProvider::Release()
     return static_cast<ULONG>(count);
 }
 
+GaltekCredentialProvider::~GaltekCredentialProvider()
+{
+    if (_events != nullptr)
+    {
+        _events->Release();
+        _events = nullptr;
+    }
+}
+
 HRESULT GaltekCredentialProvider::SetUsageScenario(
     CREDENTIAL_PROVIDER_USAGE_SCENARIO usageScenario,
     DWORD flags)
@@ -73,13 +126,31 @@ HRESULT GaltekCredentialProvider::SetSerialization(
 
 HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT_PTR adviseContext)
 {
-    UNREFERENCED_PARAMETER(events);
-    UNREFERENCED_PARAMETER(adviseContext);
+    if (_events != nullptr)
+    {
+        _events->Release();
+        _events = nullptr;
+    }
+
+    _adviseContext = adviseContext;
+    if (events != nullptr)
+    {
+        events->AddRef();
+        _events = events;
+    }
+
     return S_OK;
 }
 
 HRESULT GaltekCredentialProvider::UnAdvise()
 {
+    if (_events != nullptr)
+    {
+        _events->Release();
+        _events = nullptr;
+    }
+
+    _adviseContext = 0;
     return S_OK;
 }
 
@@ -90,7 +161,7 @@ HRESULT GaltekCredentialProvider::GetFieldDescriptorCount(DWORD* count)
         return E_POINTER;
     }
 
-    *count = 0;
+    *count = GaltekFieldCount;
     return S_OK;
 }
 
@@ -98,15 +169,38 @@ HRESULT GaltekCredentialProvider::GetFieldDescriptorAt(
     DWORD fieldId,
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** descriptor)
 {
-    UNREFERENCED_PARAMETER(fieldId);
-
     if (descriptor == nullptr)
     {
         return E_POINTER;
     }
 
     *descriptor = nullptr;
-    return E_INVALIDARG;
+    if (fieldId >= GaltekFieldCount)
+    {
+        return E_INVALIDARG;
+    }
+
+    CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* copy =
+        static_cast<CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR*>(
+            CoTaskMemAlloc(sizeof(CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR)));
+    if (copy == nullptr)
+    {
+        return E_OUTOFMEMORY;
+    }
+
+    ZeroMemory(copy, sizeof(*copy));
+    copy->dwFieldID = kFieldDescriptors[fieldId].fieldId;
+    copy->cpft = kFieldDescriptors[fieldId].fieldType;
+    copy->guidFieldType = GUID_NULL;
+    HRESULT hr = AllocCoTaskString(kFieldDescriptors[fieldId].label, &copy->pszLabel);
+    if (FAILED(hr))
+    {
+        CoTaskMemFree(copy);
+        return hr;
+    }
+
+    *descriptor = copy;
+    return S_OK;
 }
 
 HRESULT GaltekCredentialProvider::GetCredentialCount(
@@ -119,6 +213,8 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
         return E_POINTER;
     }
 
+    _hasCredential = false;
+    _identity = BridgeActivationIdentity{};
     *count = 0;
     *defaultCredential = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *autoLogonWithDefault = FALSE;
@@ -129,10 +225,14 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
     }
 
     BridgeClient bridge;
-    (void)bridge.GetPendingActivationMetadata(250);
+    BridgeActivationIdentity identity;
+    if (bridge.GetPendingActivationIdentity(250, &identity))
+    {
+        _identity = identity;
+        _hasCredential = true;
+        *count = 1;
+    }
 
-    // 19G1 intentionally detects only bridge availability/metadata and never
-    // enumerates a productive Galtek tile or serializes credentials.
     return S_OK;
 }
 
@@ -140,13 +240,23 @@ HRESULT GaltekCredentialProvider::GetCredentialAt(
     DWORD credentialIndex,
     ICredentialProviderCredential** credential)
 {
-    UNREFERENCED_PARAMETER(credentialIndex);
-
     if (credential == nullptr)
     {
         return E_POINTER;
     }
 
     *credential = nullptr;
-    return E_INVALIDARG;
+    if (!_hasCredential || credentialIndex != 0)
+    {
+        return E_INVALIDARG;
+    }
+
+    GaltekCredential* value = new (std::nothrow) GaltekCredential(_identity);
+    if (value == nullptr)
+    {
+        return E_OUTOFMEMORY;
+    }
+
+    *credential = static_cast<ICredentialProviderCredential*>(value);
+    return S_OK;
 }

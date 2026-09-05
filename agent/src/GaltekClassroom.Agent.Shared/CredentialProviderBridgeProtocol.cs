@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 
@@ -11,12 +12,16 @@ public static class CredentialProviderBridgeProtocol
     public const int MaxMessageBytes = 8 * 1024;
     public const int MaxConcurrentConnections = 2;
     public const string LocalSystemSid = "S-1-5-18";
+    public const int SecretResponseVersion = 1;
+    public const int MaxSecretResponsePasswordBytes = ManagedWindowsCredentialConstants.MaximumPasswordCharacters * 2;
 }
 
 public static class CredentialProviderBridgeOperations
 {
     public const string Ping = "PING";
     public const string GetPendingActivationMetadata = "GET_PENDING_ACTIVATION_METADATA";
+    public const string GetPendingActivationIdentity = "GET_PENDING_ACTIVATION_IDENTITY";
+    public const string AcquirePendingCredential = "ACQUIRE_PENDING_CREDENTIAL";
 }
 
 public static class CredentialProviderBridgeStatuses
@@ -29,6 +34,12 @@ public static class CredentialProviderActivationStatuses
 {
     public const string None = "NONE";
     public const string Pending = "PENDING";
+}
+
+public static class CredentialProviderSecretResponseStatuses
+{
+    public const ushort Success = 0;
+    public const ushort Failed = 1;
 }
 
 public static class CredentialProviderBridgeErrorCodes
@@ -59,6 +70,29 @@ public sealed record CredentialProviderActivationMetadata
     public DateTimeOffset ExpiresAtUtc { get; init; }
 }
 
+public sealed record CredentialProviderActivationIdentity
+{
+    [JsonPropertyName("activationId")]
+    [JsonPropertyOrder(0)]
+    public string ActivationId { get; init; } = string.Empty;
+
+    [JsonPropertyName("accountId")]
+    [JsonPropertyOrder(1)]
+    public string AccountId { get; init; } = string.Empty;
+
+    [JsonPropertyName("userSid")]
+    [JsonPropertyOrder(2)]
+    public string UserSid { get; init; } = string.Empty;
+
+    [JsonPropertyName("domain")]
+    [JsonPropertyOrder(3)]
+    public string Domain { get; init; } = string.Empty;
+
+    [JsonPropertyName("username")]
+    [JsonPropertyOrder(4)]
+    public string Username { get; init; } = string.Empty;
+}
+
 public sealed record CredentialProviderBridgeRequest
 {
     [JsonPropertyName("protocolVersion")]
@@ -72,6 +106,11 @@ public sealed record CredentialProviderBridgeRequest
     [JsonPropertyName("operation")]
     [JsonPropertyOrder(2)]
     public string Operation { get; init; } = string.Empty;
+
+    [JsonPropertyName("activationId")]
+    [JsonPropertyOrder(3)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActivationId { get; init; }
 }
 
 public sealed record CredentialProviderBridgeResponse
@@ -98,13 +137,18 @@ public sealed record CredentialProviderBridgeResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CredentialProviderActivationMetadata? PendingActivation { get; init; }
 
-    [JsonPropertyName("errorCode")]
+    [JsonPropertyName("pendingIdentity")]
     [JsonPropertyOrder(5)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CredentialProviderActivationIdentity? PendingIdentity { get; init; }
+
+    [JsonPropertyName("errorCode")]
+    [JsonPropertyOrder(6)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ErrorCode { get; init; }
 
     [JsonPropertyName("message")]
-    [JsonPropertyOrder(6)]
+    [JsonPropertyOrder(7)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Message { get; init; }
 
@@ -132,6 +176,21 @@ public sealed record CredentialProviderBridgeResponse
         };
     }
 
+    public static CredentialProviderBridgeResponse Identity(
+        string requestId,
+        CredentialProviderActivationIdentity? identity)
+    {
+        return new CredentialProviderBridgeResponse
+        {
+            RequestId = requestId,
+            Status = CredentialProviderBridgeStatuses.Success,
+            ActivationStatus = identity is null
+                ? CredentialProviderActivationStatuses.None
+                : CredentialProviderActivationStatuses.Pending,
+            PendingIdentity = identity
+        };
+    }
+
     public static CredentialProviderBridgeResponse Error(
         string requestId,
         string errorCode,
@@ -144,6 +203,215 @@ public sealed record CredentialProviderBridgeResponse
             ErrorCode = errorCode,
             Message = message
         };
+    }
+}
+
+public sealed record CredentialProviderSecretResponsePayload(
+    ushort Version,
+    ushort Status,
+    string ActivationId,
+    byte[] PasswordUtf16LittleEndian) : IDisposable
+{
+    public bool Succeeded => Status == CredentialProviderSecretResponseStatuses.Success;
+
+    public void Dispose()
+    {
+        CryptographicOperations.ZeroMemory(PasswordUtf16LittleEndian);
+    }
+}
+
+public static class CredentialProviderSecretResponse
+{
+    private static readonly byte[] Magic = "GCPAS"u8.ToArray();
+
+    public static byte[] Success(
+        string activationId,
+        ReadOnlySpan<byte> passwordUtf16LittleEndian)
+    {
+        ValidateActivationId(activationId);
+        ValidatePassword(passwordUtf16LittleEndian);
+
+        return Build(
+            CredentialProviderSecretResponseStatuses.Success,
+            activationId,
+            passwordUtf16LittleEndian);
+    }
+
+    public static byte[] Failure(string activationId)
+    {
+        if (!Guid.TryParse(activationId, out _))
+        {
+            activationId = Guid.Empty.ToString("D");
+        }
+
+        return Build(
+            CredentialProviderSecretResponseStatuses.Failed,
+            activationId,
+            ReadOnlySpan<byte>.Empty);
+    }
+
+    public static bool TryParse(
+        ReadOnlySpan<byte> payload,
+        out CredentialProviderSecretResponsePayload? parsed)
+    {
+        parsed = null;
+        var offset = 0;
+
+        if (payload.Length < Magic.Length + sizeof(ushort) + sizeof(ushort) + sizeof(ushort) + sizeof(int))
+        {
+            return false;
+        }
+
+        if (!payload.Slice(offset, Magic.Length).SequenceEqual(Magic))
+        {
+            return false;
+        }
+
+        offset += Magic.Length;
+        var version = BinaryPrimitives.ReadUInt16BigEndian(payload.Slice(offset, sizeof(ushort)));
+        offset += sizeof(ushort);
+        if (version != CredentialProviderBridgeProtocol.SecretResponseVersion)
+        {
+            return false;
+        }
+
+        var status = BinaryPrimitives.ReadUInt16BigEndian(payload.Slice(offset, sizeof(ushort)));
+        offset += sizeof(ushort);
+        if (status is not CredentialProviderSecretResponseStatuses.Success
+            and not CredentialProviderSecretResponseStatuses.Failed)
+        {
+            return false;
+        }
+
+        var activationIdLength = BinaryPrimitives.ReadUInt16BigEndian(payload.Slice(offset, sizeof(ushort)));
+        offset += sizeof(ushort);
+        if (activationIdLength == 0 || payload.Length - offset < activationIdLength)
+        {
+            return false;
+        }
+
+        string activationId;
+        try
+        {
+            activationId = Encoding.UTF8.GetString(payload.Slice(offset, activationIdLength));
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        if (!Guid.TryParse(activationId, out _))
+        {
+            return false;
+        }
+
+        offset += activationIdLength;
+        if (payload.Length - offset < sizeof(int))
+        {
+            return false;
+        }
+
+        var passwordLength = BinaryPrimitives.ReadInt32BigEndian(payload.Slice(offset, sizeof(int)));
+        offset += sizeof(int);
+        if (passwordLength < 0
+            || passwordLength % 2 != 0
+            || passwordLength > CredentialProviderBridgeProtocol.MaxSecretResponsePasswordBytes
+            || payload.Length - offset != passwordLength)
+        {
+            return false;
+        }
+
+        if (status == CredentialProviderSecretResponseStatuses.Success && passwordLength == 0)
+        {
+            return false;
+        }
+
+        if (status == CredentialProviderSecretResponseStatuses.Failed && passwordLength != 0)
+        {
+            return false;
+        }
+
+        parsed = new CredentialProviderSecretResponsePayload(
+            version,
+            status,
+            activationId,
+            payload.Slice(offset, passwordLength).ToArray());
+        return true;
+    }
+
+    private static byte[] Build(
+        ushort status,
+        string activationId,
+        ReadOnlySpan<byte> passwordUtf16LittleEndian)
+    {
+        var activationIdBytes = Encoding.UTF8.GetBytes(activationId);
+        var payloadLength = Magic.Length
+            + sizeof(ushort)
+            + sizeof(ushort)
+            + sizeof(ushort)
+            + activationIdBytes.Length
+            + sizeof(int)
+            + passwordUtf16LittleEndian.Length;
+
+        if (payloadLength > CredentialProviderBridgeProtocol.MaxMessageBytes)
+        {
+            throw new CredentialProviderBridgeFramingException(
+                "Credential Provider secret response length exceeds the configured limit.");
+        }
+
+        var payload = new byte[payloadLength];
+        var offset = 0;
+        Magic.CopyTo(payload, offset);
+        offset += Magic.Length;
+
+        BinaryPrimitives.WriteUInt16BigEndian(
+            payload.AsSpan(offset, sizeof(ushort)),
+            CredentialProviderBridgeProtocol.SecretResponseVersion);
+        offset += sizeof(ushort);
+
+        BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(offset, sizeof(ushort)), status);
+        offset += sizeof(ushort);
+
+        BinaryPrimitives.WriteUInt16BigEndian(
+            payload.AsSpan(offset, sizeof(ushort)),
+            checked((ushort)activationIdBytes.Length));
+        offset += sizeof(ushort);
+        activationIdBytes.CopyTo(payload.AsSpan(offset));
+        offset += activationIdBytes.Length;
+
+        BinaryPrimitives.WriteInt32BigEndian(
+            payload.AsSpan(offset, sizeof(int)),
+            passwordUtf16LittleEndian.Length);
+        offset += sizeof(int);
+        passwordUtf16LittleEndian.CopyTo(payload.AsSpan(offset));
+
+        return payload;
+    }
+
+    private static void ValidateActivationId(string activationId)
+    {
+        if (!Guid.TryParse(activationId, out _))
+        {
+            throw new ArgumentException("Credential Provider activationId is invalid.", nameof(activationId));
+        }
+    }
+
+    private static void ValidatePassword(ReadOnlySpan<byte> passwordUtf16LittleEndian)
+    {
+        if (passwordUtf16LittleEndian.Length == 0)
+        {
+            throw new ArgumentException("Credential Provider password payload is empty.", nameof(passwordUtf16LittleEndian));
+        }
+
+        if (passwordUtf16LittleEndian.Length % 2 != 0)
+        {
+            throw new ArgumentException("Credential Provider password payload is not valid UTF-16LE.", nameof(passwordUtf16LittleEndian));
+        }
+
+        if (passwordUtf16LittleEndian.Length > CredentialProviderBridgeProtocol.MaxSecretResponsePasswordBytes)
+        {
+            throw new ArgumentException("Credential Provider password payload exceeds the configured limit.", nameof(passwordUtf16LittleEndian));
+        }
     }
 }
 
@@ -185,6 +453,23 @@ public static class CredentialProviderBridgeFraming
         ArgumentNullException.ThrowIfNull(json);
 
         var payload = Encoding.UTF8.GetBytes(json);
+        ValidatePayloadLength(payload.Length);
+
+        var lengthBuffer = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32BigEndian(lengthBuffer, payload.Length);
+
+        await stream.WriteAsync(lengthBuffer, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task WritePayloadAsync(
+        Stream stream,
+        byte[] payload,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(payload);
         ValidatePayloadLength(payload.Length);
 
         var lengthBuffer = new byte[sizeof(int)];

@@ -1,5 +1,31 @@
 # Decisiones vigentes
 
+## 2026-09-05 - Prompt 19G2
+
+- `LOGON_MANAGED_ACCOUNT` remoto sigue pendiente: 19G2 solo consume una activation existente y completa el tramo local Service -> Credential Provider -> Windows serialization.
+- La unica salida productiva de una password Windows administrada desde el Client credential store hacia LogonUI es `ACQUIRE_PENDING_CREDENTIAL` por `GaltekClassroom.CredentialProvider.v1`.
+- `ACQUIRE_PENDING_CREDENTIAL` requiere caller LogonUI validado con PID real del pipe, image path real `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y token LocalSystem; no se confia en payload.
+- `GET_PENDING_ACTIVATION_IDENTITY` es no secreto y local: devuelve `activationId`, `accountId`, `userSid`, `domain` y `username` solo al provider validado.
+- El Agent Service deriva identidad desde activation `accountId` -> binding local -> `windowsSid` -> resolver Windows `SidTypeUser`; `accountReference` no es autoridad.
+- La primera identity exitosa fija `expectedWindowsSid` de forma efimera en la activation; no se persiste ni se expone al Master.
+- Antes de acquire, el Service relee el binding vigente y exige que `windowsSid` siga coincidiendo con `expectedWindowsSid`; si hubo rebind, no revela secreto.
+- Una activation libera credential como maximo una vez. El Service marca `CONSUMED` antes de llamar DPAPI/acquire y nunca restaura ante fallo de pipe, packing o auth package.
+- El segundo acquire de la misma activation falla sin volver a llamar DPAPI.
+- La respuesta secreta del bridge es binaria, versionada y acotada; password no viaja por JSON, Base64, hexadecimal, XML, Protobuf ni string de contrato.
+- El frame secreto solo lleva magic/version/status/activationId/passwordByteLength/password UTF-16LE; no repite SID, `accountReference`, username, domain, credentialId ni vault token.
+- El provider nativo guarda secretos solo en buffers mutables RAII y usa `SecureZeroMemory`; no guarda password en `std::wstring`, `CString`, `BSTR`, field permanente, singleton ni global.
+- El receive buffer binario del provider tambien se considera secreto y se zeroiza.
+- `GetUserSid` devuelve el SID obtenido desde el Service para la activation y respeta ownership COM.
+- Sin activation/identity valida, Service no disponible, activation expirada o SID no resoluble, Galtek enumera 0 credentials.
+- Con activation + identity valida, Galtek enumera 1 credential, sin password field visible/editable.
+- `SetSelected` no solicita auto-logon todavia; 19G3 agregara notification/auto-selection cuando exista operacion remota.
+- `GetSerialization` adquiere password una sola vez, usa `CredProtectW`, arma `KERB_INTERACTIVE_UNLOCK_LOGON` con `KerbInteractiveLogon`, resuelve `Negotiate` por LSA lookup y usa el CLSID Galtek vigente.
+- Ante cualquier fallo despues de acquire, la credential no reintenta y devuelve `CPGSR_NO_CREDENTIAL_NOT_FINISHED`.
+- La serialization entregada a Windows contiene material sensible; el provider transfiere ownership a LogonUI y por eso no puede zeroizarla inmediatamente, no la loguea ni la persiste.
+- `ReportResult` no reacquire, no reconstruye activation y no reporta secreto al Service en 19G2.
+- Providers estandar permanecen disponibles; no se agrega `ICredentialProviderFilter`.
+- No se agrego Protobuf, capability remota, OperationRequest remoto, endpoint HTTP, BatchOperation, fanout, planner, Master Java, Session Agent, SWITCH ni background listener.
+
 ## 2026-09-05 - Prompt 19G1
 
 - `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT` futuros deben usar Credential Provider V2 como mecanismo soportado por Windows para introducir credenciales al flujo normal Winlogon/LSA.

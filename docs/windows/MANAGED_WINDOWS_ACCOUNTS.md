@@ -165,9 +165,13 @@ Para logoff, el SID del token activo es suficiente aunque `LookupAccountSid` ya 
 
 ## Uso Desde Credential Provider
 
-Desde Prompt 19G1, el Credential Provider V2 no lee este archivo directamente. El provider consulta solo al Agent Service por el pipe dedicado `GaltekClassroom.CredentialProvider.v1`.
+Desde Prompt 19G2, el Credential Provider V2 no lee este archivo directamente. El provider consulta solo al Agent Service por el pipe dedicado `GaltekClassroom.CredentialProvider.v1`.
 
-La activation metadata futura usa solo `accountId` logico `PRIMARY` o `SECONDARY`, expira rapido, vive en memoria del Service y no contiene SID, `accountReference`, username ni password. En 19G1, incluso con activation valida, el provider no enumera una credential productiva ni intenta login.
+Para identity, el Service toma el `accountId` de la activation, carga el binding local, valida `windowsSid`, resuelve ese SID mediante APIs Windows soportadas, exige `SidTypeUser` y devuelve al provider `userSid`, `domain` y `username` estructurados. `accountReference` sigue siendo metadata informativa y no autoridad.
+
+La primera identity exitosa fija el `windowsSid` esperado en la activation efimera. Antes de adquirir la password, el Service relee este archivo y exige que el binding vigente siga apuntando al mismo SID. Si un administrador rebindea `PRIMARY`/`SECONDARY` entre identity y acquire, Galtek falla cerrado y no revela la credential.
+
+Con activation + identity valida, el provider enumera una sola credential Galtek y `GetUserSid` devuelve el SID derivado por el Service. Sin binding, binding corrupto, cuenta borrada/no resoluble como `SidTypeUser`, activation expirada o Service no disponible, Galtek enumera 0 credentials.
 
 ## Validacion Manual Pendiente
 
@@ -178,15 +182,17 @@ En una PC descartable:
 3. Verificar que list muestre ambas con `CREDENTIAL_NOT_CONFIGURED`.
 4. Renombrar `Primaria`; el SID permanece y el binding sigue valido.
 5. Provisionar credencial con `PROVISION_MANAGED_CREDENTIAL` y confirmar status interno `READY`.
-6. Con `PRIMARY` logueado, ejecutar `LOGOFF_WINDOWS_SESSION(PRIMARY)` y confirmar que cierra solo si el SID activo coincide.
-7. Borrar `Primaria` dejando su sesion viva; confirmar que `LOGOFF_WINDOWS_SESSION(PRIMARY)` todavia puede cerrarla por SID.
-8. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND` para status/list.
-9. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
-10. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
+6. En laboratorio 19G3 o posterior, crear activation segura y confirmar que el provider muestra tile Galtek solo mientras el SID resuelve.
+7. Rebindear `PRIMARY` despues de identity y antes de acquire; confirmar que no revela credential y exige nueva activation.
+8. Con `PRIMARY` logueado, ejecutar `LOGOFF_WINDOWS_SESSION(PRIMARY)` y confirmar que cierra solo si el SID activo coincide.
+9. Borrar `Primaria` dejando su sesion viva; confirmar que `LOGOFF_WINDOWS_SESSION(PRIMARY)` todavia puede cerrarla por SID.
+10. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND` para status/list y el provider no enumera tile.
+11. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
+12. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
 
 Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticamente en 19B.
 
 ## Pendiente
 
-- 19G2: one-time credential acquisition y `GetSerialization` real soportado por Windows.
+- 19G3: `LOGON_MANAGED_ACCOUNT` remoto, activation creation productiva, notification event-driven y resultado operacional.
 - 19H: dispatch batch Master.

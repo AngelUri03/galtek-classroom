@@ -116,4 +116,10 @@ Prompt 19G1 agrega una foundation separada de Credential Provider V2 para login 
 
 ## Pendiente
 
-19G2 queda pendiente para credential acquisition one-time y serialization real del futuro `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
+19G2 ya completo credential acquisition one-time y serialization local para una activation existente.
+
+19G3 queda pendiente para `LOGON_MANAGED_ACCOUNT` remoto.
+
+19G4 queda pendiente para `SWITCH_MANAGED_ACCOUNT`.
+
+19H queda pendiente para dispatch/planner batch Master.

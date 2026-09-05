@@ -1,11 +1,21 @@
 #pragma once
 
+#include "BridgeClient.h"
+
 #include <credentialprovider.h>
+
+enum GaltekCredentialFieldId
+{
+    GaltekFieldTitle = 0,
+    GaltekFieldSubtitle = 1,
+    GaltekFieldSubmit = 2,
+    GaltekFieldCount = 3
+};
 
 class GaltekCredential final : public ICredentialProviderCredential2
 {
 public:
-    GaltekCredential();
+    explicit GaltekCredential(const BridgeActivationIdentity& identity);
 
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
     IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -42,7 +52,13 @@ public:
     IFACEMETHODIMP GetUserSid(PWSTR* sid) override;
 
 private:
-    ~GaltekCredential() = default;
+    ~GaltekCredential();
 
     LONG _referenceCount;
+    ICredentialProviderCredentialEvents* _events;
+    std::string _activationId;
+    std::wstring _userSid;
+    std::wstring _domain;
+    std::wstring _username;
+    bool _acquireAttempted;
 };

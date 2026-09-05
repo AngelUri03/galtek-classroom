@@ -23,7 +23,12 @@ public enum WindowsAccountSidNameUse
 public sealed record WindowsAccountIdentity(
     string WindowsSid,
     string AccountDisplayName,
-    WindowsAccountSidNameUse SidNameUse = WindowsAccountSidNameUse.User);
+    WindowsAccountSidNameUse SidNameUse = WindowsAccountSidNameUse.User)
+{
+    public string? Domain { get; init; }
+
+    public string? Username { get; init; }
+}
 
 public sealed record WindowsAccountResolution(
     bool Found,
@@ -258,10 +263,15 @@ public sealed class WindowsAccountResolver : IWindowsAccountResolver
                 return WindowsAccountResolution.NotFound("Windows SID could not be converted to canonical string.");
             }
 
-            return WindowsAccountResolution.Resolved(new WindowsAccountIdentity(
-                sidString,
-                $"{domain}\\{name}",
-                WindowsAccountSidNameUse.User));
+            return WindowsAccountResolution.Resolved(
+                new WindowsAccountIdentity(
+                    sidString,
+                    $"{domain}\\{name}",
+                    WindowsAccountSidNameUse.User)
+                {
+                    Domain = domain.ToString(),
+                    Username = name.ToString()
+                });
         }
         catch (Exception exception) when (exception is ArgumentException or SystemException)
         {

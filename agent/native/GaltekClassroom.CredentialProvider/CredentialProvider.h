@@ -1,5 +1,7 @@
 #pragma once
 
+#include "BridgeClient.h"
+
 #include <credentialprovider.h>
 
 class GaltekCredentialProvider final : public ICredentialProvider
@@ -21,8 +23,12 @@ public:
     IFACEMETHODIMP GetCredentialAt(DWORD credentialIndex, ICredentialProviderCredential** credential) override;
 
 private:
-    ~GaltekCredentialProvider() = default;
+    ~GaltekCredentialProvider();
 
     LONG _referenceCount;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO _usageScenario;
+    ICredentialProviderEvents* _events;
+    UINT_PTR _adviseContext;
+    bool _hasCredential;
+    BridgeActivationIdentity _identity;
 };

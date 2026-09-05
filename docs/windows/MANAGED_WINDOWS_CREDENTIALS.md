@@ -1,6 +1,6 @@
 # Managed Windows Credentials
 
-Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G1 agrega Credential Provider V2 foundation y bridge local sin usar este store. No agrega reveal, HTTP, BatchOperation, Local IPC de credenciales, Session Agent, login ni cambio de password Windows.
+Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password y sin Master remoto todavia.
 
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:
 
@@ -164,15 +164,25 @@ No se agrega password a CLI, Local IPC, UI ni logs.
 
 ## Relacion Con Credential Provider
 
-Desde Prompt 19G1, el Credential Provider nativo no lee `managed-windows-credentials.dat`, no llama DPAPI, no adquiere leases y no recibe passwords. El unico dato expuesto por el bridge local es activation metadata efimera sin secretos.
+Desde Prompt 19G2, el Credential Provider nativo sigue sin leer `managed-windows-credentials.dat` ni llamar DPAPI directamente. El Agent Service es quien adquiere un `ManagedWindowsCredentialLease` despues de validar caller LogonUI, activation one-time, Installation Identity, binding local, SID esperado y ausencia de rebind.
 
-La futura fase 19G2 debera agregar una operacion one-time de acquisition desde el Agent Service hacia el provider. Esa operacion no existe en 19G1 y no debe adelantarse agregando campos password/protectedData/credentialId al contrato actual.
+`ACQUIRE_PENDING_CREDENTIAL` recibe solo `activationId`. El Service deriva `accountId` y SID desde su activation snapshot, marca `CONSUMED` antes de llamar `AcquireForWindowsSidAsync`, usa el lease durante el minimo tiempo y dispone el lease despues de construir la respuesta binaria.
+
+La password viaja Service -> Provider como payload binario versionado y acotado dentro del pipe dedicado:
+
+```text
+magic/version/status/activationId/passwordByteLength/passwordUtf16Le
+```
+
+No se serializa como JSON, Base64, hexadecimal, XML, Protobuf ni string de contrato. El frame secreto no contiene SID, `accountReference`, domain, username, credentialId ni vault token. El segundo acquire de la misma activation falla sin volver a llamar DPAPI.
+
+En el provider, `GetSerialization` usa buffers mutables RAII, limpia receive buffer y plaintext con `SecureZeroMemory`, protege la password con `CredProtectW`, empaqueta `KERB_INTERACTIVE_UNLOCK_LOGON` y transfiere ownership del buffer final a LogonUI. Si algo falla despues del acquire, no se restaura la activation ni se reintenta.
 
 ## Limites 19E1
 
-19E1 no implementa Credential Vault integration. 19E2 implementa solo el bridge interno Master. 19G1 implementa foundation de Credential Provider sin password. Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, login, switch, password serialization, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
+19E1 no implementa Credential Vault integration. 19E2 implementa solo el bridge interno Master. 19G2 implementa solo el tramo local Credential Provider para una activation ya existente. Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, login remoto, switch, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, autologon, cambio de password ni validacion de password contra Windows.
 
-No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire futuro para login.
+No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire one-time para Credential Provider.
 
 ## Validacion Manual Pendiente
 
@@ -183,9 +193,11 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 5. Copiar el credential store a otra instalacion y confirmar fail closed.
 6. Rebindear `PRIMARY` a otro SID y confirmar que la credencial vieja queda no configurada.
 7. Re-provisionar y confirmar `READY`.
-8. Confirmar que un usuario Windows estandar no puede leer el credential store.
+8. Cuando exista mecanismo lab seguro en 19G3 o posterior, crear activation y confirmar que el provider puede usar la credential una sola vez.
+9. Confirmar que segundo intento exige nueva activation.
+10. Confirmar que un usuario Windows estandar no puede leer el credential store.
 
 ## Pendiente
 
-- 19G2: one-time credential acquisition para Credential Provider y serialization real soportada por Windows.
+- 19G3: operacion remota `LOGON_MANAGED_ACCOUNT`, creation productiva de activation, notification event-driven y resultado operacional.
 - 19H: dispatch batch Master y planner.

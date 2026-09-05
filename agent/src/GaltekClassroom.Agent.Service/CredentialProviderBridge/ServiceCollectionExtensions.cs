@@ -1,3 +1,6 @@
+using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.ManagedAccounts;
+using GaltekClassroom.Agent.Service.Master;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace GaltekClassroom.Agent.Service.CredentialProviderBridge;
@@ -8,7 +11,14 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(CredentialProviderBridgeServerOptions.Default);
         services.AddSingleton<ICredentialProviderActivationStore, CredentialProviderActivationStore>();
-        services.AddSingleton<CredentialProviderActivationService>();
+        services.AddSingleton(provider =>
+            new CredentialProviderActivationService(
+                provider.GetRequiredService<ICredentialProviderActivationStore>(),
+                provider.GetRequiredService<ISystemClock>(),
+                provider.GetRequiredService<InstallationIdentityStore>(),
+                provider.GetRequiredService<IManagedWindowsAccountBindingStore>(),
+                provider.GetRequiredService<IWindowsAccountResolver>(),
+                provider.GetRequiredService<IManagedWindowsCredentialStore>()));
         services.AddSingleton<CredentialProviderBridgeRequestHandler>();
 
         if (OperatingSystem.IsWindows())
