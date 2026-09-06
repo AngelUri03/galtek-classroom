@@ -2,9 +2,15 @@
 
 ## Ultima actualizacion
 
-2026-09-05 - Prompt 19G4.
+2026-09-06 - Prompt 19H1.
 
 ## Estado del proyecto
+
+Prompt 19H1 implementa en el Master Backend Java `POST /api/classrooms/{classroomId}/managed-accounts/switch` como batch administrativo para dejar Devices explicitamente seleccionados en `PRIMARY` o `SECONDARY`. El endpoint usa `MasterAccessGuard` antes de cualquier lectura escolar, acepta solo `targetAccountId` y `targetDeviceIds`, crea una sola `BatchOperation` `SWITCH_MANAGED_ACCOUNT`, persiste targets antes del primer snapshot remoto y guarda payload no secreto con `schemaVersion` y `targetAccountId`.
+
+El preflight local por target exige Device del aula, registro/binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`; no exige `SESSION_AGENT_AVAILABLE`. Luego cada target listo obtiene `GET_WINDOWS_SESSION_STATE` con operationId propio. El planner corregido usa el snapshot real: target ya activo produce `NO_CHANGE`, `NO_SESSION` planifica logon, opposite managed activo planifica switch, `OTHER_SESSION_ACTIVE` bloquea como `WINDOWS_SESSION_CHANGED` y `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`.
+
+El Master nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`: tanto plan `LOGON` como plan `SWITCH` despachan la primitive Agent-side `SWITCH_MANAGED_ACCOUNT(target)` con otro operationId remoto unico. El Master no consulta Credential Vault, no envia password/credentialId/vault token/SID/username/sessionId, no fabrica readiness de cuenta o credencial y preserva errores estructurados del Agent. `NO_CHANGE` cuenta como exito, se persiste y queda fuera de retryable targets. No hay retry automatico ni endpoint retry; 19H2 queda pendiente para retry administrativo explicito.
 
 Prompt 19G4 completa `SWITCH_MANAGED_ACCOUNT(targetAccountId)` como operacion remota tipada para un Client individual. El Master Java agrega `MasterRemoteOperationGateway.switchManagedAccount(...)` y envia solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`) por Protobuf; no envia source account, password, username, SID, domain, sessionId, credentialId, vault token, force, timeout configurable, comando ni payload generico. No hay endpoint HTTP, BatchOperation, fanout, planner ni UI.
 
@@ -96,7 +102,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1 para autorizacion administrativa normal, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos normales. La unica excepcion actual es `POST /api/classrooms/{classroomId}/input-control/unlock`, que consume `GET_MASTER_UNLOCK_AUTHORIZATION` mediante `MasterUnlockAccessGuard` para despachar solo `UNLOCK_INPUT`, sin exponer endpoint publico de autorizacion y sin fallback entre guards.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, endpoint/batch/planner/UI Master para operaciones de sesion administrada, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT` existen como primitives remotas Agent/Master gateway para un Client individual, pero no son todavia flujos batch/end-to-end desde UI.
+El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT` y `LOGOFF_WINDOWS_SESSION` existen como primitives remotas Agent/Master gateway para un Client individual; `SWITCH_MANAGED_ACCOUNT` ya tiene batch Master administrativo desde `POST /api/classrooms/{classroomId}/managed-accounts/switch`, pero aun no tiene UI ni retry administrativo 19H2.
 
 ## Implementado
 
@@ -258,8 +264,8 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `StartupWorkPolicy` limita startup de control a `CONTROL_CRITICAL`, difiere `VISUAL`, `TRANSFER` y `BACKGROUND` durante recovery, y prohibe captura automatica en eventos de boot/reconnect/heartbeat.
 - `RemoteOperationRecoveryPolicy` evita tratar como exito una operacion remota sin ACK o sin resultado confirmado.
 - Modelos puros Java para cuentas Windows administradas: `ManagedWindowsAccount`, `ManagedWindowsAccountType`, `ManagedWindowsAccountStatus` y `WindowsSessionState`.
-- `ManagedAccountSwitchPlanner` puro para decidir `NO_CHANGE`, `LOGON`, `SWITCH`, `PENDING` o `BLOCKED` por device.
-- Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- `ManagedAccountSwitchPlanner` puro para decidir `NO_CHANGE`, `LOGON`, `SWITCH` o `BLOCKED` desde estado de sesion Windows real.
+- Operaciones tipadas de sesion Windows `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`; el batch Master existente usa snapshot read-only y mutation `SWITCH_MANAGED_ACCOUNT(target)`.
 - `TargetExecutionStatus.NO_CHANGE` tratado como exito no retryable en `BatchOperation`.
 - Errores estructurados para cuentas/sesion Windows administrada: `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `WINDOWS_SESSION_UNKNOWN`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGOFF_FAILED`, `SESSION_SWITCH_FAILED` y `CREDENTIAL_PROVIDER_UNAVAILABLE`.
 - Contratos compartidos C# para operaciones, destinos logicos, estrategias de asignacion, preparacion, workspace, proyeccion, prioridades, tipos de cuenta, estados de sesion y acciones de switch administrado.
@@ -444,7 +450,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - La UI no recibe passwords por defecto; la unica excepcion futura sera Credential Vault Reveal explicito despues de `MasterAccessGuard`, vault unlock valido y sesion de vault no expirada, entregando solo una credencial.
 - Las passwords Google escolares pueden almacenarse solo dentro de Credential Vault cifrado, nunca en BrowserProfile, SQLite, logs, Cookies, Login Data o Local State.
 - `MasterUnlockAccessGuard` no autoriza Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.
-- Los comandos futuros de cuentas administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`).
+- Los comandos de cuentas administradas envian solo `accountId` logico (`PRIMARY`/`SECONDARY`).
 - `SWITCH_MANAGED_ACCOUNT(PRIMARY)` puede producir targets `NO_CHANGE`, `SUCCESS` y `FAILED`; el retry posterior solo aplica a fallidos retryable.
 - El hardware objetivo real queda documentado: Master i5 8a gen aprox./16 GB DDR4/SSD 256 GB; Clients renovados aprox. 10 i5 6a gen/8 GB DDR4/SSD 256 GB; Clients legacy aprox. 16 con hardware heterogeneo muy limitado, principalmente 4 GB RAM + HDD y CPUs Core 2 Duo / Celeron / AMD antiguos.
 - Galtek Classroom se disena primero para Clients de 4 GB RAM, HDD y CPU de gama baja.
@@ -535,6 +541,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=ManagedAccountSwitchPlannerTest,ManagedAccountSwitchDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest,BrowserDownloadPolicyPersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 330 pruebas superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 79 pruebas Service superadas; Session sin coincidencias.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionLogon|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 147 pruebas Service superadas; Session sin coincidencias.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
@@ -624,4 +634,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19G4 deja completo `SWITCH_MANAGED_ACCOUNT` remoto para un Client individual mediante target-only request, source derivado localmente, target preflight estructural antes de logoff, espera acotada a `NO_SESSION` y reuse de LOGON/LOGOFF productivos. La disponibilidad real de LogonUI/Credential Provider se decide en el tramo LOGON posterior a `NO_SESSION`. El siguiente paso recomendado es 19H: integrar `ManagedAccountSwitchPlanner`, endpoint/batch Master, aula/grupo/devices, partial success, `NO_CHANGE`, retry solo de errores realmente retryable y UX futura.
+Fase 19H1 deja completo el primer batch Master para `SWITCH_MANAGED_ACCOUNT` con seleccion explicita de Devices, snapshot remoto de planificacion, `NO_CHANGE`, partial success y persistencia consultable por la API de operaciones. El siguiente paso recomendado es 19H2: retry administrativo explicito y selectivo solo sobre targets `FAILED` cuyo `ErrorCode.retryable()` lo permita, siempre con snapshot nuevo y operationId remoto nuevo.

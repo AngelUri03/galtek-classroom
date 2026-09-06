@@ -461,6 +461,29 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void getWindowsSessionStateBuildsTypedReadOnlyOperationRequestWithoutFunctionalPayload() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.getWindowsSessionState(snapshot, "snapshot-1", "device-1").orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationId()).isEqualTo("snapshot-1");
+        assertThat(request.getTargetDeviceId()).isEqualTo("device-1");
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_SESSION_STATE);
+        assertThat(request.getTimeoutMs()).isEqualTo(Duration.ofMillis(100).toMillis());
+        assertThat(request.getOperationParametersCase())
+                .isEqualTo(OperationRequest.OperationParametersCase.OPERATIONPARAMETERS_NOT_SET);
+        assertThat(request.hasSwitchManagedAccount()).isFalse();
+        assertThat(request.hasLogonManagedAccount()).isFalse();
+        assertThat(request.hasLogoffWindowsSession()).isFalse();
+        assertThat(request.hasProvisionManagedCredential()).isFalse();
+    }
+
+    @Test
     void switchManagedAccountMapsPrimaryAndSecondaryOnly() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();

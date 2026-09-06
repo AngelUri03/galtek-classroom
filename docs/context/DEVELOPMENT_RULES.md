@@ -55,6 +55,16 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Una licencia MASTER valida no crea pairing ni trust con Clients.
 - La autorizacion Master productiva proviene del Agent Service; el Master Backend solo consume estado derivado por IPC.
 - Todo endpoint administrativo nuevo del Master Backend debe llamar a `MasterAccessGuard` antes de leer o escribir datos escolares, salvo la unica excepcion actual y explicita: `POST /api/classrooms/{classroomId}/input-control/unlock`.
+- El batch Master de cambio de cuenta administrada exige `targetDeviceIds` explicitos; ausencia de targets nunca significa toda el aula, grupo, alumno o seleccion implicita.
+- En session switch batch, `MasterAccessGuard.requireAuthorized()` debe correr antes de leer Classroom, Devices, assignments, bindings, trust, presencia o SQLite escolar.
+- Toda `BatchOperation` de session switch debe persistirse antes del primer `GET_WINDOWS_SESSION_STATE` remoto.
+- `GET_WINDOWS_SESSION_STATE` en el Master batch es solo snapshot de planificacion: permite `NO_CHANGE`, bloqueo o dispatch, pero no es lock ni reemplaza las revalidaciones del Agent.
+- `NO_CHANGE` es resultado final exitoso, se persiste, no envia mutation y nunca se reintenta.
+- El Master nunca implementa switch encadenando `LOGOFF_WINDOWS_SESSION` + `LOGON_MANAGED_ACCOUNT`; cualquier mutation del batch usa solo `SWITCH_MANAGED_ACCOUNT(target)`.
+- El Master no fabrica readiness de cuenta o credencial del Client. La falta de binding, credential o Credential Provider se propaga como error estructurado desde el Agent y nunca dispara auto-provisioning.
+- En batch Master, `OTHER_SESSION_ACTIVE` bloquea el target como `WINDOWS_SESSION_CHANGED` y `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`.
+- No hay retry automatico de session switch. `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` no autoriza reenviar ni inferir fracaso seguro.
+- Un target lento, offline o fallido no debe cancelar otros targets independientes del mismo batch.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` debe llamar a `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer datos escolares y solo puede despachar `UNLOCK_INPUT` recovery-safe. Esta excepcion no se generaliza a otros "recovery endpoints" ni autoriza acciones distintas.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
 - `GET_MASTER_UNLOCK_AUTHORIZATION` es una operacion Local IPC v1 read-only interna para recovery-safe `UNLOCK_INPUT`; no debe exponerse como endpoint publico ni reutilizarse como permiso administrativo general.

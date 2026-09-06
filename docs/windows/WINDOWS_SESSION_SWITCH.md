@@ -1,5 +1,9 @@
 # Windows Session Switch
 
+Prompt 19H1 agrega el batch Master `POST /api/classrooms/{classroomId}/managed-accounts/switch` sobre la primitive remota 19G4. El batch acepta solo `targetAccountId` `PRIMARY|SECONDARY` y `targetDeviceIds` explicitos, se protege con `MasterAccessGuard`, persiste una sola `BatchOperation` antes del primer snapshot, consulta `GET_WINDOWS_SESSION_STATE` por target con operationId propio y solo envia `SWITCH_MANAGED_ACCOUNT(target)` para targets cuyo snapshot permite mutation.
+
+`NO_CHANGE` se persiste cuando el snapshot ya coincide con el target y no envia mutation. `OTHER_SESSION_ACTIVE` se bloquea como `WINDOWS_SESSION_CHANGED`; `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`. Aunque el plan conceptual sea `LOGON` para `NO_SESSION`, el Master no envia `LOGON_MANAGED_ACCOUNT`: usa siempre `SWITCH_MANAGED_ACCOUNT(target)` porque el Agent vuelve a observar y revalidar ante races.
+
 Prompt 19G4 implementa `SWITCH_MANAGED_ACCOUNT` como operacion remota tipada para un Client individual. No agrega endpoint HTTP, BatchOperation, fanout, planner, UI ni cambios C++ del Credential Provider.
 
 ## Contrato
@@ -89,4 +93,4 @@ El Master usa timeout fijo especifico para `SWITCH_MANAGED_ACCOUNT`, separado de
 
 ## Pendiente
 
-19H integrara planner/batch/endpoint/UI para aula, grupo y devices, con partial success, `NO_CHANGE`, retry solo de errores realmente retryable y UX futura.
+19H1 ya integra planner/batch/endpoint para Devices explicitamente seleccionados, con partial success y `NO_CHANGE`. Quedan pendientes UI y 19H2 para retry administrativo explicito solo de errores realmente retryable.

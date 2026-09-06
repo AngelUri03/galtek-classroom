@@ -47,7 +47,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Bloqueo y desbloqueo de teclado/mouse.
 - Cuentas Windows administradas en Clients con slots logicos `PRIMARY` y `SECONDARY`.
 - `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni implican bloqueo automatico.
-- Cambio masivo futuro de sesion Windows administrada: consultar sesion, iniciar cuenta administrada, cerrar sesion y cambiar entre `PRIMARY`/`SECONDARY`.
+- Cambio masivo Master de sesion Windows administrada para Devices explicitos: consulta snapshot remoto, persiste `NO_CHANGE` y despacha `SWITCH_MANAGED_ACCOUNT(PRIMARY|SECONDARY)` con resultados por target.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
 - Resolucion determinista de una sola politica efectiva para validar `OPEN_URL`, restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist` y aplicar policies desde Master mediante dispatch batch.
@@ -74,7 +74,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Master backend: Java 21, Spring Boot 3.x, Maven.
 - Master UI futura: React + Tauri, sin Vite.
 - Agent: C#/.NET en Windows.
-- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas, framework de operaciones tipadas y status query read-only para reconciliar operaciones previas. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` ya tienen ejecucion productiva en el Agent; el Master ya despacha batch `SHUTDOWN`, `RESTART`, `OPEN_URL` y apply de policies de navegacion/descarga.
+- Comunicacion Master-Agent: gRPC y Protobuf v1 para conexion segura, identificacion, heartbeat, capabilities tipadas, framework de operaciones tipadas y status query read-only para reconciliar operaciones previas. `SHUTDOWN`, `RESTART`, `OPEN_URL`, `APPLY_BROWSER_NAVIGATION_POLICY`, `APPLY_BROWSER_DOWNLOAD_POLICY`, `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT` ya tienen primitives Agent/Master gateway; el Master ya despacha batch `SHUTDOWN`, `RESTART`, `OPEN_URL`, input control, apply de policies de navegacion/descarga y switch de cuenta administrada.
 - Seguridad de red: TLS/mTLS obligatorio con certificados ligados al trust de pairing por fingerprint de public key.
 - Identidad criptografica local de Client: CNG/KSP de Windows a nivel maquina, con metadata publica separada.
 - Identidad criptografica local de Master: metadata publica separada y private key cifrada fuera de SQLite/JSON plano.
@@ -99,7 +99,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Un pairing en estado `REVOKED` no puede administrar el Client.
 - IP, MAC y hostname son datos informativos/de descubrimiento; no autorizan administracion.
 - El Client inicia una conexion persistente saliente hacia el Master; el Master no depende de conexiones entrantes hacia cada PC Client.
-- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent con batch Master desde `POST /api/classrooms/{classroomId}/power-control`; `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` se aplican desde Master con batch dispatch; `OPEN_URL` ya se despacha desde Master mediante `POST /api/classrooms/{classroomId}/open-url` y se ejecuta en el Client mediante el Session Agent en la sesion interactiva. Todavia no existe mDNS real ni discovery real.
+- Existe transporte gRPC/mTLS para `ClientHello`, estado de conexion, heartbeat, capabilities tipadas, framework de operaciones y consulta read-only de resultado por `operationId`; `SHUTDOWN` y `RESTART` ya son operaciones productivas del Agent con batch Master desde `POST /api/classrooms/{classroomId}/power-control`; `APPLY_BROWSER_NAVIGATION_POLICY` y `APPLY_BROWSER_DOWNLOAD_POLICY` se aplican desde Master con batch dispatch; `OPEN_URL` ya se despacha desde Master mediante `POST /api/classrooms/{classroomId}/open-url` y se ejecuta en el Client mediante el Session Agent en la sesion interactiva; `SWITCH_MANAGED_ACCOUNT` ya tiene batch Master desde `POST /api/classrooms/{classroomId}/managed-accounts/switch` para Devices explicitos. Todavia no existe mDNS real ni discovery real.
 - La politica administrativa de navegacion no reemplaza la validacion estructural de URL: ninguna allowlist puede autorizar esquemas inseguros como `file:`, `javascript:` o `data:`.
 - Prompt 13 construyo transporte seguro usando el trust ya establecido; las fases siguientes no deben redisenar pairing.
 - Prompt 14 construyo registro de Devices, capabilities y framework tipado de operaciones sobre este transporte, sin redisenar pairing/mTLS.
@@ -114,7 +114,7 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Los archivos de alumno pertenecen a `StudentWorkspace`, no a una PC especifica.
 - El Master local se autoriza por licencia MASTER, Installation Identity y Windows SID ligado.
 - Las operaciones futuras deben ser tipadas, batch-first, idempotentes cuando sea posible y con errores operacionales por target.
-- Las operaciones futuras de cuentas Windows administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`); el Master no almacenara ni enviara passwords.
+- Las operaciones de cuentas Windows administradas enviaran solo `accountId` logico (`PRIMARY`/`SECONDARY`); el Master no almacenara ni enviara passwords.
 - La credencial real futura de cuentas administradas pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
 - La persistencia local del dominio Master vive en SQLite y debe conservar historial e invariantes de assignments.
 - El Master no debe convertirse en terminal server: Word, Chrome, Scratch, RoboMind, Office y aplicaciones interactivas corren localmente en cada Client.

@@ -2,6 +2,10 @@
 
 ## Estado general
 
+Prompt 19H1 implementa en el Master Backend Java el primer batch administrativo real para dejar Devices explicitos en una cuenta Windows administrada objetivo `PRIMARY` o `SECONDARY`. Expone `POST /api/classrooms/{classroomId}/managed-accounts/switch`, protegido por `MasterAccessGuard` antes de cualquier lectura escolar, con request estricta de solo `targetAccountId` y `targetDeviceIds`. Cada llamada crea una sola `BatchOperation` `SWITCH_MANAGED_ACCOUNT`, persiste targets antes del primer `GET_WINDOWS_SESSION_STATE`, guarda payload no secreto `{"schemaVersion":1,"targetAccountId":"PRIMARY|SECONDARY"}` y devuelve resumen estructurado `total/noChange/success/failed`.
+
+El batch hace preflight local por Device: pertenece al aula, binding vigente, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS autenticada `ONLINE`, capability `WINDOWS_SESSION_STATE_V1` y capability `WINDOWS_SESSION_SWITCH_V1`. No exige `SESSION_AGENT_AVAILABLE`, no consulta Credential Vault, no fabrica readiness de cuenta/credencial y no provisiona secretos. Para cada target listo, el Master pide un snapshot remoto con operationId propio; `NO_CHANGE` se persiste si el target ya esta activo; `OTHER_SESSION_ACTIVE` bloquea como `WINDOWS_SESSION_CHANGED`; `UNKNOWN` bloquea como `WINDOWS_SESSION_UNKNOWN`; `NO_SESSION` y opposite managed activo despachan siempre la unica primitive mutating `SWITCH_MANAGED_ACCOUNT(target)` con otro operationId propio. No hay retry automatico, retry endpoint, UI, Protobuf, Agent, C# ni C++ nuevos en 19H1.
+
 Prompt 19G4 implementa `SWITCH_MANAGED_ACCOUNT(targetAccountId)` como operacion remota tipada para un Client individual, sin endpoint HTTP, BatchOperation, planner, fanout ni UI. El contrato Protobuf agrega `SwitchManagedAccountOperationParameters(account_id)` y la capability especifica `WINDOWS_SESSION_SWITCH_V1`; el Master Java agrega solo `MasterRemoteOperationGateway.switchManagedAccount(...)` con timeout fijo especifico de 75 segundos y mappings de operation/capability/error. El request transporta solo `PRIMARY` o `SECONDARY`: no source account, password, username, domain, SID, `accountReference`, `sessionId`, `credentialId`, vault token, force, timeout configurable, command, args, shell ni payload arbitrario.
 
 El Agent anuncia `WINDOWS_SESSION_SWITCH_V1` y ejecuta SWITCH por el `RemoteOperationDispatcher` normal: gRPC/mTLS, Master esperado, trust `PAIRED`, no `REVOKED`, Device correcto, operacion soportada y Commercial License Client `ACTIVE`; `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe. `WindowsSessionSwitchService` deriva source exclusivamente desde `WindowsSessionState` local (`PRIMARY_ACTIVE`/`SECONDARY_ACTIVE`), nunca desde datos enviados por Master ni por username/sessionId. Target ya activo devuelve `SUCCESS` idempotente sin DPAPI, logoff ni activation; `NO_SESSION` reutiliza `WindowsSessionLogonService`; `OTHER_SESSION_ACTIVE` devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
@@ -96,7 +100,7 @@ Prompt 06 deja `GaltekClassroom.Agent.Service` como Windows Service real y agreg
 
 Local IPC API v1 sigue siendo read-only sobre Windows Named Pipes. `GaltekClassroom.Agent.Service` expone estado seguro de dispositivo, Machine Code, autorizacion Master administrativa, autorizacion interna de unlock recovery y diagnostico runtime on-demand sin duplicar Installation Identity ni Commercial License. El Session Agent continua usando `PING` y `GET_DEVICE_STATUS`. Las acciones interactivas futuras no se agregan a Local IPC v1: usan el canal separado `Session Command v1`.
 
-Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente; Prompt 18B2 despacha input control batch desde Master usando handlers Agent-side existentes. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, `LOGON_MANAGED_ACCOUNT` real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, dispatch Master/batch de logoff, mDNS, UI ni captura. `LOGOFF_WINDOWS_SESSION` ya existe Agent-side desde 19F.
+Las capacidades operativas de administracion remota restantes siguen planificadas. Prompt 15B despacha power control (`SHUTDOWN`/`RESTART`) desde el Master hacia el Agent Service; Prompt 16F1 despacha apply batch de policies de navegacion/descarga ya persistidas; Prompt 16F2 despacha `OPEN_URL` batch desde Master usando el handler Agent-side existente; Prompt 18B2 despacha input control batch desde Master usando handlers Agent-side existentes; Prompt 19H1 despacha batch Master de `SWITCH_MANAGED_ACCOUNT` para Devices explicitos usando snapshot remoto previo. Todavia no se ejecuta transferencia real, wallpapers, proyeccion, dispatch Master/batch de logoff, retry administrativo de switch, mDNS, UI ni captura.
 
 ## Modelo operativo Master/Client
 
@@ -309,10 +313,10 @@ IMPLEMENTADO:
 - `DeviceAssignmentPolicy` para detectar alumno ya asignado y equipo ocupado.
 - `StudentMovePlanner` para preflight de `MOVE_STUDENT` sin mover archivos.
 - `StudentSwapPlanner` para preflight de `SWAP_STUDENTS` sin transferencias ni cambios de assignment.
-- `ManagedAccountSwitchPlanner` para preflight de `SWITCH_MANAGED_ACCOUNT` sin iniciar ni cerrar sesiones reales.
+- `ManagedAccountSwitchPlanner` para planificar `SWITCH_MANAGED_ACCOUNT` desde snapshot remoto real, sin iniciar ni cerrar sesiones por si mismo.
 - `BatchOperationPlanner` para clasificar targets `READY`, `WARNING`, `BLOCKED`.
 - Modelo central `ErrorCode` con categorias y bandera retryable, separado de mensajes para usuario.
-- Operaciones futuras tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- Operaciones tipadas `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - Estado de resultado por target `NO_CHANGE` tratado como exito no retryable.
 - `BatchOperation` con estados `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `ROLLED_BACK` y retry solo de fallidos retryable.
 - `POST /api/classrooms/{classroomId}/power-control` registra una `BatchOperation` `SHUTDOWN` o `RESTART` antes de enviar requests y actualiza targets al terminar el fanout.
@@ -405,9 +409,9 @@ NO IMPLEMENTADO:
 - Commercial License en Java.
 - Llaves publicas o JWT dentro del Master Backend.
 - Ejecucion real de `DISTRIBUTE_FILE`, `CREATE_FOLDER`, `SET_WALLPAPER`, `MOVE_STUDENT` o `SWAP_STUDENTS`.
-- Ejecucion real de `LOGON_MANAGED_ACCOUNT` o `SWITCH_MANAGED_ACCOUNT`.
+- UI Master para `LOGON_MANAGED_ACCOUNT` o `SWITCH_MANAGED_ACCOUNT`.
 - Almacenamiento de passwords o credenciales Windows administradas en `classroom.db`.
-- `LOGON_MANAGED_ACCOUNT` real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, Credential Provider, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
+- UI/retry administrativo de `SWITCH_MANAGED_ACCOUNT`, filesystem/sync real, USB real, automatizacion Chrome, captura, proyeccion, UI, reconciliacion productiva de workflows de datos futuros, performance tuning y mDNS.
 
 ## Almacenamiento local del Master
 
@@ -583,7 +587,7 @@ PLANIFICADO:
 - Handlers productivos para operaciones remotas tipadas.
 - Operaciones privilegiadas.
 - Custodia futura de credenciales de cuentas Windows administradas de Client, protegidas con mecanismos seguros de Windows.
-- Integracion batch/API/UI futura sobre el logon administrado productivo con Credential Provider V2 y el switch Agent-side productivo.
+- Integracion batch/API/UI futura sobre el logon administrado productivo con Credential Provider V2; para switch, 19H1 ya cubre batch/API y quedan UI/retry administrativo.
 - Coordinacion con Session Agent.
 - Coordinacion funcional con Session Agent para operaciones futuras.
 
@@ -601,11 +605,11 @@ NO IMPLEMENTADO:
 - Uso de passwords de cuentas Windows administradas para iniciar o cambiar sesion.
 - Credential Provider.
 - `LOGON_MANAGED_ACCOUNT` real.
-- `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario Windows.
+- UI/retry administrativo de `SWITCH_MANAGED_ACCOUNT`.
 - Autologon inseguro, SendKeys, scripts de automatizacion Windows o shell arbitraria para iniciar sesion.
 - Endpoints/IPC de pairing reales expuestos a UI/transporte.
 - Comandos MASTER protegidos por autorizacion de red.
-- Endpoint/batch Master para session control (`GET_WINDOWS_SESSION_STATE`, `PROVISION_MANAGED_CREDENTIAL`, `LOGOFF_WINDOWS_SESSION`, `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT`).
+- Endpoint/batch Master para session control restante (`PROVISION_MANAGED_CREDENTIAL`, `LOGOFF_WINDOWS_SESSION`, `LOGON_MANAGED_ACCOUNT` y retry administrativo de `SWITCH_MANAGED_ACCOUNT`).
 - Comunicacion de red.
 - Lanzamiento de procesos de sesion interactiva desde el Windows Service.
 
@@ -982,7 +986,7 @@ NO IMPLEMENTADO:
 - DPAPI/ACL hardening avanzado para `license.dat`.
 - Integracion de `managed-windows-accounts.json` con browser policies por `PRIMARY`/`SECONDARY`.
 - Local IPC especifico de cuentas administradas, si una fase futura lo requiere.
-- `LOGON_MANAGED_ACCOUNT` real y `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario.
+- UI/retry administrativo de `SWITCH_MANAGED_ACCOUNT`.
 
 Nota de seguridad: en esta fase `license.dat` no depende de confidencialidad para integridad. El JWT esta firmado, ligado a `installationId` y ligado al hardware por regla 3 de 4. El cifrado o endurecimiento local queda para una fase posterior.
 
@@ -996,7 +1000,7 @@ VIGENTE DESDE AHORA:
 - `SHUTDOWN` y `RESTART` ya implementados en el Agent deben seguir pasando por gRPC/mTLS, trust `PAIRED`, no `REVOKED`, Commercial License activa y `RemoteOperationDispatcher`; no existe una via paralela de ejecucion.
 - Power control debe usar API nativa Windows y no `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts, `Process.Start`, `SendKeys` ni elevacion de procesos.
 - Power control no fuerza cierre de aplicaciones en esta version y `SUCCESS` significa que Windows acepto la solicitud, no que el apagado/reinicio ya concluyo.
-- Las operaciones futuras de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
+- Las operaciones de cuentas Windows administradas deben usar `GET_WINDOWS_SESSION_STATE`, `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT`.
 - `GET_WINDOWS_SESSION_STATE` ya existe Agent-side como snapshot remoto read-only y on-demand de la consola fisica; no se consulta en heartbeat ni startup.
 - `GET_WINDOWS_SESSION_STATE` usa SID del token real de la consola fisica para clasificar contra `managed-windows-accounts.json`; nunca mapea por username ni `accountReference`.
 - `LOGOFF_WINDOWS_SESSION` ya existe Agent-side y solo cierra la consola fisica si el SID real sigue coincidiendo con el managed account esperado `PRIMARY`/`SECONDARY`.
@@ -1062,7 +1066,7 @@ VIGENTE DESDE AHORA:
 - Rebinding de Master siempre requiere intencion explicita.
 - IPC v1 es read-only; acceso al pipe no equivale a autorizacion para futuras operaciones privilegiadas.
 - Las operaciones futuras que aumenten control requeriran licencia activa.
-- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando se implementen comandos administrativos futuros sobre el transporte seguro.
-- Existe transporte gRPC/mTLS para conexion, identificacion, heartbeat y operaciones remotas tipadas; todavia no existe mDNS, discovery real ni comandos remotos distintos de `SHUTDOWN` y `RESTART`.
+- Solo un Master localmente autorizado y con trust de pairing vigente puede ordenar logon/logoff/switch en Clients mediante comandos administrativos tipados sobre el transporte seguro.
+- Existe transporte gRPC/mTLS para conexion, identificacion, heartbeat y operaciones remotas tipadas; todavia no existe mDNS ni discovery real.
 - El transporte seguro usa el trust ya establecido por pairing y no redisena pairing como discovery.
 - Las operaciones futuras de recuperacion, como `UNLOCK_INPUT` y `STOP_PROJECTION`, no deben bloquearse por expiracion para evitar dejar equipos atrapados.

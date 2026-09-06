@@ -127,7 +127,7 @@ class BrowserDownloadPolicyPersistenceIntegrationTest {
                 nowText());
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(5);
+            assertThat(flywaySuccessCount(context)).isEqualTo(6);
             BrowserPolicyRepository navigationRepository = context.getBean(BrowserPolicyRepository.class);
             assertThat(navigationRepository.findPolicyById(navigationPolicyId))
                     .get()

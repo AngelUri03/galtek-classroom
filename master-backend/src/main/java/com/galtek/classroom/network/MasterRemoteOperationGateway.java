@@ -224,6 +224,17 @@ public class MasterRemoteOperationGateway {
                 null);
     }
 
+    public Optional<DispatchHandle> getWindowsSessionState(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId) {
+        return dispatch(
+                snapshot,
+                OperationType.GET_WINDOWS_SESSION_STATE,
+                operationId,
+                targetDeviceId);
+    }
+
     public Optional<DispatchHandle> switchManagedAccount(
             ClientConnectionSnapshot snapshot,
             String operationId,

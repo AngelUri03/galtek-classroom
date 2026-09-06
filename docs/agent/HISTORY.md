@@ -1,5 +1,44 @@
 # Historial
 
+## 2026-09-06 - Prompt 19H1
+
+### Realizado
+
+- Agregado en Master Backend Java `POST /api/classrooms/{classroomId}/managed-accounts/switch` para dejar Devices explicitamente seleccionados en `PRIMARY` o `SECONDARY`.
+- El endpoint usa `MasterAccessGuard` antes de request parsing efectivo, lectura escolar, storage de dominio, presencia, trust o dispatch remoto.
+- La request es estricta: solo `targetAccountId` y `targetDeviceIds`; no acepta secretos, source account, timeout, force, group/all-classroom fanout ni payload libre.
+- Cada invocacion crea una sola `BatchOperation` `SWITCH_MANAGED_ACCOUNT` y la persiste antes del primer `GET_WINDOWS_SESSION_STATE`.
+- El payload durable contiene solo `schemaVersion` y `targetAccountId`.
+- Agregado preflight local por target con pertenencia al aula, binding vigente, trust `PAIRED`, no `REVOKED`, conexion gRPC/mTLS autenticada `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`.
+- `SESSION_AGENT_AVAILABLE`, readiness de cuenta, Credential Provider y credenciales quedan deferidos al Client.
+- Agregado dispatch read-only `MasterRemoteOperationGateway.getWindowsSessionState(...)` usando la operacion Protobuf existente sin payload funcional.
+- Integrado `ManagedAccountSwitchPlanner` con snapshots remotos reales: target activo produce `NO_CHANGE`, `NO_SESSION` planifica `LOGON`, opposite managed activo planifica `SWITCH`, `OTHER_SESSION_ACTIVE` bloquea como `WINDOWS_SESSION_CHANGED` y `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`.
+- Para planes mutating, el Master envia siempre `SWITCH_MANAGED_ACCOUNT(target)` con operationId remoto propio; nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`.
+- Agregada respuesta de batch con `summary.total/noChange/success/failed`, `retryable` por target y preservacion de errores estructurados del Agent.
+- Agregada migracion SQLite para permitir `NO_CHANGE` en `batch_target_results`.
+- Agregadas pruebas Java de controller/service batch, planner y gateway.
+- Actualizados docs de arquitectura, modelo funcional, reglas, API, estado, decisiones, session switch y nuevo `docs/windows/MANAGED_ACCOUNT_SWITCH_BATCH.md`.
+
+### Cambios descartados
+
+- No se tocaron Agent .NET, Protobuf, C++ ni Credential Provider.
+- No se agrego UI.
+- No se implemento retry automatico, retry endpoint ni reconciliation de `SWITCH_MANAGED_ACCOUNT`.
+- No se agrego provisioning, vault unlock, almacenamiento/envio de passwords, SID, username, sessionId, credentialId ni vault token.
+- No se agrego switch por assignment/startup/recovery ni fanout implicito por grupo/aula.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=ManagedAccountSwitchPlannerTest,ManagedAccountSwitchDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest,BrowserDownloadPolicyPersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 330 pruebas superadas.
+
+### Commit sugerido
+
+`feat(master): batch managed account switching`
+
 ## 2026-08-25 - Prompt 01
 
 ### Realizado

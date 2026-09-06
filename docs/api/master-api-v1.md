@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -454,6 +454,112 @@ Errores relevantes:
 - `403 <authorization.status>`: guard local correspondiente falla.
 - `404 CLASSROOM_NOT_FOUND`: aula inexistente.
 - Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `INPUT_LOCK_FAILED`, `INPUT_UNLOCK_FAILED`, `SESSION_AGENT_UNAVAILABLE`, `SESSION_COMMAND_FAILED`, `SESSION_COMMAND_RESULT_UNKNOWN`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
+
+## Managed Account Switch
+
+`POST /api/classrooms/{classroomId}/managed-accounts/switch`
+
+Endpoint protegido por `MasterAccessGuard`. Ejecuta una sola operacion batch remota para dejar Devices explicitos en la cuenta Windows administrada objetivo `PRIMARY` o `SECONDARY`.
+
+Request:
+
+```json
+{
+  "targetAccountId": "PRIMARY",
+  "targetDeviceIds": [
+    "device-1",
+    "device-2"
+  ]
+}
+```
+
+Reglas de request:
+
+- Solo se aceptan `targetAccountId` y `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
+- `targetAccountId` solo acepta `PRIMARY` o `SECONDARY`.
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados y tiene limite maximo de 100 targets.
+- No se aceptan password, username, SID, sessionId, credentialId, vault token, source account, force, timeout, command, args, shell, `groupId`, `allDevices` ni payload libre.
+
+Preflight por target:
+
+- El Device debe existir y pertenecer al aula solicitada.
+- El Device debe tener binding de red vigente.
+- La Network Identity debe coincidir con el binding esperado.
+- El trust debe estar `PAIRED` y no estar `REVOKED`.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`.
+- No se exige `SESSION_AGENT_AVAILABLE`; readiness de Agent, Credential Provider, cuenta y credencial queda deferida al Client.
+
+Batch, snapshot y dispatch:
+
+- Cada request crea una sola `BatchOperation` `SWITCH_MANAGED_ACCOUNT`.
+- La operacion se persiste antes del primer `GET_WINDOWS_SESSION_STATE`, con targets listos en `PENDING` y fallos de preflight en `FAILED`.
+- El payload persistido es minimo: `schemaVersion = 1` y `targetAccountId`; no contiene secretos ni identificadores sensibles.
+- Cada target listo recibe `GET_WINDOWS_SESSION_STATE` con operationId remoto propio.
+- Si el target ya esta activo, queda `NO_CHANGE`, no se envia mutation y no entra en retry.
+- `OTHER_SESSION_ACTIVE` queda `FAILED/WINDOWS_SESSION_CHANGED`; `UNKNOWN` queda `FAILED/WINDOWS_SESSION_UNKNOWN`.
+- Si el plan conceptual es `LOGON` o `SWITCH`, el Master envia siempre `SWITCH_MANAGED_ACCOUNT(targetAccountId)` con operationId remoto propio.
+- El Master nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT` y nunca envia `LOGON_MANAGED_ACCOUNT` directamente desde este batch.
+- Un target lento o fallido no cancela otros targets; el fanout usa concurrencia acotada.
+
+Respuesta:
+
+```json
+{
+  "operationId": "uuid-batch",
+  "type": "SWITCH_MANAGED_ACCOUNT",
+  "targetAccountId": "PRIMARY",
+  "status": "PARTIAL_SUCCESS",
+  "targetCount": 3,
+  "summary": {
+    "total": 3,
+    "noChange": 1,
+    "success": 1,
+    "failed": 1
+  },
+  "targets": [
+    {
+      "deviceId": "device-1",
+      "status": "NO_CHANGE",
+      "errorCode": null,
+      "retryable": false,
+      "message": "Target managed account is already active.",
+      "attempt": 1
+    },
+    {
+      "deviceId": "device-2",
+      "status": "SUCCESS",
+      "errorCode": null,
+      "retryable": false,
+      "message": "Agent reported operation success.",
+      "attempt": 1
+    },
+    {
+      "deviceId": "device-3",
+      "status": "FAILED",
+      "errorCode": "DEVICE_OFFLINE",
+      "retryable": true,
+      "message": "Device is offline.",
+      "attempt": 1
+    }
+  ]
+}
+```
+
+Semantica:
+
+- `SUCCESS` significa que el Agent reporto exito para la primitive `SWITCH_MANAGED_ACCOUNT`; el Agent conserva autoridad final ante races, credenciales y Credential Provider.
+- `NO_CHANGE` significa que el snapshot remoto ya mostraba la cuenta objetivo activa; cuenta como exito y no es retryable.
+- Mezclas de `SUCCESS`/`NO_CHANGE` y `FAILED` producen `PARTIAL_SUCCESS`; todos exitosos producen `SUCCESS`; todos fallidos producen `FAILED`.
+- No hay retry automatico, retry endpoint ni reconciliacion productiva de `SWITCH_MANAGED_ACCOUNT` en 19H1.
+- `GET /api/operations/{id}` lee el batch durable y `GET /api/operations/{id}/retryable-targets` excluye `NO_CHANGE` y `SUCCESS`.
+
+Errores relevantes:
+
+- `400 INVALID_REQUEST`: body faltante, `targetAccountId` no permitido, targets vacios/duplicados/blank, mas de 100 targets o campos no soportados.
+- `403 <authorization.status>`: Master local no autorizado.
+- `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `WINDOWS_SESSION_CHANGED`, `WINDOWS_SESSION_UNKNOWN`, `ACCOUNT_NOT_CONFIGURED`, `MANAGED_ACCOUNT_BINDINGS_INVALID`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `CREDENTIAL_PROVIDER_UNAVAILABLE`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGON_NOT_CONFIRMED`, `WINDOWS_LOGOFF_FAILED`, `WINDOWS_SWITCH_NOT_CONFIRMED`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
 
 ## Reconcile Power Operation
 
@@ -963,6 +1069,12 @@ El batch hace preflight de todo el lote antes de escribir y detecta conflictos i
 - `POST /api/classrooms/{id}/open-application`
 
 Los endpoints `GET` solo listan catalogo existente y aplicaciones autorizadas por aula. `open-application` ejecuta dispatch batch remoto solo por `applicationId` logico autorizado; no acepta rutas arbitrarias ni consulta bindings locales por Device.
+
+## Managed Accounts
+
+- `POST /api/classrooms/{id}/managed-accounts/switch`
+
+El endpoint ejecuta batch remoto `SWITCH_MANAGED_ACCOUNT` sobre Devices explicitos, con snapshot previo, `NO_CHANGE` durable y sin secretos en request, Protobuf ni payload persistido.
 
 ## Operations
 

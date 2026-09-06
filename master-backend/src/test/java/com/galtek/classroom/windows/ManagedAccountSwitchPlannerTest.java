@@ -28,7 +28,7 @@ class ManagedAccountSwitchPlannerTest {
         var plan = planner.planSwitch(
                 "OP-WIN-1",
                 ManagedWindowsAccountType.PRIMARY,
-                List.of(target("DEV-PC01", DeviceStatus.ONLINE, WindowsSessionState.PRIMARY_ACTIVE, primaryReady())));
+                List.of(target("DEV-PC01", DeviceStatus.ONLINE, WindowsSessionState.PRIMARY_ACTIVE)));
 
         assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
         assertThat(plan.noChangeTargets()).hasSize(1);
@@ -41,7 +41,7 @@ class ManagedAccountSwitchPlannerTest {
         var plan = planner.planSwitch(
                 "OP-WIN-2",
                 ManagedWindowsAccountType.PRIMARY,
-                List.of(target("DEV-PC03", DeviceStatus.ONLINE, WindowsSessionState.NO_SESSION, primaryReady())));
+                List.of(target("DEV-PC03", DeviceStatus.ONLINE, WindowsSessionState.NO_SESSION)));
 
         assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
         assertThat(plan.executableTargets())
@@ -50,16 +50,11 @@ class ManagedAccountSwitchPlannerTest {
     }
 
     @Test
-    void otherManagedAccountActiveRequiresSwitch() {
+    void oppositeManagedAccountActiveRequiresSwitch() {
         var plan = planner.planSwitch(
                 "OP-WIN-3",
                 ManagedWindowsAccountType.PRIMARY,
-                List.of(target(
-                        "DEV-PC02",
-                        DeviceStatus.ONLINE,
-                        WindowsSessionState.SECONDARY_ACTIVE,
-                        primaryReady(),
-                        secondaryReady())));
+                List.of(target("DEV-PC02", DeviceStatus.ONLINE, WindowsSessionState.SECONDARY_ACTIVE)));
 
         assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
         assertThat(plan.executableTargets())
@@ -68,49 +63,69 @@ class ManagedAccountSwitchPlannerTest {
     }
 
     @Test
-    void unavailableDeviceIsBlockedAsPendingWithExistingDeviceError() {
+    void plannerDoesNotUsePersistedDeviceStatusAsSessionAuthority() {
         var plan = planner.planSwitch(
                 "OP-WIN-4",
                 ManagedWindowsAccountType.PRIMARY,
-                List.of(target("DEV-PC05", DeviceStatus.OFFLINE, WindowsSessionState.UNKNOWN, primaryReady())));
+                List.of(target("DEV-PC05", DeviceStatus.OFFLINE, WindowsSessionState.NO_SESSION)));
 
-        assertThat(plan.status()).isEqualTo(PreflightStatus.BLOCKED);
-        assertThat(plan.pendingTargets()).hasSize(1);
-        assertThat(plan.blockedTargets().getFirst().errorCode()).isEqualTo(ErrorCode.DEVICE_OFFLINE);
+        assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
+        assertThat(plan.pendingTargets()).isEmpty();
+        assertThat(plan.executableTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.LOGON);
     }
 
     @Test
-    void missingAccountConfigurationBlocksTarget() {
+    void otherSessionActiveBlocksAsWindowsSessionChanged() {
         var plan = planner.planSwitch(
                 "OP-WIN-5",
                 ManagedWindowsAccountType.SECONDARY,
-                List.of(target(
-                        "DEV-PC04",
-                        DeviceStatus.ONLINE,
-                        WindowsSessionState.PRIMARY_ACTIVE,
-                        primaryReady(),
-                        ManagedWindowsAccount.notConfigured(ManagedWindowsAccountType.SECONDARY))));
+                List.of(target("DEV-PC04", DeviceStatus.ONLINE, WindowsSessionState.OTHER_SESSION_ACTIVE)));
 
         assertThat(plan.status()).isEqualTo(PreflightStatus.BLOCKED);
-        assertThat(plan.blockedTargets().getFirst().errorCode()).isEqualTo(ErrorCode.ACCOUNT_NOT_CONFIGURED);
+        assertThat(plan.blockedTargets().getFirst().errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_CHANGED);
     }
 
     @Test
-    void missingCredentialBlocksTargetWithoutPasswordMaterial() {
-        var account = ManagedWindowsAccount.credentialMissing(
-                ManagedWindowsAccountType.PRIMARY,
-                "GALTEK-STUDENT-PRIMARY");
-
+    void unknownSessionBlocksAsWindowsSessionUnknown() {
         var plan = planner.planSwitch(
                 "OP-WIN-6",
                 ManagedWindowsAccountType.PRIMARY,
-                List.of(target("DEV-PC06", DeviceStatus.ONLINE, WindowsSessionState.NO_SESSION, account)));
+                List.of(target("DEV-PC06", DeviceStatus.ONLINE, WindowsSessionState.UNKNOWN)));
 
-        assertThat(account.accountId()).isEqualTo("PRIMARY");
-        assertThat(account.accountReference()).isEqualTo("GALTEK-STUDENT-PRIMARY");
-        assertThat(account.readyForManagedLogon()).isFalse();
-        assertThat(plan.blockedTargets().getFirst().errorCode())
-                .isEqualTo(ErrorCode.MANAGED_CREDENTIAL_NOT_CONFIGURED);
+        assertThat(plan.status()).isEqualTo(PreflightStatus.BLOCKED);
+        assertThat(plan.blockedTargets().getFirst().errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_UNKNOWN);
+    }
+
+    @Test
+    void deferredClientReadinessStillAllowsRemoteSwitchPlanning() {
+        var plan = planner.planSwitch(
+                "OP-WIN-6B",
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(target(
+                        "DEV-PC06",
+                        DeviceStatus.ONLINE,
+                        WindowsSessionState.SECONDARY_ACTIVE,
+                        ManagedWindowsAccount.notConfigured(ManagedWindowsAccountType.PRIMARY))));
+
+        assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
+        assertThat(plan.executableTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.SWITCH);
+    }
+
+    @Test
+    void noSessionDoesNotRequireFabricatedCredentialReadinessInMaster() {
+        var plan = planner.planSwitch(
+                "OP-WIN-6C",
+                ManagedWindowsAccountType.SECONDARY,
+                List.of(target(
+                        "DEV-PC06",
+                        DeviceStatus.ONLINE,
+                        WindowsSessionState.NO_SESSION,
+                        ManagedWindowsAccount.credentialMissing(
+                                ManagedWindowsAccountType.SECONDARY,
+                                "GALTEK-STUDENT-SECONDARY"))));
+
+        assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
+        assertThat(plan.executableTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.LOGON);
     }
 
     @Test
@@ -137,9 +152,33 @@ class ManagedAccountSwitchPlannerTest {
         assertThat(plan.executableTargets())
                 .extracting(ManagedAccountSwitchPreflightItem::action)
                 .containsExactly(ManagedAccountSwitchAction.SWITCH, ManagedAccountSwitchAction.LOGON);
-        assertThat(plan.pendingTargets())
+        assertThat(plan.blockedTargets())
                 .extracting(item -> item.target().targetId())
                 .containsExactly("DEV-PC05");
+        assertThat(plan.blockedTargets().getFirst().errorCode()).isEqualTo(ErrorCode.WINDOWS_SESSION_UNKNOWN);
+    }
+
+    @Test
+    void targetSecondaryMatrixMatchesProductiveSnapshotSemantics() {
+        var plan = planner.planSwitch(
+                "OP-WIN-7B",
+                ManagedWindowsAccountType.SECONDARY,
+                List.of(
+                        target("DEV-PC01", DeviceStatus.ONLINE, WindowsSessionState.SECONDARY_ACTIVE),
+                        target("DEV-PC02", DeviceStatus.ONLINE, WindowsSessionState.PRIMARY_ACTIVE),
+                        target("DEV-PC03", DeviceStatus.ONLINE, WindowsSessionState.NO_SESSION),
+                        target("DEV-PC04", DeviceStatus.ONLINE, WindowsSessionState.OTHER_SESSION_ACTIVE),
+                        target("DEV-PC05", DeviceStatus.ONLINE, WindowsSessionState.UNKNOWN)));
+
+        assertThat(plan.noChangeTargets())
+                .extracting(item -> item.target().targetId())
+                .containsExactly("DEV-PC01");
+        assertThat(plan.executableTargets())
+                .extracting(ManagedAccountSwitchPreflightItem::action)
+                .containsExactly(ManagedAccountSwitchAction.SWITCH, ManagedAccountSwitchAction.LOGON);
+        assertThat(plan.blockedTargets())
+                .extracting(ManagedAccountSwitchPreflightItem::errorCode)
+                .containsExactly(ErrorCode.WINDOWS_SESSION_CHANGED, ErrorCode.WINDOWS_SESSION_UNKNOWN);
     }
 
     @Test

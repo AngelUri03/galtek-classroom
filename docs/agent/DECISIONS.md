@@ -1,5 +1,26 @@
 # Decisiones vigentes
 
+## 2026-09-06 - Prompt 19H1
+
+- El Master Backend expone `POST /api/classrooms/{classroomId}/managed-accounts/switch` para dejar Devices explicitos en `PRIMARY` o `SECONDARY`.
+- La request acepta solo `targetAccountId` y `targetDeviceIds`; no acepta source, username, password, SID, sessionId, credentialId, vault token, force, timeout, retry, groupId, studentId, allDevices, command, args ni payload generico.
+- `MasterAccessGuard.requireAuthorized()` corre antes de cualquier lectura escolar, preflight, batch o trabajo remoto. No se usa `MasterUnlockAccessGuard`.
+- Una invocacion crea exactamente una `BatchOperation` `SWITCH_MANAGED_ACCOUNT`, aun para multiples Devices, y la persiste antes del primer `GET_WINDOWS_SESSION_STATE`.
+- El payload persistido solo guarda metadata no secreta versionada: `schemaVersion` y `targetAccountId`.
+- El preflight local exige Device del aula, binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`.
+- `SESSION_AGENT_AVAILABLE` no es preflight del Master para snapshot ni planificacion de switch.
+- Cada snapshot y cada switch remoto usan operationId propio; el batch operationId no se reutiliza como operationId remoto.
+- `GET_WINDOWS_SESSION_STATE` es solo snapshot de planificacion, no lock ni reconciliacion.
+- `ManagedAccountSwitchPlanner` ya no bloquea por readiness fabricada de account/credential en Master. Esa autoridad queda deferida al Agent.
+- `OTHER_SESSION_ACTIVE` bloquea como `WINDOWS_SESSION_CHANGED`; `UNKNOWN` bloquea como `WINDOWS_SESSION_UNKNOWN`.
+- Si el snapshot muestra target activo, se persiste `NO_CHANGE`, no se envia `SWITCH_MANAGED_ACCOUNT` y el target cuenta como exito no retryable.
+- Si el plan conceptual es `LOGON` o `SWITCH`, el Master envia siempre `SWITCH_MANAGED_ACCOUNT(target)`; nunca encadena LOGOFF + LOGON desde el Master.
+- Errores Agent como `ACCOUNT_NOT_CONFIGURED`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `CREDENTIAL_PROVIDER_UNAVAILABLE`, `WINDOWS_SWITCH_NOT_CONFIRMED`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGON_NOT_CONFIRMED`, `WINDOWS_SESSION_CHANGED`, `WINDOWS_SESSION_UNKNOWN` y `OPERATION_RESULT_UNKNOWN` se preservan por target.
+- `OPERATION_RESULT_UNKNOWN` de SWITCH no activa retry automatico ni inferencia posterior.
+- `NO_CHANGE` cuenta como exito para agregacion global; `SUCCESS/NO_CHANGE + FAILED` produce `PARTIAL_SUCCESS`; todos fallidos producen `FAILED`.
+- `GET /api/operations/{id}/retryable-targets` excluye `NO_CHANGE` y `SUCCESS`, e incluye solo fallidos con `ErrorCode.retryable()`.
+- 19H1 no implementa Agent, Protobuf, C++, UI, retry endpoint, retry automatico, provisioning, vault unlock, group/all classroom fanout implicito ni reconciliation de SWITCH.
+
 ## 2026-09-05 - Prompt 19G4
 
 - `SWITCH_MANAGED_ACCOUNT` remoto queda implementado como primitive individual Master gateway -> Agent, sin endpoint HTTP, BatchOperation, fanout, planner ni UI.
@@ -23,7 +44,7 @@
 - Dedupe usa `operationId + operationType + targetDeviceId + accountId` sin secretos; duplicado mismo target devuelve resultado original y mismo `operationId` con otro target accountId conserva conflicto.
 - El Master usa timeout fijo especifico de SWITCH de 75 segundos y conserva `OPERATION_RESULT_UNKNOWN` si pierde el resultado.
 - No hubo cambios productivos al Credential Provider nativo ni al C++.
-- 19H queda pendiente para planner/batch/endpoint/UX de cambio masivo.
+- Al cerrar 19G4, 19H quedaba pendiente para planner/batch/endpoint/UX de cambio masivo; 19H1 ya cubre planner/batch/endpoint para Devices explicitos y deja UX/retry para fases posteriores.
 
 ## 2026-09-05 - Prompt 19G3
 
@@ -77,7 +98,7 @@
 
 ## 2026-09-05 - Prompt 19G1
 
-- `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT` futuros deben usar Credential Provider V2 como mecanismo soportado por Windows para introducir credenciales al flujo normal Winlogon/LSA.
+- `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT` deben usar Credential Provider V2 como mecanismo soportado por Windows para introducir credenciales al flujo normal Winlogon/LSA.
 - 19G1 no realiza login, switch, password serialization, `KERB_INTERACTIVE_UNLOCK_LOGON`, LSA call ni acquisition de credenciales.
 - El Credential Provider de Galtek es una DLL C++ nativa con Windows SDK; no carga .NET runtime dentro de LogonUI y no agrega dependencias externas.
 - El CLSID vigente es `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}`.

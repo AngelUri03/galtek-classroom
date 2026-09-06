@@ -38,38 +38,6 @@ public final class ManagedAccountSwitchPlanner {
                 device.deviceId(),
                 device.displayName());
 
-        if (!device.availableForInteractiveOperation()) {
-            return new ManagedAccountSwitchPreflightItem(
-                    operationTarget,
-                    targetAccountType,
-                    target.sessionState(),
-                    ManagedAccountSwitchAction.PENDING,
-                    PreflightStatus.BLOCKED,
-                    device.status().toOperationalError(),
-                    "Device is not available for managed account switching.");
-        }
-
-        ManagedWindowsAccount targetAccount = target.account(targetAccountType);
-        if (targetAccount == null || !targetAccount.configured()
-                || targetAccount.status() == ManagedWindowsAccountStatus.NOT_CONFIGURED) {
-            return blocked(
-                    operationTarget,
-                    targetAccountType,
-                    target.sessionState(),
-                    ErrorCode.ACCOUNT_NOT_CONFIGURED,
-                    "Managed account " + targetAccountType.name() + " is not configured.");
-        }
-
-        if (!targetAccount.credentialConfigured()
-                || targetAccount.status() == ManagedWindowsAccountStatus.CREDENTIAL_NOT_CONFIGURED) {
-            return blocked(
-                    operationTarget,
-                    targetAccountType,
-                    target.sessionState(),
-                    ErrorCode.MANAGED_CREDENTIAL_NOT_CONFIGURED,
-                    "Managed account credential is not configured.");
-        }
-
         if (target.sessionState().matches(targetAccountType)) {
             return ready(
                     operationTarget,
@@ -95,6 +63,15 @@ public final class ManagedAccountSwitchPlanner {
                     target.sessionState(),
                     ManagedAccountSwitchAction.SWITCH,
                     "Managed account switch is required.");
+        }
+
+        if (target.sessionState() == WindowsSessionState.OTHER_SESSION_ACTIVE) {
+            return blocked(
+                    operationTarget,
+                    targetAccountType,
+                    target.sessionState(),
+                    ErrorCode.WINDOWS_SESSION_CHANGED,
+                    "A non-target Windows session is active.");
         }
 
         return blocked(
