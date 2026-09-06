@@ -47,6 +47,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WindowsSessionLogoffService>();
         services.AddSingleton(WindowsSessionLogonOptions.Default);
         services.AddSingleton<WindowsSessionLogonService>();
+        services.AddSingleton(WindowsSessionSwitchOptions.Default);
+        services.AddSingleton<IWindowsSessionSwitchDelay, WindowsSessionSwitchDelay>();
+        services.AddSingleton<WindowsSessionSwitchService>();
         services.AddSingleton<RemoteOperationLicensePolicy>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
@@ -59,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRemoteOperationHandler, GetWindowsSessionStateOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, LogonManagedAccountOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, LogoffWindowsSessionOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, SwitchManagedAccountOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ProvisionManagedCredentialOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();

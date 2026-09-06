@@ -164,6 +164,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.InputControlV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.WindowsSessionStateV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.WindowsSessionLogoffV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.WindowsSessionSwitchV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.ManagedCredentialProvisioningV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -305,6 +306,33 @@ public sealed class MasterNetworkTransportTests : IDisposable
             CancellationToken.None);
         RemoteOperationDispatchResult differentAccount = await dispatcher.DispatchAsync(
             LogoffRequest("operation-logoff", ManagedWindowsAccountId.Secondary),
+            CancellationToken.None);
+
+        Assert.False(first.Duplicate);
+        Assert.True(sameAccount.Duplicate);
+        Assert.True(differentAccount.Duplicate);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(OperationExecutionStatus.Success, sameAccount.Result.Status);
+        Assert.Equal(NetworkOperationErrorCode.OperationDuplicate, differentAccount.Result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DuplicateSwitchManagedAccountOperationComparesTargetAccountId()
+    {
+        var handler = new SwitchCountingOperationHandler();
+        var dispatcher = new RemoteOperationDispatcher(
+            [handler],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        RemoteOperationDispatchResult first = await dispatcher.DispatchAsync(
+            SwitchRequest("operation-switch", ManagedWindowsAccountId.Primary),
+            CancellationToken.None);
+        RemoteOperationDispatchResult sameAccount = await dispatcher.DispatchAsync(
+            SwitchRequest("operation-switch", ManagedWindowsAccountId.Primary),
+            CancellationToken.None);
+        RemoteOperationDispatchResult differentAccount = await dispatcher.DispatchAsync(
+            SwitchRequest("operation-switch", ManagedWindowsAccountId.Secondary),
             CancellationToken.None);
 
         Assert.False(first.Duplicate);
@@ -511,6 +539,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.False(policy.RequiresActiveCommercialLicense(NetworkOperationType.UnlockInput));
         Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.ProvisionManagedCredential));
         Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.LogoffWindowsSession));
+        Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.SwitchManagedAccount));
         Assert.True(policy.RequiresActiveCommercialLicense(NetworkOperationType.LockInput));
     }
 
@@ -654,6 +683,24 @@ public sealed class MasterNetworkTransportTests : IDisposable
             ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
             SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds(),
             LogoffWindowsSession = new LogoffWindowsSessionOperationParameters
+            {
+                AccountId = accountId
+            }
+        };
+    }
+
+    private static OperationRequest SwitchRequest(
+        string operationId,
+        ManagedWindowsAccountId accountId)
+    {
+        return new OperationRequest
+        {
+            OperationId = operationId,
+            OperationType = NetworkOperationType.SwitchManagedAccount,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = MasterConnectionConstants.ProtocolVersion,
+            SentAtUnixMs = FixedNow.ToUnixTimeMilliseconds(),
+            SwitchManagedAccount = new SwitchManagedAccountOperationParameters
             {
                 AccountId = accountId
             }
@@ -834,6 +881,21 @@ public sealed class MasterNetworkTransportTests : IDisposable
         {
             Calls++;
             return Task.FromResult(RemoteOperationHandlerResult.Success("logoff accepted"));
+        }
+    }
+
+    private sealed class SwitchCountingOperationHandler : IRemoteOperationHandler
+    {
+        public int Calls { get; private set; }
+
+        public NetworkOperationType OperationType => NetworkOperationType.SwitchManagedAccount;
+
+        public Task<RemoteOperationHandlerResult> HandleAsync(
+            OperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(RemoteOperationHandlerResult.Success("switch complete"));
         }
     }
 

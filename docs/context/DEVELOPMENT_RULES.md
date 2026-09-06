@@ -126,7 +126,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - No usar DPAPI en heartbeat, startup, idle, timers, polling ni scans.
 - No hacer enumeracion, polling, WMI, Registry SAM, scans de perfiles ni `C:\Users` scanning en idle para cuentas Windows administradas.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para login/logoff/switch Windows.
-- El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
+- El login administrado productivo usa Credential Provider V2 y el switch productivo reutiliza LOGOFF + espera `NO_SESSION` + LOGON.
 - Mantener siempre una via estandar de acceso/recovery de Windows.
 - Nunca reemplazar, ocultar ni filtrar Credential Providers estandar de Windows.
 - Galtek Credential Provider debe ser aditivo: falla abierto hacia los mecanismos normales de login de Windows, pero cerrado respecto a autenticacion Galtek.
@@ -173,7 +173,17 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - `REPORT_LOGON_RESULT` acepta solo `activationId` y outcome `SUCCESS`, `FAILED` o `LOCAL_SERIALIZATION_FAILED`; no enviar mensajes, NTSTATUS textual, SID, username, domain, sessionId ni password.
 - `ReportResult(STATUS_SUCCESS)` es el unico camino a `OperationResult SUCCESS` para `LOGON_MANAGED_ACCOUNT`; auth rejection/fallo local es `WINDOWS_LOGON_FAILED` y timeout es `WINDOWS_LOGON_NOT_CONFIRMED`.
 - El Master debe usar timeout de resultado especifico para `LOGON_MANAGED_ACCOUNT` (activation TTL mas margen) sin cambiar el timeout global de otras operaciones.
-- Solo un Master localmente autorizado y con trust de pairing vigente podra ordenar logon/logoff/switch en Clients cuando existan comandos administrativos futuros sobre transporte seguro.
+- Solo un Master localmente autorizado y con trust de pairing vigente puede ordenar logon/logoff/switch en Clients mediante operaciones tipadas sobre transporte seguro.
+- `SWITCH_MANAGED_ACCOUNT` remoto acepta solo target `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`); `UNSPECIFIED` se rechaza.
+- Master solo envia target accountId para SWITCH; source account siempre se deriva del SID/`WindowsSessionState` local.
+- `OTHER_SESSION_ACTIVE` nunca puede convertirse en logoff automatico durante SWITCH.
+- Antes de cerrar source en SWITCH, validar solo target binding, SID `SidTypeUser` y credential DPAPI usable.
+- La disponibilidad real de LogonUI/Credential Provider para SWITCH se verifica al ejecutar `LOGON_MANAGED_ACCOUNT` despues de confirmar `NO_SESSION`; no predecirla antes del logoff.
+- `WTSLogoffSession` accepted no equivale a source terminada; SWITCH no puede iniciar target logon hasta confirmar `NO_SESSION`.
+- Si aparece otra sesion durante la transicion de SWITCH, abortar sin tocarla.
+- SWITCH no hace rollback automatico al source y un SWITCH perdido/no confirmado no se reintenta automaticamente.
+- SWITCH es una unica operacion Agent-side; el Master no debe encadenar `LOGOFF_WINDOWS_SESSION` + `LOGON_MANAGED_ACCOUNT` para implementarlo.
+- No modificar Credential Provider para SWITCH salvo necesidad tecnica explicitamente revisada.
 - El transporte gRPC/mTLS de Prompt 13 solo permite conexion, identificacion y heartbeat; no autoriza por si mismo comandos remotos.
 - Cualquier extension del transporte debe exigir TLS/mTLS, trust `PAIRED`, no `REVOKED`, fingerprints coincidentes y fallo cerrado.
 - No agregar fallback plaintext, reflection/debug gRPC abierto en produccion ni aceptacion de certificados arbitrarios.

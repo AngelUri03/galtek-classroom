@@ -186,9 +186,17 @@ Si falta credencial para el slot, el resultado remoto es `MANAGED_CREDENTIAL_NOT
 
 `REPORT_LOGON_RESULT SUCCESS` es el unico camino a `OperationResult SUCCESS`. Rechazo de Windows o fallo local despues de acquire produce `WINDOWS_LOGON_FAILED`; si no llega confirmacion antes del timeout, la activation se limpia y el resultado es `WINDOWS_LOGON_NOT_CONFIRMED`.
 
+## Relacion Con Switch Remoto
+
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` consulta este store antes de cerrar una source managed distinta. El preflight target exige una credencial DPAPI usable ligada al SID del target, pero no adquiere ni revela la password.
+
+Si falta credencial, el store es invalido o la cuenta target no existe, SWITCH devuelve el error estructurado correspondiente y no cierra la source. Solo despues de WTS logoff aceptado y `NO_SESSION` confirmado se reutiliza el flujo de `LOGON_MANAGED_ACCOUNT`, donde el password puede salir una sola vez hacia el Credential Provider validado mediante `ACQUIRE_PENDING_CREDENTIAL`.
+
+Si el logon target falla despues del logoff, no hay rollback automatico a la source ni retry automatico con otra password.
+
 ## Limites Vigentes
 
-Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, switch, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, registry autologon, cambio de password ni validacion de password contra Windows fuera del flujo normal Winlogon/LSA iniciado por Credential Provider.
+Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, registry autologon, cambio de password ni validacion de password contra Windows fuera del flujo normal Winlogon/LSA iniciado por Credential Provider.
 
 No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire one-time para Credential Provider.
 
@@ -207,5 +215,4 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 
 ## Pendiente
 
-- Dispatch batch Master/planner/UI para logon.
-- `SWITCH_MANAGED_ACCOUNT`.
+- 19H: dispatch/planner/API/UI Master para operaciones de sesion administrada.

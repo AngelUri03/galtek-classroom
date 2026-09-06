@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera, pero sigue sin existir HTTP, BatchOperation, planner/UI, switch ni reveal Client-side.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera y 19G4 agrega `SWITCH_MANAGED_ACCOUNT` individual Agent-side, pero sigue sin existir HTTP, BatchOperation, planner/UI ni reveal Client-side.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -181,6 +181,14 @@ Antes de activation, el Agent exige que el binding exista, que el `windowsSid` s
 
 La consola fisica debe estar en `NO_SESSION` inmediatamente antes de activar. Si el target ya esta activo, el resultado es `SUCCESS` idempotente sin activation. Si la consola pertenece a otro SID, incluso otro managed account, el resultado es `WINDOWS_SESSION_CHANGED`.
 
+## Uso Desde Windows Session Switch
+
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` tambien envia solo `PRIMARY` o `SECONDARY`. El source nunca viene del Master: el Agent lo deriva desde `WindowsSessionState` y por tanto desde el SID real del token de la consola fisica.
+
+Si target ya esta activo, SWITCH no consulta DPAPI ni cierra nada. Si una source managed distinta esta activa, el Agent valida primero el target binding/SID/credential; si falla, la source no se cierra. Luego revalida que la source siga activa y llama internamente el logoff expected-account. La disponibilidad real de LogonUI/Credential Provider se comprueba al ejecutar LOGON despues de `NO_SESSION`; `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente.
+
+Despues del logoff aceptado, SWITCH espera de forma acotada hasta `NO_SESSION` antes de iniciar el logon target. Si no se confirma, devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`. Si el target aparece activo durante la espera, el resultado es `SUCCESS` sin crear activation nueva.
+
 ## Validacion Manual Pendiente
 
 En una PC descartable:
@@ -202,5 +210,4 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19G4: `SWITCH_MANAGED_ACCOUNT`.
 - 19H: dispatch/planner batch Master.

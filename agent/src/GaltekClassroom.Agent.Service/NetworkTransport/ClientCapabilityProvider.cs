@@ -18,6 +18,7 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.WindowsSessionStateV1,
         NetworkCapability.WindowsSessionLogonV1,
         NetworkCapability.WindowsSessionLogoffV1,
+        NetworkCapability.WindowsSessionSwitchV1,
         NetworkCapability.ManagedCredentialProvisioningV1
     ];
 

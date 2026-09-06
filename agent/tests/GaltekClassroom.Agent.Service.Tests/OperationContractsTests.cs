@@ -149,6 +149,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogoffFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonBusy, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.WindowsLogonNotConfirmed, errorCodes);
+        Assert.Contains(ClassroomOperationErrorCodes.WindowsSwitchNotConfirmed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.SessionSwitchFailed, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.CredentialProviderUnavailable, errorCodes);
         Assert.Contains(ClassroomOperationErrorCodes.OperationNotImplemented, errorCodes);
@@ -428,6 +429,57 @@ public sealed class OperationContractsTests
             "WINDOWS_SESSION_LOGON_V1",
             ClassroomCapabilities.WindowsSessionLogonV1);
         Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionLogonV1));
+    }
+
+    [Fact]
+    public void SwitchManagedAccountRemoteContract_IsTargetAccountIdOnly()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.SwitchManagedAccount,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1",
+            SwitchManagedAccount = new SwitchManagedAccountOperationParameters
+            {
+                AccountId = ManagedWindowsAccountId.Secondary
+            }
+        };
+
+        Assert.Equal(NetworkOperationType.SwitchManagedAccount, request.OperationType);
+        Assert.Equal(
+            OperationRequest.OperationParametersOneofCase.SwitchManagedAccount,
+            request.OperationParametersCase);
+        Assert.Equal(ManagedWindowsAccountId.Secondary, request.SwitchManagedAccount.AccountId);
+
+        var parameterNames = typeof(SwitchManagedAccountOperationParameters)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AccountId", parameterNames);
+        Assert.DoesNotContain("SourceAccountId", parameterNames);
+        Assert.DoesNotContain("Username", parameterNames);
+        Assert.DoesNotContain("Domain", parameterNames);
+        Assert.DoesNotContain("WindowsSid", parameterNames);
+        Assert.DoesNotContain("Sid", parameterNames);
+        Assert.DoesNotContain("SessionId", parameterNames);
+        Assert.DoesNotContain("Password", parameterNames);
+        Assert.DoesNotContain("CredentialId", parameterNames);
+        Assert.DoesNotContain("VaultSessionToken", parameterNames);
+        Assert.DoesNotContain("Force", parameterNames);
+        Assert.DoesNotContain("Timeout", parameterNames);
+        Assert.DoesNotContain("Command", parameterNames);
+        Assert.DoesNotContain("Arguments", parameterNames);
+        Assert.DoesNotContain("Shell", parameterNames);
+    }
+
+    [Fact]
+    public void Capabilities_ExposeWindowsSessionSwitchV1()
+    {
+        Assert.Equal(
+            "WINDOWS_SESSION_SWITCH_V1",
+            ClassroomCapabilities.WindowsSessionSwitchV1);
+        Assert.True(Enum.IsDefined(NetworkCapability.WindowsSessionSwitchV1));
     }
 
     [Fact]

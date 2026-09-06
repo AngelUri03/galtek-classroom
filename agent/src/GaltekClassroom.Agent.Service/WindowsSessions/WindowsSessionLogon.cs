@@ -147,6 +147,20 @@ public sealed class WindowsSessionLogonService
         };
     }
 
+    public async Task<WindowsSessionLogonServiceResult> PreflightTargetAsync(
+        string accountId,
+        CancellationToken cancellationToken)
+    {
+        AccountPreflightResult accountPreflight =
+            await ValidateAccountAsync(accountId, cancellationToken).ConfigureAwait(false);
+        if (!accountPreflight.Succeeded)
+        {
+            return Failure(accountPreflight.ErrorCode, accountPreflight.Message);
+        }
+
+        return Success("Managed Windows logon target structural preflight passed.");
+    }
+
     private async Task<WindowsSessionLogonServiceResult?> ValidateInitialSessionAsync(
         string accountId,
         CancellationToken cancellationToken)

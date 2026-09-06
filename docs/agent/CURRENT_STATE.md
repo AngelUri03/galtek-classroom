@@ -2,11 +2,19 @@
 
 ## Ultima actualizacion
 
-2026-09-05 - Prompt 19G3.
+2026-09-05 - Prompt 19G4.
 
 ## Estado del proyecto
 
-Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto end-to-end para un Client individual. El Master Java agrega `MasterRemoteOperationGateway.logonManagedAccount(...)` y envia solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`) por Protobuf; no envia password, username, SID, domain, sessionId, credentialId, vault token, comando ni payload generico. No hay endpoint HTTP, BatchOperation, fanout, planner, UI ni switch.
+Prompt 19G4 completa `SWITCH_MANAGED_ACCOUNT(targetAccountId)` como operacion remota tipada para un Client individual. El Master Java agrega `MasterRemoteOperationGateway.switchManagedAccount(...)` y envia solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`) por Protobuf; no envia source account, password, username, SID, domain, sessionId, credentialId, vault token, force, timeout configurable, comando ni payload generico. No hay endpoint HTTP, BatchOperation, fanout, planner ni UI.
+
+El Agent anuncia `WINDOWS_SESSION_SWITCH_V1` y ejecuta SWITCH por el `RemoteOperationDispatcher` normal: gRPC/mTLS, Master esperado, trust `PAIRED`, no `REVOKED`, Device correcto, operacion soportada y Commercial License Client `ACTIVE`. `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe. Target ya activo devuelve `SUCCESS` idempotente sin logoff, logon ni DPAPI. `NO_SESSION` reutiliza `WindowsSessionLogonService`. `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente y devuelve `WINDOWS_SESSION_CHANGED`; `UNKNOWN` devuelve `WINDOWS_SESSION_UNKNOWN`.
+
+Cuando la consola esta en el opposite managed account, `WindowsSessionSwitchService` deriva source exclusivamente desde `WindowsSessionState`, valida target antes de cerrar source solo de forma estructural (binding, SID `SidTypeUser` y credential DPAPI usable), relee source, llama internamente `WindowsSessionLogoffService` expected-account, espera de forma local y acotada a confirmar `NO_SESSION` y luego llama `WindowsSessionLogonService` para el target. La disponibilidad real de LogonUI/Credential Provider se verifica en ese tramo LOGON posterior a `NO_SESSION`. Si target aparece activo durante la espera, devuelve `SUCCESS` sin activation nueva. Si no se confirma `NO_SESSION`, devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`.
+
+SWITCH reutiliza LOGOFF 19F y LOGON 19G3; no duplica WTS logoff ni Credential Provider logic y no cambia C++ nativo. Una vez aceptado WTS logoff puede haber efecto parcial, incluido `CREDENTIAL_PROVIDER_UNAVAILABLE` si LogonUI/Credential Provider no aparece despues de `NO_SESSION`; no hay rollback automatico a source, retry automatico, journal, receipt ni ampliacion de `OperationStatusQuery`. El Master usa timeout fijo especifico de 75s para SWITCH; si pierde el resultado conserva `OPERATION_RESULT_UNKNOWN`.
+
+Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto end-to-end para un Client individual. El Master Java agrega `MasterRemoteOperationGateway.logonManagedAccount(...)` y envia solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`) por Protobuf; no envia password, username, SID, domain, sessionId, credentialId, vault token, comando ni payload generico. No hay endpoint HTTP, BatchOperation, fanout, planner ni UI.
 
 El Agent anuncia `WINDOWS_SESSION_LOGON_V1` y ejecuta logon solo despues del `RemoteOperationDispatcher` normal: gRPC/mTLS, Master esperado, trust `PAIRED`, no `REVOKED`, Device correcto, operacion soportada y Commercial License Client `ACTIVE`. `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe. El preflight observa la consola fisica: target ya activo devuelve `SUCCESS` idempotente sin activation ni DPAPI; `NO_SESSION` permite continuar; otra sesion activa devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
 
@@ -88,7 +96,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1 para autorizacion administrativa normal, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos normales. La unica excepcion actual es `POST /api/classrooms/{classroomId}/input-control/unlock`, que consume `GET_MASTER_UNLOCK_AUTHORIZATION` mediante `MasterUnlockAccessGuard` para despachar solo `UNLOCK_INPUT`, sin exponer endpoint publico de autorizacion y sin fallback entre guards.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, `SWITCH_MANAGED_ACCOUNT`/cambio real de usuario, endpoint/batch Master para logon/logoff, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT` y `LOGOFF_WINDOWS_SESSION` existen como primitives remotas Agent/Master gateway para un Client individual, pero no son todavia flujos batch/end-to-end desde UI.
+El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, endpoint/batch/planner/UI Master para operaciones de sesion administrada, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT`, `LOGOFF_WINDOWS_SESSION` y `SWITCH_MANAGED_ACCOUNT` existen como primitives remotas Agent/Master gateway para un Client individual, pero no son todavia flujos batch/end-to-end desde UI.
 
 ## Implementado
 
@@ -316,9 +324,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `ClientHello.device_id` queda compatible pero no se usa como identidad; el Master controla `deviceId`.
 - `ClientConnectionRegistry` mantiene estado real de Clients conectados como `CONNECTING`, `ONLINE` u `OFFLINE`, distinguiendo paired sin Device y registered con Device.
 - `ClientConnectionRegistry` evita el `Heartbeat` sintetico durante `ClientHello`, usa una sola marca de tiempo por pasada de timeout y ofrece snapshots por `networkIdentityId`/`deviceId` sin exponer mapas mutables internos.
-- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1`, `BROWSER_DOWNLOAD_POLICY_V1`, `INPUT_CONTROL_V1`, `WINDOWS_SESSION_STATE_V1`, `WINDOWS_SESSION_LOGON_V1`, `MANAGED_CREDENTIAL_PROVISIONING_V1` y `WINDOWS_SESSION_LOGOFF_V1`; capabilities desconocidas se ignoran y no autorizan.
+- Capabilities productivas conocidas actuales: `HEARTBEAT_V1`, `OPERATION_FRAMEWORK_V1`, `SESSION_AGENT_AVAILABLE`, `POWER_CONTROL_V1`, `OPEN_URL_V1`, `OPEN_APPLICATION_V1`, `BROWSER_NAVIGATION_POLICY_V1`, `BROWSER_DOWNLOAD_POLICY_V1`, `INPUT_CONTROL_V1`, `WINDOWS_SESSION_STATE_V1`, `WINDOWS_SESSION_LOGON_V1`, `MANAGED_CREDENTIAL_PROVISIONING_V1`, `WINDOWS_SESSION_LOGOFF_V1` y `WINDOWS_SESSION_SWITCH_V1`; capabilities desconocidas se ignoran y no autorizan.
 - `RemoteOperationDispatcher` del Agent deduplica por `operationId`, incluye parametros tipados al detectar conflicto de duplicado, aplica timeout, rechaza licencia comercial no activa antes de handler salvo `UNLOCK_INPUT` recovery-safe y devuelve `OPERATION_NOT_IMPLEMENTED` para cualquier operacion sin handler.
-- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler` y `ApplyBrowserDownloadPolicyOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
+- `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler`, `ApplyBrowserDownloadPolicyOperationHandler`, `GetWindowsSessionStateOperationHandler`, `ProvisionManagedCredentialOperationHandler`, `LogoffWindowsSessionOperationHandler`, `LogonManagedAccountOperationHandler` y `SwitchManagedAccountOperationHandler` son handlers tipados explicitos; no existe handler generico de comandos.
 - `IWindowsPowerController` encapsula power control productivo; `WindowsPowerController` usa `InitiateSystemShutdownExW`, habilita `SeShutdownPrivilege` con `OpenProcessToken`, `LookupPrivilegeValue` y `AdjustTokenPrivileges`, y no usa `shutdown.exe`, `cmd.exe`, PowerShell, WMI shell, scripts ni `Process.Start`.
 - `SHUTDOWN` y `RESTART` usan countdown fijo de 10 segundos, mensaje constante del sistema, `forceAppsClosed=false`, sin payload arbitrario, sin `force=true` y sin timeout arbitrario enviado por Master.
 - `OperationResult SUCCESS` para power control significa que Windows acepto la solicitud; no significa que la PC ya este apagada o reiniciada.
@@ -382,8 +390,6 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - UI futura para diagnosticar/configurar binding sin convertirse en autoridad.
 - IPC write futuro solo cuando exista un diseno de autorizacion local adecuado.
 - Mantener cualquier nuevo endpoint administrativo bajo `MasterAccessGuard`.
-- Disenar posteriormente almacenamiento seguro de credenciales administradas en el Agent Service del Client.
-- Disenar posteriormente login/logoff/switch con integracion soportada por Windows, contemplando Credential Provider.
 - Implementar filesystem real de StudentWorkspace y recovery en fases posteriores.
 - Implementar sync real, USB real y distribucion real en fases posteriores sin romper la regla `SYNC -> VERIFY -> COMMIT CANONICAL -> CONFIRM`.
 - Implementar preview/captura/proyeccion real en fases posteriores distinguiendo modos y costos.
@@ -427,7 +433,7 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `PAIRED + ONLINE + sin Device` se expone como `AVAILABLE_FOR_REGISTRATION`; `PAIRED + binding vigente` como `REGISTERED`; `REVOKED` no es registrable ni administrable.
 - Capabilities son informacion operativa, no autorizacion.
 - El heartbeat mantiene presencia principalmente en memoria y no escribe SQLite cada 15 segundos.
-- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler`, `ApplyBrowserDownloadPolicyOperationHandler`, `GetWindowsSessionStateOperationHandler`, `ProvisionManagedCredentialOperationHandler`, `LogonManagedAccountOperationHandler` y `LogoffWindowsSessionOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
+- El framework de operaciones remotas queda tipado y deduplicado por `operationId`; `ShutdownOperationHandler`, `RestartOperationHandler`, `OpenUrlOperationHandler`, `OpenApplicationOperationHandler`, `LockInputOperationHandler`, `UnlockInputOperationHandler`, `ApplyBrowserPolicyOperationHandler`, `ApplyBrowserDownloadPolicyOperationHandler`, `GetWindowsSessionStateOperationHandler`, `ProvisionManagedCredentialOperationHandler`, `LogoffWindowsSessionOperationHandler`, `LogonManagedAccountOperationHandler` y `SwitchManagedAccountOperationHandler` son handlers productivos actuales en el Agent, y las operaciones que continuan sin handler devuelven `OPERATION_NOT_IMPLEMENTED`.
 - Power control del Agent usa API nativa Windows, no shell ni procesos externos.
 - `SHUTDOWN` y `RESTART` habilitan explicitamente `SeShutdownPrivilege`, usan countdown fijo inicial de 10 segundos y no fuerzan cierre de aplicaciones.
 - `OperationResult SUCCESS` en power control significa que Windows acepto la solicitud, no que el equipo ya desaparecio de la red.
@@ -529,6 +535,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 79 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionLogon|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts|FullyQualifiedName~MasterNetworkTransport"` en `agent`: correcto, 147 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~CredentialProviderActivation|FullyQualifiedName~ManagedWindowsCredential"` en `agent`: correcto, 73 pruebas Service superadas; Session sin coincidencias.
 - MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
 - MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
@@ -613,4 +624,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19G3 deja completo `LOGON_MANAGED_ACCOUNT` remoto para un Client individual mediante activation efimera, notification event-driven al Credential Provider, auto-submit once y resultado confirmado por `ReportResult`. El siguiente paso recomendado sigue siendo integrar dispatch batch/planner/UI en una fase posterior, sin mezclar todavia `SWITCH_MANAGED_ACCOUNT`.
+Fase 19G4 deja completo `SWITCH_MANAGED_ACCOUNT` remoto para un Client individual mediante target-only request, source derivado localmente, target preflight estructural antes de logoff, espera acotada a `NO_SESSION` y reuse de LOGON/LOGOFF productivos. La disponibilidad real de LogonUI/Credential Provider se decide en el tramo LOGON posterior a `NO_SESSION`. El siguiente paso recomendado es 19H: integrar `ManagedAccountSwitchPlanner`, endpoint/batch Master, aula/grupo/devices, partial success, `NO_CHANGE`, retry solo de errores realmente retryable y UX futura.

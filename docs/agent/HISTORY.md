@@ -2319,3 +2319,51 @@
 ### Commit sugerido
 
 `feat(agent): add remote managed account logon`
+
+## 2026-09-05 - Prompt 19G4
+
+### Realizado
+
+- Agregado `SWITCH_MANAGED_ACCOUNT` remoto tipado con `SwitchManagedAccountOperationParameters(account_id)` solo para target `PRIMARY`/`SECONDARY`.
+- Agregada capability especifica `WINDOWS_SESSION_SWITCH_V1` en Agent y Master.
+- Agregado error estructurado `WINDOWS_SWITCH_NOT_CONFIRMED` para logoff aceptado sin confirmacion de `NO_SESSION`.
+- El Agent registra `SwitchManagedAccountOperationHandler` y `WindowsSessionSwitchService` sobre el `RemoteOperationDispatcher` normal.
+- Source se deriva solo desde `WindowsSessionState` local (`PRIMARY_ACTIVE`/`SECONDARY_ACTIVE`); Master no puede enviarlo.
+- Target ya activo devuelve `SUCCESS` idempotente sin logoff, logon, DPAPI ni activation.
+- `NO_SESSION` reutiliza `WindowsSessionLogonService`.
+- Opposite managed activo ejecuta preflight target estructural antes de cerrar source: binding, SID `SidTypeUser` y credential DPAPI usable.
+- Despues del preflight, el Agent relee estado y exige que source siga siendo exactamente la derivada.
+- El tramo destructivo reutiliza `WindowsSessionLogoffService` expected-account con double-check de `sessionId + SID` y WTS logoff productivo.
+- Agregada espera local/acotada post-logoff solo durante SWITCH explicito, sin timer permanente, polling idle, WMI ni writes periodicos.
+- SWITCH no inicia target logon hasta confirmar `NO_SESSION`; target activo durante la espera produce `SUCCESS`; otra sesion aborta sin tocarla.
+- El target logon reutiliza LOGON 19G3 con espera real de LogonUI/Credential Provider despues de `NO_SESSION`, revalidacion de `NO_SESSION`, activation, auto-submit one-shot y `ReportResult` authority.
+- `CREDENTIAL_PROVIDER_UNAVAILABLE` despues de `NO_SESSION` es un posible efecto parcial: source pudo quedar cerrada y no hay rollback automatico.
+- Agregado timeout Master especifico de 75s para SWITCH sin cambiar el timeout global ni el timeout de LOGON.
+- Agregado `MasterRemoteOperationGateway.switchManagedAccount(...)` y mappings Java de operation, capability y error.
+- Agregadas pruebas .NET de matriz, target preflight, carreras, fallos parciales, cancelacion y dedupe.
+- Agregadas pruebas Java de gateway PRIMARY/SECONDARY, request sin source/secrets, capability mapping, error mapping, timeout especifico y timeout/transporte unknown.
+- Actualizados docs de protocolo, arquitectura, modelo funcional, reglas, estado, decisiones, session state/logon/logoff, managed accounts y nuevo `WINDOWS_SESSION_SWITCH.md`.
+
+### Cambios descartados
+
+- No se agrego endpoint HTTP, BatchOperation, fanout, planner, UI ni SQLite.
+- No se orquesto desde Master como `LOGOFF` + wait + `LOGON`; SWITCH es una unica operacion Agent-side.
+- No se enviaron password, username, domain, SID, source account, sessionId, credentialId, vault token, force, timeout configurable, command, args, shell ni payload arbitrario.
+- No se cerro `OTHER_SESSION_ACTIVE`.
+- No se asumio que WTS logoff accepted equivale a `NO_SESSION`.
+- No se exigio listener LogonUI/Credential Provider antes de cerrar la source.
+- No se agrego rollback automatico a source ni retry automatico.
+- No se agrego journal, receipt ni ampliacion de `OperationStatusQuery`.
+- No hubo cambios C++ ni build nativo.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~WindowsSessionLogon|FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~CredentialProviderActivation"` en `agent`: correcto, 104 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `mvn -q "-Dtest=MasterRemoteOperationGatewayTest,MasterNetworkTransportTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(agent): switch managed windows accounts`

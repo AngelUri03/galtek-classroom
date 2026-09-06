@@ -82,6 +82,8 @@ WTSLogoffSession(WTS_CURRENT_SERVER_HANDLE, sessionId, FALSE)
 
 No hay polling posterior, timer, loop, sleep ni heartbeat field. Una consulta futura explicita `GET_WINDOWS_SESSION_STATE` puede observar el resultado.
 
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT` reutiliza este servicio internamente para cerrar la source managed derivada localmente. SWITCH agrega su propia espera acotada post-logoff solo dentro de la operacion explicita; `LOGOFF_WINDOWS_SESSION` individual conserva su semantica 19F: `SUCCESS` significa solicitud WTS aceptada, no cierre confirmado, y no agrega polling ni reconciliation propia.
+
 ## Estados
 
 - `NO_SESSION`: `SUCCESS` idempotente, la sesion esperada ya esta ausente.
@@ -116,10 +118,4 @@ Prompt 19G1 agrega una foundation separada de Credential Provider V2 para login 
 
 ## Pendiente
 
-19G2 ya completo credential acquisition one-time y serialization local para una activation existente.
-
-19G3 ya implemento `LOGON_MANAGED_ACCOUNT` remoto individual.
-
-19G4 queda pendiente para `SWITCH_MANAGED_ACCOUNT`.
-
-19H queda pendiente para dispatch/planner batch Master.
+- 19H: dispatch/planner batch Master.

@@ -31,6 +31,7 @@ import com.galtek.classroom.network.v1.OperationStatusKnowledge;
 import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
 import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParameters;
+import com.galtek.classroom.network.v1.SwitchManagedAccountOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
 import com.galtek.classroom.network.v1.WindowsSessionStateResult;
 import com.google.protobuf.ByteString;
@@ -428,6 +429,114 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void switchManagedAccountBuildsTypedTargetAccountOperationRequestWithFixedSwitchTimeout() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.switchManagedAccount(
+                        snapshot,
+                        "switch-1",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                .orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT);
+        assertThat(request.getTimeoutMs()).isEqualTo(Duration.ofSeconds(75).toMillis());
+        assertThat(gateway.resultTimeout()).isEqualTo(Duration.ofMillis(100));
+        assertThat(gateway.switchManagedAccountResultTimeout()).isEqualTo(Duration.ofSeconds(75));
+        assertThat(request.hasSwitchManagedAccount()).isTrue();
+        assertThat(request.getSwitchManagedAccount().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(request.hasLogonManagedAccount()).isFalse();
+        assertThat(request.hasLogoffWindowsSession()).isFalse();
+        assertThat(request.hasProvisionManagedCredential()).isFalse();
+        assertThat(request.hasOpenApplication()).isFalse();
+        assertThat(request.hasOpenUrl()).isFalse();
+        assertThat(request.hasApplyBrowserPolicy()).isFalse();
+        assertThat(request.hasApplyBrowserDownloadPolicy()).isFalse();
+    }
+
+    @Test
+    void switchManagedAccountMapsPrimaryAndSecondaryOnly() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.switchManagedAccount(
+                        snapshot,
+                        "switch-primary",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                .orElseThrow();
+        gateway.switchManagedAccount(
+                        snapshot,
+                        "switch-secondary",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                .orElseThrow();
+
+        assertThat(observer.values().get(0).getOperationRequest().getSwitchManagedAccount().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(observer.values().get(1).getOperationRequest().getSwitchManagedAccount().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY);
+    }
+
+    @Test
+    void switchManagedAccountRequestDoesNotContainSourceIdentityPasswordOrSessionSelectors() {
+        SwitchManagedAccountOperationParameters parameters =
+                SwitchManagedAccountOperationParameters.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .build();
+
+        assertThat(parameters.getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY);
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .containsExactly("accountId");
+        assertThat(parameters.getAllFields().keySet())
+                .extracting(field -> field.getJsonName())
+                .doesNotContain(
+                        "sourceAccountId",
+                        "username",
+                        "domain",
+                        "sid",
+                        "windowsSid",
+                        "sessionId",
+                        "credentialId",
+                        "vaultSessionToken",
+                        "password",
+                        "force",
+                        "timeout",
+                        "command",
+                        "arguments",
+                        "shell");
+    }
+
+    @Test
+    void switchManagedAccountTimeoutReportsUnknownWithoutRetrying() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, new RecordingObserver<>());
+        DispatchHandle handle = gateway.switchManagedAccount(
+                        snapshot,
+                        "switch-timeout",
+                        "device-1",
+                        ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                .orElseThrow();
+
+        RemoteOperationOutcome timeout = gateway.timeout(handle);
+
+        assertThat(timeout.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(timeout.errorCode()).isEqualTo(ErrorCode.OPERATION_RESULT_UNKNOWN);
+        assertThat(gateway.pendingCount()).isZero();
+    }
+
+    @Test
     void gatewayHasNoLoggerFieldForSecretProtoLogging() {
         assertThat(MasterRemoteOperationGateway.class.getDeclaredFields())
                 .extracting(field -> field.getType().getName())
@@ -727,6 +836,26 @@ class MasterRemoteOperationGatewayTest {
         assertWindowsLogonError(
                 NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE,
                 ErrorCode.CREDENTIAL_PROVIDER_UNAVAILABLE,
+                false);
+    }
+
+    @Test
+    void operationResultMapsWindowsSwitchErrorsWithoutTextParsing() {
+        assertWindowsSwitchError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_SWITCH_NOT_CONFIRMED,
+                ErrorCode.WINDOWS_SWITCH_NOT_CONFIRMED,
+                false);
+        assertWindowsSwitchError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_SESSION_CHANGED,
+                ErrorCode.WINDOWS_SESSION_CHANGED,
+                false);
+        assertWindowsSwitchError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_FAILED,
+                ErrorCode.WINDOWS_LOGON_FAILED,
+                true);
+        assertWindowsSwitchError(
+                NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_NOT_CONFIRMED,
+                ErrorCode.WINDOWS_LOGON_NOT_CONFIRMED,
                 false);
     }
 
@@ -1087,6 +1216,22 @@ class MasterRemoteOperationGatewayTest {
                         "logon",
                         "PC01",
                         NetworkOperationType.NETWORK_OPERATION_TYPE_LOGON_MANAGED_ACCOUNT,
+                        networkError));
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(outcome.errorCode()).isEqualTo(expected);
+        assertThat(outcome.errorCode().retryable()).isEqualTo(retryable);
+    }
+
+    private static void assertWindowsSwitchError(
+            NetworkOperationErrorCode networkError,
+            ErrorCode expected,
+            boolean retryable) {
+        MasterRemoteOperationGateway.RemoteOperationOutcome outcome =
+                MasterRemoteOperationGateway.outcomeFromResult(failed(
+                        "switch",
+                        "PC01",
+                        NetworkOperationType.NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT,
                         networkError));
 
         assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.FAILED);

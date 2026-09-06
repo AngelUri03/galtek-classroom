@@ -72,6 +72,14 @@ Si aparece cualquier otra sesion activa, incluso otro managed account, el logon 
 
 La operation result de logon tampoco contiene SID, username, domain, `accountReference`, `sessionId` ni token. `SUCCESS` significa que Winlogon/LSA acepto la autenticacion reportada por `ReportResult(STATUS_SUCCESS)`, no que el escritorio ya este listo.
 
+## Relacion Con Switch
+
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` usa este estado para decidir localmente. El Master no envia source account; el Agent lo deriva solo cuando el estado real es `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`.
+
+Target ya activo devuelve `SUCCESS` idempotente. `NO_SESSION` reutiliza logon. Opposite managed activo permite el tramo compuesto despues de preflight target y revalidacion source. `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente y devuelve `WINDOWS_SESSION_CHANGED`; `UNKNOWN` devuelve `WINDOWS_SESSION_UNKNOWN`.
+
+Despues de que `WTSLogoffSession` acepta cerrar la source, SWITCH sigue consultando este estado durante una espera local acotada. Solo `NO_SESSION` permite iniciar target logon; si target aparece activo se considera success idempotente; si aparece otra sesion se aborta sin tocarla; si no se confirma `NO_SESSION` a tiempo devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`.
+
 ## Relacion Con Credential Provider
 
 Desde Prompt 19G3, `Credential Provider V2` ejecuta el tramo de serialization/autosubmit de `LOGON_MANAGED_ACCOUNT`, pero `GET_WINDOWS_SESSION_STATE` no depende del provider y el provider no lee el estado de sesion por su cuenta. El Agent Service conserva la autoridad local.

@@ -6,6 +6,8 @@ public sealed class RemoteOperationOptions
 
     public TimeSpan LogonManagedAccountTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
+    public TimeSpan SwitchManagedAccountTimeout { get; init; } = TimeSpan.FromSeconds(75);
+
     public TimeSpan DedupeRetention { get; init; } = TimeSpan.FromMinutes(30);
 
     public int MaxTrackedOperationIds { get; init; } = 1024;

@@ -116,7 +116,8 @@ El Master usa un timeout fijo especifico para logon, mayor al timeout global nor
 
 ## Limites
 
-19G3 no agrega endpoint HTTP, BatchOperation, fanout, planner, UI, switch, retry automatico, reconciliation, status heartbeat, unlock implicito ni logoff implicito.
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT` reutiliza de este servicio el preflight estructural de target antes de logoff y el logon target completo despues de confirmar `NO_SESSION`. La disponibilidad real de LogonUI/Credential Provider se verifica dentro de `LogonAsync`, despues de `NO_SESSION`; SWITCH no duplica Credential Provider logic ni salta esta proteccion.
+
+19G3 no agrego endpoint HTTP, BatchOperation, fanout, planner, UI, retry automatico, reconciliation, status heartbeat, unlock implicito ni logoff implicito. 19G4 agrega switch como primitive separada y Agent-side, no como cambio al contrato de logon.
 
 No usa Registry autologon, `DefaultPassword`, `LogonUser`, `CreateProcessAsUser`, `CreateProcessWithLogonW`, SendKeys, UI Automation, PowerShell, `cmd`, scripts, RDP ni APIs WinStation no documentadas.
-

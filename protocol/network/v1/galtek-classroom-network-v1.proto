@@ -90,7 +90,12 @@ message OperationRequest {
     ProvisionManagedCredentialOperationParameters provision_managed_credential = 24;
     LogoffWindowsSessionOperationParameters logoff_windows_session = 25;
     LogonManagedAccountOperationParameters logon_managed_account = 26;
+    SwitchManagedAccountOperationParameters switch_managed_account = 27;
   }
+}
+
+message SwitchManagedAccountOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
 }
 
 message LogonManagedAccountOperationParameters {
@@ -197,6 +202,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 = 11;
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGOFF_V1 = 12;
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGON_V1 = 13;
+  NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1 = 14;
 }
 
 enum NetworkOperationType {
@@ -346,4 +352,5 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE = 49;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_BUSY = 50;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_NOT_CONFIRMED = 51;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_SWITCH_NOT_CONFIRMED = 52;
 }

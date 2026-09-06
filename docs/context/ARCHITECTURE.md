@@ -2,6 +2,12 @@
 
 ## Estado general
 
+Prompt 19G4 implementa `SWITCH_MANAGED_ACCOUNT(targetAccountId)` como operacion remota tipada para un Client individual, sin endpoint HTTP, BatchOperation, planner, fanout ni UI. El contrato Protobuf agrega `SwitchManagedAccountOperationParameters(account_id)` y la capability especifica `WINDOWS_SESSION_SWITCH_V1`; el Master Java agrega solo `MasterRemoteOperationGateway.switchManagedAccount(...)` con timeout fijo especifico de 75 segundos y mappings de operation/capability/error. El request transporta solo `PRIMARY` o `SECONDARY`: no source account, password, username, domain, SID, `accountReference`, `sessionId`, `credentialId`, vault token, force, timeout configurable, command, args, shell ni payload arbitrario.
+
+El Agent anuncia `WINDOWS_SESSION_SWITCH_V1` y ejecuta SWITCH por el `RemoteOperationDispatcher` normal: gRPC/mTLS, Master esperado, trust `PAIRED`, no `REVOKED`, Device correcto, operacion soportada y Commercial License Client `ACTIVE`; `UNLOCK_INPUT` sigue siendo la unica excepcion recovery-safe. `WindowsSessionSwitchService` deriva source exclusivamente desde `WindowsSessionState` local (`PRIMARY_ACTIVE`/`SECONDARY_ACTIVE`), nunca desde datos enviados por Master ni por username/sessionId. Target ya activo devuelve `SUCCESS` idempotente sin DPAPI, logoff ni activation; `NO_SESSION` reutiliza `WindowsSessionLogonService`; `OTHER_SESSION_ACTIVE` devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+
+Cuando hay opposite managed account activo, SWITCH valida target antes de destruir source: binding configurado, SID `SidTypeUser` y credential DPAPI usable. Luego relee `WindowsSessionState` y exige que la source siga siendo exactamente la derivada. El tramo logoff reutiliza `WindowsSessionLogoffService` expected-account con double-check `sessionId + SID` y `WTSLogoffSession(..., FALSE)`. Como WTS success solo significa solicitud aceptada, SWITCH espera localmente y de forma acotada a observar `NO_SESSION`; si target aparece activo durante la espera devuelve `SUCCESS`, si aparece otra sesion aborta, y si no se confirma antes del deadline devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`. El logon target reutiliza exactamente el flujo 19G3, incluida la espera real de LogonUI/Credential Provider despues de `NO_SESSION`, y no hubo cambios productivos al Credential Provider nativo. Despues de WTS aceptado pueden existir efectos parciales, incluido `CREDENTIAL_PROVIDER_UNAVAILABLE`; no hay rollback automatico, retry automatico, receipts, journal ni ampliacion de `OperationStatusQuery`.
+
 Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto end-to-end sin enviar password desde el Master. El Master Java agrega solo `MasterRemoteOperationGateway.logonManagedAccount(...)` con `LogonManagedAccountOperationParameters(account_id)` y timeout fijo especifico de logon; no agrega endpoint HTTP, BatchOperation, planner, fanout ni UI. El Client anuncia `WINDOWS_SESSION_LOGON_V1` y recibe la operacion por el `RemoteOperationDispatcher` normal: gRPC/mTLS, Master esperado, trust/Device validos, operation soportada y Commercial License Client `ACTIVE`.
 
 Antes de activar login, el Agent observa la consola fisica con `GET_WINDOWS_SESSION_STATE`: si el target ya esta activo devuelve `SUCCESS` idempotente sin activation ni DPAPI; si hay otro usuario o managed account devuelve `WINDOWS_SESSION_CHANGED`; si el estado es no confiable devuelve `WINDOWS_SESSION_UNKNOWN`; solo `NO_SESSION` continua. Luego valida binding local `PRIMARY`/`SECONDARY`, SID `SidTypeUser` y credencial DPAPI usable ligada al mismo SID, revalida inmediatamente que la consola siga en `NO_SESSION` y crea una activation remota efimera in-memory con `activationId`, `operationId`, `accountId`, TTL, `autoSubmitRequested=true` y SID esperado cuando ya fue resuelto.
@@ -577,7 +583,7 @@ PLANIFICADO:
 - Handlers productivos para operaciones remotas tipadas.
 - Operaciones privilegiadas.
 - Custodia futura de credenciales de cuentas Windows administradas de Client, protegidas con mecanismos seguros de Windows.
-- Integracion futura soportada por Windows para logon/switch, contemplando Credential Provider.
+- Integracion batch/API/UI futura sobre el logon administrado productivo con Credential Provider V2 y el switch Agent-side productivo.
 - Coordinacion con Session Agent.
 - Coordinacion funcional con Session Agent para operaciones futuras.
 
@@ -1016,7 +1022,7 @@ VIGENTE DESDE AHORA:
 - `MasterUnlockAccessGuard` jamas autoriza acceso a Credential Vault; la excepcion recovery-safe de `UNLOCK_INPUT` no aplica a passwords.
 - La credencial real futura pertenecera al Agent Service del Client y debera protegerse con mecanismos seguros de Windows.
 - No usar SendKeys, scripts, PowerShell, `cmd`, autologon inseguro ni ejecucion arbitraria para iniciar o cambiar sesion Windows.
-- El mecanismo productivo de login/cambio de usuario debe disenarse posteriormente con integracion soportada por Windows, contemplando Credential Provider.
+- El login administrado productivo usa Credential Provider V2; el switch productivo reutiliza LOGOFF + espera `NO_SESSION` + LOGON, sin SendKeys, scripts ni autologon inseguro.
 - Mantener siempre una via estandar de acceso/recovery de Windows fuera de Galtek.
 - Las aplicaciones abribles remotamente deben pertenecer a un catalogo configurado previamente.
 - Para aplicaciones, el Master solo puede enviar `applicationId`; la resolucion fisica vive en el Client y nunca acepta `executablePath`, comandos, argumentos, working directory, shell, PowerShell, `cmd`, scripts, shortcuts, MSI ni URI arbitraria desde el Master.

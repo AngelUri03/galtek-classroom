@@ -1,5 +1,30 @@
 # Decisiones vigentes
 
+## 2026-09-05 - Prompt 19G4
+
+- `SWITCH_MANAGED_ACCOUNT` remoto queda implementado como primitive individual Master gateway -> Agent, sin endpoint HTTP, BatchOperation, fanout, planner ni UI.
+- El request Protobuf acepta solo target `ManagedWindowsAccountId account_id` con `PRIMARY` o `SECONDARY`; `UNSPECIFIED` se rechaza.
+- El Master no envia source account, password, username, domain, SID, `accountReference`, sessionId, credentialId, vault token, force, timeout configurable, command, args, shell ni payload arbitrario para switch.
+- La capability nueva es `WINDOWS_SESSION_SWITCH_V1`; no se agrega capability generica de session-control.
+- La operacion usa el `RemoteOperationDispatcher` normal y requiere Commercial License Client `ACTIVE`; `UNLOCK_INPUT` conserva la unica excepcion recovery-safe.
+- Source se deriva exclusivamente desde `WindowsSessionState` local: `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`. No se infiere por username, `accountReference`, PID, sessionId, foreground window ni RDP.
+- Target ya activo es `SUCCESS` idempotente sin DPAPI, logoff, logon ni activation.
+- `NO_SESSION` ejecuta el tramo productivo de `WindowsSessionLogonService` para el target.
+- `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente y devuelve `WINDOWS_SESSION_CHANGED`; estado no confiable devuelve `WINDOWS_SESSION_UNKNOWN`.
+- Antes de cerrar una source managed, el Agent valida target binding, SID `SidTypeUser` y credential DPAPI usable.
+- Despues del preflight target, el Agent relee `WindowsSessionState` y exige que siga siendo exactamente la source derivada; si cambio, no llama logoff.
+- El tramo logoff reutiliza `WindowsSessionLogoffService` expected-account con binding SID esperado, consola fisica, double-check `sessionId + SID` y `WTSLogoffSession(..., FALSE)`.
+- `WTSLogoffSession SUCCESS` no equivale a source terminada; SWITCH espera localmente y de forma acotada a confirmar `NO_SESSION` antes de iniciar target logon.
+- Durante la espera, source activo sigue esperando, target activo produce `SUCCESS` idempotente, otra sesion produce `WINDOWS_SESSION_CHANGED`, estado no confiable produce `WINDOWS_SESSION_UNKNOWN`.
+- Si no se confirma `NO_SESSION` antes del deadline, el Agent devuelve `WINDOWS_SWITCH_NOT_CONFIRMED` y no inicia target logon.
+- El target logon reutiliza LOGON 19G3, incluida espera real de LogonUI/Credential Provider despues de `NO_SESSION`, revalidacion inmediata de `NO_SESSION`, activation productiva, auto-submit one-shot y `ReportResult` como autoridad de success.
+- SWITCH puede tener efecto parcial despues de WTS logoff aceptado; errores posteriores, incluido `CREDENTIAL_PROVIDER_UNAVAILABLE`, no ocultan que la source pudo cerrarse.
+- No hay rollback automatico al source, no hay retry automatico, no hay journal/receipt nuevo y no se amplia `OperationStatusQuery`.
+- Dedupe usa `operationId + operationType + targetDeviceId + accountId` sin secretos; duplicado mismo target devuelve resultado original y mismo `operationId` con otro target accountId conserva conflicto.
+- El Master usa timeout fijo especifico de SWITCH de 75 segundos y conserva `OPERATION_RESULT_UNKNOWN` si pierde el resultado.
+- No hubo cambios productivos al Credential Provider nativo ni al C++.
+- 19H queda pendiente para planner/batch/endpoint/UX de cambio masivo.
+
 ## 2026-09-05 - Prompt 19G3
 
 - `LOGON_MANAGED_ACCOUNT` remoto queda implementado como primitive individual Master gateway -> Agent, sin endpoint HTTP, BatchOperation, fanout, planner, UI ni `SWITCH_MANAGED_ACCOUNT`.

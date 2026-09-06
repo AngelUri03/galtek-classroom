@@ -218,9 +218,12 @@ public sealed class RemoteOperationDispatcher
 
     private TimeSpan TimeoutFor(OperationRequest request)
     {
-        var maxTimeout = request.OperationType == NetworkOperationType.LogonManagedAccount
-            ? _options.LogonManagedAccountTimeout
-            : _options.Timeout;
+        var maxTimeout = request.OperationType switch
+        {
+            NetworkOperationType.LogonManagedAccount => _options.LogonManagedAccountTimeout,
+            NetworkOperationType.SwitchManagedAccount => _options.SwitchManagedAccountTimeout,
+            _ => _options.Timeout
+        };
         return request.TimeoutMs > 0
             ? TimeSpan.FromMilliseconds(Math.Min(request.TimeoutMs, (long)maxTimeout.TotalMilliseconds))
             : maxTimeout;
@@ -282,6 +285,8 @@ public sealed class RemoteOperationDispatcher
                     request.LogonManagedAccount),
                 OperationRequest.OperationParametersOneofCase.LogoffWindowsSession => LogoffWindowsSessionSignature(
                     request.LogoffWindowsSession),
+                OperationRequest.OperationParametersOneofCase.SwitchManagedAccount => SwitchManagedAccountSignature(
+                    request.SwitchManagedAccount),
                 OperationRequest.OperationParametersOneofCase.None => string.Empty,
                 _ => "<unknown>"
             };
@@ -332,6 +337,14 @@ public sealed class RemoteOperationDispatcher
                 ? string.Empty
                 : parameters.AccountId.ToString();
         }
+
+        private static string SwitchManagedAccountSignature(
+            SwitchManagedAccountOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
     }
 
     private static bool SameParameters(OperationRequest left, OperationRequest right)
@@ -357,6 +370,8 @@ public sealed class RemoteOperationDispatcher
             OperationRequest.OperationParametersOneofCase.ApplyBrowserDownloadPolicy => SameBrowserDownloadPolicyParameters(
                 left.ApplyBrowserDownloadPolicy,
                 right.ApplyBrowserDownloadPolicy),
+            OperationRequest.OperationParametersOneofCase.SwitchManagedAccount => left.SwitchManagedAccount?.AccountId
+                == right.SwitchManagedAccount?.AccountId,
             OperationRequest.OperationParametersOneofCase.None => true,
             _ => false
         };
