@@ -26,9 +26,7 @@ public sealed class RemoteOperationDispatcher
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
 
-        _handlers = handlers
-            .GroupBy(handler => handler.OperationType)
-            .ToDictionary(group => group.Key, group => group.First());
+        _handlers = BuildHandlerRegistry(handlers);
         _options = options;
         _clock = clock;
         _licenseStateProvider = licenseStateProvider;
@@ -250,6 +248,42 @@ public sealed class RemoteOperationDispatcher
         return left == right;
     }
 
+    private static IReadOnlyDictionary<NetworkOperationType, IRemoteOperationHandler> BuildHandlerRegistry(
+        IEnumerable<IRemoteOperationHandler> handlers)
+    {
+        var registry = new Dictionary<NetworkOperationType, IRemoteOperationHandler>();
+        foreach (IRemoteOperationHandler handler in handlers)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            if (!registry.TryAdd(handler.OperationType, handler))
+            {
+                throw new InvalidOperationException(
+                    "Duplicate remote operation handler registration: "
+                    + OperationTypeDiagnosticName(handler.OperationType));
+            }
+        }
+
+        return registry;
+    }
+
+    private static string OperationTypeDiagnosticName(NetworkOperationType operationType)
+    {
+        string name = operationType.ToString();
+        var diagnosticName = new System.Text.StringBuilder(name.Length + 8);
+        for (int i = 0; i < name.Length; i++)
+        {
+            char value = name[i];
+            if (i > 0 && char.IsUpper(value) && !char.IsUpper(name[i - 1]))
+            {
+                diagnosticName.Append('_');
+            }
+
+            diagnosticName.Append(char.ToUpperInvariant(value));
+        }
+
+        return diagnosticName.ToString();
+    }
+
     private sealed record RequestSignature(
         string OperationId,
         NetworkOperationType OperationType,
@@ -345,88 +379,6 @@ public sealed class RemoteOperationDispatcher
                 ? string.Empty
                 : parameters.AccountId.ToString();
         }
-    }
-
-    private static bool SameParameters(OperationRequest left, OperationRequest right)
-    {
-        if (left.OperationParametersCase != right.OperationParametersCase)
-        {
-            return false;
-        }
-
-        return left.OperationParametersCase switch
-        {
-            OperationRequest.OperationParametersOneofCase.OpenUrl => string.Equals(
-                left.OpenUrl?.Url,
-                right.OpenUrl?.Url,
-                StringComparison.Ordinal),
-            OperationRequest.OperationParametersOneofCase.OpenApplication => string.Equals(
-                left.OpenApplication?.ApplicationId,
-                right.OpenApplication?.ApplicationId,
-                StringComparison.Ordinal),
-            OperationRequest.OperationParametersOneofCase.ApplyBrowserPolicy => SameBrowserPolicyParameters(
-                left.ApplyBrowserPolicy,
-                right.ApplyBrowserPolicy),
-            OperationRequest.OperationParametersOneofCase.ApplyBrowserDownloadPolicy => SameBrowserDownloadPolicyParameters(
-                left.ApplyBrowserDownloadPolicy,
-                right.ApplyBrowserDownloadPolicy),
-            OperationRequest.OperationParametersOneofCase.SwitchManagedAccount => left.SwitchManagedAccount?.AccountId
-                == right.SwitchManagedAccount?.AccountId,
-            OperationRequest.OperationParametersOneofCase.None => true,
-            _ => false
-        };
-    }
-
-    private static bool SameBrowserPolicyParameters(
-        ApplyBrowserPolicyOperationParameters? left,
-        ApplyBrowserPolicyOperationParameters? right)
-    {
-        if (left is null || right is null)
-        {
-            return left is null && right is null;
-        }
-
-        if (!string.Equals(left.PolicyId, right.PolicyId, StringComparison.Ordinal)
-            || left.PolicyVersion != right.PolicyVersion
-            || left.ImplicitUnrestricted != right.ImplicitUnrestricted
-            || left.Mode != right.Mode
-            || left.AccountScope != right.AccountScope
-            || left.Rules.Count != right.Rules.Count)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < left.Rules.Count; i++)
-        {
-            BrowserPolicyRuleParameters leftRule = left.Rules[i];
-            BrowserPolicyRuleParameters rightRule = right.Rules[i];
-            if (!string.Equals(leftRule.RuleId, rightRule.RuleId, StringComparison.Ordinal)
-                || leftRule.Action != rightRule.Action
-                || leftRule.MatchType != rightRule.MatchType
-                || !string.Equals(leftRule.Pattern, rightRule.Pattern, StringComparison.Ordinal)
-                || leftRule.Enabled != rightRule.Enabled)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool SameBrowserDownloadPolicyParameters(
-        ApplyBrowserDownloadPolicyOperationParameters? left,
-        ApplyBrowserDownloadPolicyOperationParameters? right)
-    {
-        if (left is null || right is null)
-        {
-            return left is null && right is null;
-        }
-
-        return string.Equals(left.PolicyId, right.PolicyId, StringComparison.Ordinal)
-            && left.PolicyVersion == right.PolicyVersion
-            && left.ImplicitNoSpecialRestrictions == right.ImplicitNoSpecialRestrictions
-            && left.RestrictionMode == right.RestrictionMode
-            && left.AccountScope == right.AccountScope;
     }
 
     private void MaybeCleanupCompletedOperations()

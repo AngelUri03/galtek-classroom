@@ -217,7 +217,7 @@ Esta respuesta solo responde si la cuenta local actual puede usar esta instalaci
 
 ### GET_MASTER_UNLOCK_AUTHORIZATION
 
-Devuelve una autorizacion local de proposito unico para una futura accion recovery-safe `UNLOCK_INPUT`.
+Devuelve una autorizacion local de proposito unico para la accion recovery-safe `UNLOCK_INPUT`.
 
 Payload de request:
 
@@ -274,7 +274,7 @@ Campos sensibles prohibidos:
 - username/display name
 - key material
 
-Esta respuesta no significa "puede administrar Galtek", "puede ejecutar operaciones remotas" ni "puede saltarse la licencia". Solo significa que el caller Windows real corresponde al Master Windows Binding valido de esta instalacion para solicitar una accion declarada recovery-safe que reduce control. En 18B1 la unica accion prevista es `UNLOCK_INPUT`, pero el endpoint/batch Master todavia no existe.
+Esta respuesta no significa "puede administrar Galtek", "puede ejecutar operaciones remotas" ni "puede saltarse la licencia". Solo significa que el caller Windows real corresponde al Master Windows Binding valido de esta instalacion para solicitar una accion declarada recovery-safe que reduce control. En 18B1 la unica accion prevista era `UNLOCK_INPUT`; desde Prompt 18B2 existen `POST /api/classrooms/{classroomId}/input-control/unlock` y `BatchOperation UNLOCK_INPUT`. `GET_MASTER_UNLOCK_AUTHORIZATION` sigue siendo Local IPC read-only interno, no tiene endpoint publico, no se generaliza a otras acciones y `MasterUnlockAccessGuard` permanece especifico de `UNLOCK_INPUT`.
 
 ### GET_RUNTIME_DIAGNOSTICS
 

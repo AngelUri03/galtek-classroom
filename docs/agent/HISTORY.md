@@ -2509,3 +2509,31 @@
 ### Commit sugerido
 
 `feat(installer): deploy credential provider safely`
+
+## 2026-09-07 - Estabilizacion post-auditoria de cimientos
+
+### Realizado
+
+- `RemoteOperationDispatcher` ahora falla en construccion ante handlers duplicados para el mismo `NetworkOperationType`.
+- El mensaje de duplicado incluye solo el operation type normalizado y no depende de payloads, requests ni secretos.
+- Eliminado el helper stale `SameParameters`; la deduplicacion sigue usando `RequestSignature`.
+- Agregadas pruebas dirigidas para construccion con handlers unicos, fail-fast de duplicados, fallo antes de dispatch, mensaje sin payload/secretos y unicidad de handlers productivos en DI.
+- Actualizado `protocol/local-ipc-v1.md` para marcar 18B1 como historico y reflejar que desde 18B2 existe endpoint/batch `UNLOCK_INPUT` sin exponer `GET_MASTER_UNLOCK_AUTHORIZATION` publicamente.
+- Actualizado `docs/windows/MANAGED_WINDOWS_ACCOUNTS.md` para reflejar 19G4 Agent-side switch, 19H1 endpoint/batch/planner, 19H2 retry selectivo, UI pendiente, reveal Client-side ausente y validacion real 19I2 pendiente.
+
+### Cambios descartados
+
+- No se avanzo 19I2.
+- No se modificaron Protobuf, OperationTypes, capabilities, handlers funcionales, LOGON, LOGOFF, SWITCH, Credential Provider, installer, Master API contracts, SQLite, migrations, retry, Credential Vault ni password handling.
+- No se movieron guards de `InputControlController` a `InputControlDispatchService`; los callers productivos actuales siguen siendo controllers con guards distintos para lock/unlock.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~MasterNetworkTransport|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts"` en `agent`: correcto, 54 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 620 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+
+### Commit sugerido
+
+`chore: stabilize foundations after architecture audit`

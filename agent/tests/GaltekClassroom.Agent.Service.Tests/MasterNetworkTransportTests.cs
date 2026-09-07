@@ -1,14 +1,23 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Reflection;
+using GaltekClassroom.Agent.Service.Applications;
+using GaltekClassroom.Agent.Service.BrowserPolicy;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.InputControl;
 using GaltekClassroom.Agent.Service.Licensing;
+using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
+using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Agent.Service.Power;
+using GaltekClassroom.Agent.Service.WindowsSessions;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using Google.Protobuf;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 
@@ -190,6 +199,130 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Equal(OperationAcceptanceStatus.Accepted, dispatch.Accepted.Status);
         Assert.Equal(OperationExecutionStatus.Failed, dispatch.Result.Status);
         Assert.Equal(NetworkOperationErrorCode.OperationNotImplemented, dispatch.Result.ErrorCode);
+    }
+
+    [Fact]
+    public void Dispatcher_ConstructsWithUniqueHandlers()
+    {
+        var dispatcher = new RemoteOperationDispatcher(
+            [
+                new StaticOperationHandler(NetworkOperationType.LockInput),
+                new StaticOperationHandler(NetworkOperationType.UnlockInput)
+            ],
+            new RemoteOperationOptions(),
+            new MutableClock(FixedNow));
+
+        Assert.NotNull(dispatcher);
+    }
+
+    [Fact]
+    public void Dispatcher_FailsFastWhenHandlersShareOperationType()
+    {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            new RemoteOperationDispatcher(
+                [
+                    new StaticOperationHandler(NetworkOperationType.SwitchManagedAccount),
+                    new StaticOperationHandler(NetworkOperationType.SwitchManagedAccount)
+                ],
+                new RemoteOperationOptions(),
+                new MutableClock(FixedNow)));
+
+        Assert.Equal(
+            "Duplicate remote operation handler registration: SWITCH_MANAGED_ACCOUNT",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Dispatcher_DuplicateHandlerFailureOccursBeforeRequestDispatch()
+    {
+        var first = new StaticOperationHandler(NetworkOperationType.OpenUrl);
+        var duplicate = new StaticOperationHandler(NetworkOperationType.OpenUrl);
+
+        _ = Assert.Throws<InvalidOperationException>(() =>
+            new RemoteOperationDispatcher(
+                [first, duplicate],
+                new RemoteOperationOptions(),
+                new MutableClock(FixedNow)));
+
+        Assert.Equal(0, first.Calls);
+        Assert.Equal(0, duplicate.Calls);
+    }
+
+    [Fact]
+    public void Dispatcher_DuplicateHandlerFailureMessageDoesNotContainPayloadOrSecrets()
+    {
+        const string operationId = "operation-secret";
+        const string targetDeviceId = "target-device-secret";
+        const string password = "first-secret";
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            new RemoteOperationDispatcher(
+                [
+                    new StaticOperationHandler(NetworkOperationType.ProvisionManagedCredential),
+                    new StaticOperationHandler(NetworkOperationType.ProvisionManagedCredential)
+                ],
+                new RemoteOperationOptions(),
+                new MutableClock(FixedNow)));
+
+        Assert.Equal(
+            "Duplicate remote operation handler registration: PROVISION_MANAGED_CREDENTIAL",
+            exception.Message);
+        Assert.DoesNotContain(operationId, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(targetDeviceId, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(password, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ServiceCollection_RegistersExactlyOneHandlerPerProductiveOperation()
+    {
+        NetworkOperationType[] expectedOperationTypes =
+        [
+            NetworkOperationType.Shutdown,
+            NetworkOperationType.Restart,
+            NetworkOperationType.OpenApplication,
+            NetworkOperationType.OpenUrl,
+            NetworkOperationType.LockInput,
+            NetworkOperationType.UnlockInput,
+            NetworkOperationType.ApplyBrowserNavigationPolicy,
+            NetworkOperationType.ApplyBrowserDownloadPolicy,
+            NetworkOperationType.GetWindowsSessionState,
+            NetworkOperationType.LogonManagedAccount,
+            NetworkOperationType.LogoffWindowsSession,
+            NetworkOperationType.SwitchManagedAccount,
+            NetworkOperationType.ProvisionManagedCredential
+        ];
+        var services = new ServiceCollection();
+        services.AddMasterNetworkTransportServices(new ConfigurationBuilder().Build());
+        var operationTypeByHandlerType = new Dictionary<Type, NetworkOperationType>
+        {
+            [typeof(ShutdownOperationHandler)] = NetworkOperationType.Shutdown,
+            [typeof(RestartOperationHandler)] = NetworkOperationType.Restart,
+            [typeof(OpenApplicationOperationHandler)] = NetworkOperationType.OpenApplication,
+            [typeof(OpenUrlOperationHandler)] = NetworkOperationType.OpenUrl,
+            [typeof(LockInputOperationHandler)] = NetworkOperationType.LockInput,
+            [typeof(UnlockInputOperationHandler)] = NetworkOperationType.UnlockInput,
+            [typeof(ApplyBrowserPolicyOperationHandler)] = NetworkOperationType.ApplyBrowserNavigationPolicy,
+            [typeof(ApplyBrowserDownloadPolicyOperationHandler)] = NetworkOperationType.ApplyBrowserDownloadPolicy,
+            [typeof(GetWindowsSessionStateOperationHandler)] = NetworkOperationType.GetWindowsSessionState,
+            [typeof(LogonManagedAccountOperationHandler)] = NetworkOperationType.LogonManagedAccount,
+            [typeof(LogoffWindowsSessionOperationHandler)] = NetworkOperationType.LogoffWindowsSession,
+            [typeof(SwitchManagedAccountOperationHandler)] = NetworkOperationType.SwitchManagedAccount,
+            [typeof(ProvisionManagedCredentialOperationHandler)] = NetworkOperationType.ProvisionManagedCredential
+        };
+        ServiceDescriptor[] descriptors = services
+            .Where(descriptor => descriptor.ServiceType == typeof(IRemoteOperationHandler))
+            .ToArray();
+        NetworkOperationType[] registeredOperationTypes = descriptors
+            .Select(descriptor => Assert.Single(
+                operationTypeByHandlerType,
+                pair => pair.Key == descriptor.ImplementationType).Value)
+            .ToArray();
+
+        Assert.Equal(expectedOperationTypes.Length, descriptors.Length);
+        Assert.Equal(expectedOperationTypes.Order(), registeredOperationTypes.Order());
+        Assert.All(
+            registeredOperationTypes.GroupBy(operationType => operationType),
+            group => Assert.Single(group));
     }
 
     [Fact]
@@ -851,6 +984,28 @@ public sealed class MasterNetworkTransportTests : IDisposable
         {
             Calls++;
             return Task.FromResult(RemoteOperationHandlerResult.NotImplemented());
+        }
+    }
+
+    private sealed class StaticOperationHandler : IRemoteOperationHandler
+    {
+        private readonly NetworkOperationType _operationType;
+
+        public StaticOperationHandler(NetworkOperationType operationType)
+        {
+            _operationType = operationType;
+        }
+
+        public int Calls { get; private set; }
+
+        public NetworkOperationType OperationType => _operationType;
+
+        public Task<RemoteOperationHandlerResult> HandleAsync(
+            OperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(RemoteOperationHandlerResult.Success("handled"));
         }
     }
 

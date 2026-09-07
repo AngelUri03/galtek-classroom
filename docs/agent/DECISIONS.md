@@ -1,5 +1,14 @@
 # Decisiones vigentes
 
+## 2026-09-07 - Estabilizacion post-auditoria de cimientos
+
+- `RemoteOperationDispatcher` debe fallar en construccion si se registran dos `IRemoteOperationHandler` para el mismo `NetworkOperationType`.
+- Ante duplicados no se elige primero ni ultimo handler y no se depende del orden de DI.
+- El mensaje de fallo solo incluye el operation type normalizado, por ejemplo `Duplicate remote operation handler registration: SWITCH_MANAGED_ACCOUNT`.
+- La deduplicacion por `operationId` sigue basada en `RequestSignature`; no se redisenan signatures ni capabilities.
+- `InputControlDispatchService` queda como application service invocado por entrypoints ya autorizados: `lock` usa `MasterAccessGuard` y `unlock` usa `MasterUnlockAccessGuard`.
+- No se agrega guard generico de input control porque `LOCK_INPUT` y `UNLOCK_INPUT` tienen politicas de autorizacion distintas.
+
 ## 2026-09-06 - Prompt 19I1
 
 - El Credential Provider productivo se publica como artifact separado `artifacts/windows/credential-provider/` con solo DLL y manifest.

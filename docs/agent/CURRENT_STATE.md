@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-06 - Prompt 19I1.
+2026-09-07 - Estabilizacion post-auditoria de cimientos.
 
 ## Estado del proyecto
+
+La estabilizacion post-auditoria corrige hallazgos de cimientos sin avanzar 19I2 ni cambiar contratos funcionales. El `RemoteOperationDispatcher` del Agent ahora falla al construirse si DI registra dos handlers productivos para el mismo `NetworkOperationType`, con mensaje no secreto del tipo `Duplicate remote operation handler registration: SWITCH_MANAGED_ACCOUNT`. La deduplicacion vigente sigue usando `RequestSignature`; el helper stale `SameParameters` fue eliminado. Se actualizaron residuos documentales de Local IPC unlock y Managed Windows Accounts para reflejar 18B2/19H1/19H2. No hubo cambios en Protobuf, Java, native C++, installer, SQLite, Credential Provider, capabilities ni handlers funcionales.
 
 Prompt 19I1 integra el Credential Provider nativo al lifecycle normal del Agent sin registrar el provider ni ejecutar logon/switch real en la maquina de desarrollo. Se agregan scripts productivos para publicar, verificar package, instalar, verificar instalacion y desinstalar el provider. El package vive por default en `artifacts/windows/credential-provider/`, contiene solo `GaltekClassroom.CredentialProvider.dll` y `credential-provider.manifest.json`, y el manifest guarda metadata no secreta con CLSID fijo, arquitectura x64, SHA-256 y packageId deterministico basado en el hash.
 
@@ -114,7 +116,7 @@ Prompt 9.6 formaliza el requisito futuro de cuentas Windows administradas en Cli
 
 El Master Backend Java sigue sin leer `master-binding.json` ni `network-identity.json`, no conoce sus rutas y no recalcula autorizacion local. Consume `GET_MASTER_AUTHORIZATION` por Local IPC v1 para autorizacion administrativa normal, mantiene publico `GET /api/master/authorization` para diagnostico y usa `MasterAccessGuard` en endpoints administrativos normales. La unica excepcion actual es `POST /api/classrooms/{classroomId}/input-control/unlock`, que consume `GET_MASTER_UNLOCK_AUTHORIZATION` mediante `MasterUnlockAccessGuard` para despachar solo `UNLOCK_INPUT`, sin exponer endpoint publico de autorizacion y sin fallback entre guards.
 
-El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT` y `LOGOFF_WINDOWS_SESSION` existen como primitives remotas Agent/Master gateway para un Client individual; `SWITCH_MANAGED_ACCOUNT` ya tiene batch Master administrativo desde `POST /api/classrooms/{classroomId}/managed-accounts/switch`, pero aun no tiene UI ni retry administrativo 19H2.
+El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real, sync real, USB real, browser automation, wallpaper real, proyeccion real ni distribucion real. `LOGON_MANAGED_ACCOUNT` y `LOGOFF_WINDOWS_SESSION` existen como primitives remotas Agent/Master gateway para un Client individual; `SWITCH_MANAGED_ACCOUNT` ya tiene batch Master administrativo desde 19H1 mediante `POST /api/classrooms/{classroomId}/managed-accounts/switch` y retry administrativo explicito/selectivo desde 19H2 mediante `POST /api/operations/{operationId}/retry`; la UI sigue pendiente y la validacion real Credential Provider/logon/switch 19I2 sigue pendiente.
 
 ## Implementado
 
@@ -554,6 +556,9 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~MasterNetworkTransport|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts"` en `agent`: correcto, 54 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 620 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
 - Parser PowerShell sobre scripts nuevos/modificados de Credential Provider y orchestrators: correcto.
 - `.\installer\windows\publish-credential-provider.ps1`: correcto; compila `Release|x64`, genera package limpio y reporta `Authenticode: NOT_SIGNED`.
 - `.\installer\windows\test-credential-provider-package.ps1`: correcto; manifest, CLSID, x64, SHA-256, packageId y Authenticode verificados sin elevacion.

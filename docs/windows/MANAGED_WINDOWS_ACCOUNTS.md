@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera y 19G4 agrega `SWITCH_MANAGED_ACCOUNT` individual Agent-side, pero sigue sin existir HTTP, BatchOperation, planner/UI ni reveal Client-side.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera. 19G4 agrega `SWITCH_MANAGED_ACCOUNT` individual Agent-side. 19H1 agrega endpoint, `BatchOperation` y planner Master para switch batch sobre Devices explicitos. 19H2 agrega retry administrativo explicito y selectivo del mismo batch. La UI sigue pendiente, reveal Client-side sigue sin existir y la validacion real de laboratorio del Credential Provider queda pendiente para 19I2.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -210,4 +210,6 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 ## Pendiente
 
-- 19H: dispatch/planner batch Master.
+- UI de cuentas Windows administradas.
+- Reveal Client-side: no implementado.
+- Validacion real 19I2 de Credential Provider/logon/switch en PC descartable.
