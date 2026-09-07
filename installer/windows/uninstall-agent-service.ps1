@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $ServiceName = 'GaltekClassroomAgent'
 $LegacyServiceNames = @('GaltekClassroomAgentService')
-$SessionInstallSubdirectory = 'Session'
+$PreservedInstallSubdirectories = @('Session', 'CredentialProvider')
 $NetworkIdentityFileName = 'network-identity.json'
 $NetworkIdentityKeyNamePrefix = 'GaltekClassroom.NetworkIdentity.'
 
@@ -115,7 +115,7 @@ function Remove-ServiceIfPresent {
 function Remove-AgentServiceBinaries {
     param(
         [Parameter(Mandatory = $true)][string] $InstallDirectory,
-        [Parameter(Mandatory = $true)][string] $PreservedSubdirectory
+        [Parameter(Mandatory = $true)][string[]] $PreservedSubdirectories
     )
 
     if (-not (Test-Path -LiteralPath $InstallDirectory)) {
@@ -124,7 +124,7 @@ function Remove-AgentServiceBinaries {
     }
 
     foreach ($item in Get-ChildItem -LiteralPath $InstallDirectory -Force) {
-        if ($item.PSIsContainer -and [string]::Equals($item.Name, $PreservedSubdirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ($item.PSIsContainer -and ($PreservedSubdirectories | Where-Object { [string]::Equals($item.Name, $_, [System.StringComparison]::OrdinalIgnoreCase) })) {
             continue
         }
 
@@ -136,7 +136,7 @@ function Remove-AgentServiceBinaries {
         Write-Host "Removed binaries: $InstallDirectory"
     }
     else {
-        Write-Host "Removed Agent Service binaries and preserved Session Agent directory: $InstallDirectory\$PreservedSubdirectory"
+        Write-Host "Removed Agent Service binaries and preserved lifecycle-owned subdirectories: $(($PreservedSubdirectories | ForEach-Object { Join-Path $InstallDirectory $_ }) -join ', ')"
     }
 }
 
@@ -212,7 +212,7 @@ foreach ($legacyServiceName in $LegacyServiceNames) {
     Remove-ServiceIfPresent -Name $legacyServiceName
 }
 
-Remove-AgentServiceBinaries -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
+Remove-AgentServiceBinaries -InstallDirectory $installDirectory -PreservedSubdirectories $PreservedInstallSubdirectories
 
 if ($PurgeData) {
     Write-Warning 'PurgeData elimina Installation Identity, Commercial License, Master Windows Binding y Network Identity. La instalacion resultante requerira una nueva activacion, reconfiguracion Master y nueva identidad de red.'

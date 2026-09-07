@@ -1,5 +1,35 @@
 # Decisiones vigentes
 
+## 2026-09-06 - Prompt 19I1
+
+- El Credential Provider productivo se publica como artifact separado `artifacts/windows/credential-provider/` con solo DLL y manifest.
+- El CLSID fijo sigue siendo `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}` y no puede reutilizarse para ningun otro componente.
+- Release x64 del provider usa CRT estatico `/MT`; no se copian runtimes Visual Studio junto al DLL.
+- El manifest `credential-provider.manifest.json` contiene metadata no secreta: schema, producto, componente, CLSID, arquitectura, filename, SHA-256 y packageId deterministico.
+- `packageId` vigente deriva del SHA-256 como `sha256-<primeros 16 hex>`.
+- El SHA-256 se valida antes de tocar Registry y no sustituye Authenticode.
+- `SIGNED_INVALID` falla cerrado. `NOT_SIGNED` queda permitido solo para deployment controlado/lab hasta que exista certificado real.
+- La instalacion productiva exige Windows x64, PowerShell x64, elevacion, Agent Service instalado y DLL PE x64.
+- El Credential Provider se instala machine-wide en HKLM x64; no hay HKCU ni registro per-user.
+- Galtek registra solo `SOFTWARE\Classes\CLSID\{GALTEK_CLSID}` e `Authentication\Credential Providers\{GALTEK_CLSID}`.
+- `ThreadingModel` productivo es `Apartment`.
+- Galtek nunca registra `Credential Provider Filters` ni implementa `ICredentialProviderFilter`.
+- La DLL productiva vive bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`.
+- Upgrade del provider es side-by-side y cambia `InprocServer32`; no sobrescribe una DLL que LogonUI podria tener cargada.
+- El installer falla con `CREDENTIAL_PROVIDER_REGISTRATION_CONFLICT` si el CLSID Galtek ya apunta fuera del root Galtek esperado.
+- El rollback de install es in-memory durante esa ejecucion y restaura/remueve solo registration Galtek.
+- Uninstall elimina primero provider registration, despues COM registration y luego intenta cleanup de paquetes best-effort.
+- No se mata LogonUI/Winlogon, no se fuerza descarga de DLL, no se escribe `PendingFileRenameOperations` manualmente y no hay reboot automatico.
+- Si cleanup de DLL queda bloqueado tras unregister, se reporta `UNREGISTERED_REBOOT_CLEANUP_REQUIRED`.
+- El installer del Credential Provider no modifica ProgramData, identidades, licencias, bindings, credenciales, pairing ni policies.
+- `publish-agent.ps1`, `install-agent.ps1` y `uninstall-agent.ps1` integran Credential Provider al lifecycle completo del Agent.
+- Un publish completo no omite silenciosamente el Credential Provider; solo existe skip explicito de desarrollo.
+- `install-agent.ps1` instala Service, luego Session Agent, luego Credential Provider y falla como instalacion parcial si el provider falla.
+- `uninstall-agent.ps1` desregistra Credential Provider antes de remover Session Agent y Agent Service.
+- Service-only install/uninstall preserva `Agent\CredentialProvider\`; Session-only lifecycle no toca Credential Provider.
+- 19I1 no cambia LOGON/SWITCH, capabilities, Protobuf, Master Java, Agent Service behavior, Session Agent behavior, secretos ni UI.
+- 19I1 no ejecuta registro real del provider ni prueba real de Windows logon/switch en la maquina de desarrollo.
+
 ## 2026-09-06 - Prompt 19H2
 
 - El Master Backend expone `POST /api/operations/{operationId}/retry` solo para `BatchOperation` existentes de tipo `SWITCH_MANAGED_ACCOUNT`.

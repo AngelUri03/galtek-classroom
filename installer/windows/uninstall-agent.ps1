@@ -7,6 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+& (Join-Path $PSScriptRoot 'uninstall-credential-provider.ps1')
 & (Join-Path $PSScriptRoot 'uninstall-session-agent.ps1')
 
 $serviceArgs = @{}

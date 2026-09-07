@@ -191,6 +191,23 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - El Credential Provider debe enterarse de activations mediante `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)`, generation counter y `ICredentialProviderEvents::CredentialsChanged`; no polling sano.
 - El worker del Credential Provider debe usar marshaling COM inter-thread para `ICredentialProviderEvents`, inicializar COM en el worker y cancelar/join en `UnAdvise`.
 - El Service debe saber que existe al menos un listener LogonUI validado antes de activation; si no aparece tras espera acotada, devolver `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- Credential Provider registration pertenece exclusivamente al installer elevado, nunca a runtime, `DllMain`, `DllGetClassObject`, Agent Service startup, heartbeat ni provider startup.
+- Galtek solo administra su CLSID fijo `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}` y nunca toca CLSIDs de Password Provider, PIN, Windows Hello, smart card u otros providers.
+- Nunca crear, registrar ni modificar `Credential Provider Filters`; no implementar `ICredentialProviderFilter`.
+- COM registration productiva del Credential Provider es machine-wide x64 bajo HKLM, no HKCU ni per-user.
+- `InprocServer32` productivo debe apuntar directamente a una DLL inmutable bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`.
+- Upgrade del Credential Provider usa side-by-side; nunca sobrescribe directamente una DLL que puede estar cargada por LogonUI.
+- Nunca matar LogonUI ni Winlogon para update/uninstall del Credential Provider.
+- Uninstall del Credential Provider desregistra primero provider y COM; cleanup de DLL locked es secundario y puede requerir reboot.
+- ProgramData, Installation Identity, licencias, bindings, credenciales, pairing y policies no pertenecen al installer del Credential Provider.
+- Product publish del Agent no debe omitir silenciosamente el Credential Provider; cualquier skip debe ser explicito de desarrollo.
+- SHA-256 del artifact detecta corrupcion/mezcla de paquetes, pero no sustituye Authenticode.
+- Firma Authenticode invalida del Credential Provider falla cerrado; `NOT_SIGNED` solo es tolerable mientras el deployment sea controlado/lab.
+- Nunca inventar certificado, thumbprint, PFX, CA ni signing productivo.
+- Usuarios estandar nunca deben tener write/modify/full-control efectivo sobre una DLL que LogonUI carga.
+- Service-only update/uninstall no debe borrar `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\`.
+- Standard Windows credential providers siempre permanecen disponibles.
+- Installer/uninstaller del Credential Provider no debe reiniciar Windows automaticamente.
 - Auto-submit solo aplica a activation remota con `autoSubmitRequested=true`: una credential, default `0`, `pbAutoLogonWithDefault=TRUE` y `SetSelected` exactly once.
 - Nunca usar SendKeys, UI Automation, Registry autologon, `DefaultPassword`, `LogonUser`, `CreateProcessWithLogonW` ni `CreateProcessAsUser` para implementar logon administrado.
 - Despues de acquire, fallos locales de serialization se reportan como `LOCAL_SERIALIZATION_FAILED`; la activation queda consumida y no se restaura.

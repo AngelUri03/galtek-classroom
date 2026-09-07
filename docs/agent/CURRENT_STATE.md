@@ -2,9 +2,17 @@
 
 ## Ultima actualizacion
 
-2026-09-06 - Prompt 19H2.
+2026-09-06 - Prompt 19I1.
 
 ## Estado del proyecto
+
+Prompt 19I1 integra el Credential Provider nativo al lifecycle normal del Agent sin registrar el provider ni ejecutar logon/switch real en la maquina de desarrollo. Se agregan scripts productivos para publicar, verificar package, instalar, verificar instalacion y desinstalar el provider. El package vive por default en `artifacts/windows/credential-provider/`, contiene solo `GaltekClassroom.CredentialProvider.dll` y `credential-provider.manifest.json`, y el manifest guarda metadata no secreta con CLSID fijo, arquitectura x64, SHA-256 y packageId deterministico basado en el hash.
+
+Release x64 del Credential Provider y su self-test nativo usan `RuntimeLibrary=MultiThreaded` (`/MT`) para evitar dependencia productiva de Visual C++ Redistributable manual dentro de LogonUI. El publish productivo localiza MSBuild, compila `Release|x64`, valida PE x64, calcula SHA-256 despues de producir la DLL final y reporta estado Authenticode sin fingir firma. `SIGNED_INVALID` falla cerrado; `NOT_SIGNED` queda permitido solo para deployment controlado/lab hasta que exista signing real.
+
+El install productivo exige elevacion, Windows x64, PowerShell x64, manifest valido, hash correcto, DLL PE x64, firma no invalida, Agent Service instalado, ACL sin write obvio para `Everyone`/`Authenticated Users`/`Builtin Users`, ausencia de filter Galtek y registro HKLM x64. Staging es side-by-side bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`; `InprocServer32` apunta directo a la DLL de la version activa. El installer captura rollback in-memory de las claves Galtek y falla cerrado ante conflicto si el CLSID apunta fuera del root Galtek.
+
+El uninstall productivo elimina solo el provider key Galtek y luego la registration COM Galtek; despues intenta limpiar paquetes best-effort sin matar LogonUI/Winlogon, sin reboot automatico y sin tocar otros providers. Si queda una DLL locked, reporta `UNREGISTERED_REBOOT_CLEANUP_REQUIRED`. Los orchestrators `publish-agent.ps1`, `install-agent.ps1` y `uninstall-agent.ps1` integran Service, Session Agent y Credential Provider en orden seguro. Los scripts especificos de Service preservan `Agent\Session\` y `Agent\CredentialProvider\`; los scripts de Session no tocan Credential Provider. La validacion real queda en estado `PACKAGE_VERIFIED`, `INSTALLER_PREPARED`, `REAL_LOGON_VALIDATION_PENDING`.
 
 Prompt 19H2 agrega en el Master Backend Java `POST /api/operations/{operationId}/retry` como retry administrativo explicito y selectivo solo para `BatchOperation` existentes de tipo `SWITCH_MANAGED_ACCOUNT`. El endpoint usa `MasterAccessGuard` antes de leer storage o hacer trabajo remoto, acepta solo `targetDeviceIds`, rechaza campos extra incluyendo `targetAccountId`, source, passwords, SID, username, force y allFailed, y toma la cuenta objetivo solo del payload durable original `schemaVersion = 1`.
 
@@ -539,12 +547,21 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 - `master-network-identity.key` y `master-network-identity.protector` son almacenamiento separado y cifrado minimo para desarrollo/local; no son hardening productivo final.
 - ACL de `credential-vault.dat` es hardening best-effort encapsulado; la confidencialidad principal depende de master password + crypto.
 - Los certificados TLS actuales son self-signed de corta vida emitidos en memoria desde Network Identity; falta ciclo de vida productivo de certificados y rotacion operacional.
+- El Credential Provider artifact de 19I1 queda `NOT_SIGNED`; Authenticode con certificado real sigue siendo gate pendiente antes de distribucion comercial externa.
 - La validacion productiva con Service Control Manager, Task Scheduler y CLI elevada depende de ejecutar en un entorno con permisos administrativos.
 - La creacion real de la llave CNG de Network Identity requiere el contexto del Service como `LocalSystem` o una consola elevada; una prueba manual desde shell no elevado devuelve acceso denegado.
 - No se creo una segunda cuenta Windows para prueba manual de SID distinto; ese caso queda cubierto por tests automatizados.
 
 ## Pruebas ejecutadas
 
+- Parser PowerShell sobre scripts nuevos/modificados de Credential Provider y orchestrators: correcto.
+- `.\installer\windows\publish-credential-provider.ps1`: correcto; compila `Release|x64`, genera package limpio y reporta `Authenticode: NOT_SIGNED`.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto; manifest, CLSID, x64, SHA-256, packageId y Authenticode verificados sin elevacion.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `dumpbin /dependents` sobre `artifacts/windows/credential-provider/GaltekClassroom.CredentialProvider.dll`: dependencias `ole32.dll`, `ADVAPI32.dll`, `Secur32.dll`, `KERNEL32.dll`; sin `VCRUNTIME*.dll`, `MSVCP*.dll` ni dependencia .NET.
+- `.\installer\windows\publish-agent.ps1`: correcto; publica Service, Session Agent y Credential Provider.
+- Package final `artifacts/windows/credential-provider/`: contiene solo `GaltekClassroom.CredentialProvider.dll` y `credential-provider.manifest.json`.
 - `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest" test` en `master-backend`: correcto.
 - `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
 - `mvn -q -Ddebug=false "-Dtest=ManagedAccountSwitchDispatchControllerTest,ManagedAccountSwitchPlannerTest,BatchOperationPlannerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
@@ -643,4 +660,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19H2 deja completo el backend Master para `SWITCH_MANAGED_ACCOUNT` batch: seleccion explicita de Devices, snapshot remoto de planificacion, `NO_CHANGE`, partial success, persistencia consultable, retry administrativo explicito y selectivo solo sobre targets `FAILED` retryable, snapshot fresco y operationIds remotos nuevos. El siguiente paso recomendado es UI React/Tauri para exponer switch batch y retry selectivo sin agregar secretos ni fanout implicito.
+Fase 19I1 deja preparado el lifecycle productivo del Credential Provider dentro del Agent: publish/package verification, install/update side-by-side, verification read-only, uninstall seguro y orquestacion full Agent. El siguiente paso recomendado es 19I2 en una PC descartable para validar fresh install, fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.

@@ -12,7 +12,7 @@ $LegacyServiceNames = @('GaltekClassroomAgentService')
 $ServiceDisplayName = 'Galtek Classroom Agent Service'
 $ServiceDescription = 'Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.'
 $ServiceExecutableName = 'GaltekClassroom.Agent.Service.exe'
-$SessionInstallSubdirectory = 'Session'
+$PreservedInstallSubdirectories = @('Session', 'CredentialProvider')
 $RecoveryResetSeconds = 86400
 $RecoveryActions = 'restart/5000/restart/15000/restart/60000'
 
@@ -116,7 +116,7 @@ function Stop-ServiceIfPresent {
 function Clear-AgentServiceInstallDirectory {
     param(
         [Parameter(Mandatory = $true)][string] $InstallDirectory,
-        [Parameter(Mandatory = $true)][string] $PreservedSubdirectory
+        [Parameter(Mandatory = $true)][string[]] $PreservedSubdirectories
     )
 
     if (-not (Test-Path -LiteralPath $InstallDirectory)) {
@@ -125,7 +125,7 @@ function Clear-AgentServiceInstallDirectory {
     }
 
     foreach ($item in Get-ChildItem -LiteralPath $InstallDirectory -Force) {
-        if ($item.PSIsContainer -and [string]::Equals($item.Name, $PreservedSubdirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ($item.PSIsContainer -and ($PreservedSubdirectories | Where-Object { [string]::Equals($item.Name, $_, [System.StringComparison]::OrdinalIgnoreCase) })) {
             continue
         }
 
@@ -173,7 +173,7 @@ Stop-ServiceIfPresent -Name $ServiceName | Out-Null
 
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
 
-Clear-AgentServiceInstallDirectory -InstallDirectory $installDirectory -PreservedSubdirectory $SessionInstallSubdirectory
+Clear-AgentServiceInstallDirectory -InstallDirectory $installDirectory -PreservedSubdirectories $PreservedInstallSubdirectories
 Copy-Item -Path (Join-Path $artifactDirectory '*') -Destination $installDirectory -Recurse -Force
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

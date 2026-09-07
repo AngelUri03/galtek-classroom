@@ -1,6 +1,8 @@
 # Credential Provider
 
-Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto para un Client individual mediante Credential Provider V2 nativo, activation efimera, notification event-driven, auto-submit once y resultado confirmado por `ReportResult`. No existe todavia endpoint Master, BatchOperation, planner, fanout, UI ni `SWITCH_MANAGED_ACCOUNT`.
+Prompt 19I1 integra el Credential Provider nativo al lifecycle productivo del Agent: `PUBLISH -> INSTALL -> UPDATE -> VERIFY -> UNINSTALL`. No ejecuta registro real ni validacion de logon/switch en la maquina de desarrollo; el estado queda `PACKAGE_VERIFIED`, `INSTALLER_PREPARED` y `REAL_LOGON_VALIDATION_PENDING`.
+
+Prompt 19G3 completo `LOGON_MANAGED_ACCOUNT` remoto para un Client individual mediante Credential Provider V2 nativo, activation efimera, notification event-driven, auto-submit once y resultado confirmado por `ReportResult`. Fases posteriores agregaron `SWITCH_MANAGED_ACCOUNT` Agent-side y batch/retry Master para switch, sin cambiar el protocolo nativo del provider.
 
 ## Mecanismo
 
@@ -260,7 +262,134 @@ Si `GetSerialization` falla localmente despues de adquirir la password, reporta 
 
 Windows kernel/Named Pipe, COM, LSA y APIs del sistema pueden crear buffers transitorios que Galtek no puede zeroizar. La garantia de 19G3 es: sin persistencia, sin logs, sin JSON/Base64/string de contrato, sin caches Galtek, lease dispuesto inmediatamente y buffers propios zeroizados con `CryptographicOperations.ZeroMemory` en .NET o `SecureZeroMemory` en C++.
 
-## Registro Manual Lab
+## Product Lifecycle
+
+Scripts productivos:
+
+```text
+installer/windows/publish-credential-provider.ps1
+installer/windows/test-credential-provider-package.ps1
+installer/windows/install-credential-provider.ps1
+installer/windows/test-credential-provider-installation.ps1
+installer/windows/uninstall-credential-provider.ps1
+```
+
+`publish-credential-provider.ps1` localiza MSBuild, compila `GaltekClassroom.CredentialProvider` como `Release|x64`, no registra nada, valida PE x64 y crea:
+
+```text
+artifacts/windows/credential-provider/
+  GaltekClassroom.CredentialProvider.dll
+  credential-provider.manifest.json
+```
+
+El artifact no incluye PDB, obj, lib, exp, tests, source ni `.reg` dev. El manifest contiene metadata no secreta:
+
+```json
+{
+  "schemaVersion": 1,
+  "product": "GALTEK_CLASSROOM",
+  "component": "CREDENTIAL_PROVIDER",
+  "clsid": "{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}",
+  "architecture": "x64",
+  "fileName": "GaltekClassroom.CredentialProvider.dll",
+  "sha256": "...",
+  "packageId": "sha256-..."
+}
+```
+
+El SHA-256 se calcula despues de producir la DLL final. Sirve para detectar corrupcion o mezcla de artifacts, no sustituye Authenticode.
+
+## Product Install
+
+El install productivo exige:
+
+- Windows x64.
+- PowerShell x64.
+- elevacion.
+- Agent Service `GaltekClassroomAgent` instalado.
+- manifest valido.
+- DLL PE x64.
+- SHA-256 coincidente.
+- firma Authenticode no invalida.
+- ACL sin write obvio para `Everyone`, `Authenticated Users` ni `Builtin Users`.
+
+La DLL se instala side-by-side:
+
+```text
+%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\
+  versions\
+    <packageId>\
+      GaltekClassroom.CredentialProvider.dll
+      credential-provider.manifest.json
+```
+
+`InprocServer32` apunta directamente al DLL de la version activa. No se usa symlink, junction ni `current.dll`.
+
+Registro machine-wide en vista x64 de HKLM:
+
+```text
+HKLM\SOFTWARE\Classes\CLSID\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}
+  (default) = Galtek Classroom Credential Provider
+
+HKLM\SOFTWARE\Classes\CLSID\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}\InprocServer32
+  (default) = <Program Files Galtek>\CredentialProvider\versions\<packageId>\GaltekClassroom.CredentialProvider.dll
+  ThreadingModel = Apartment
+
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}
+  (default) = Galtek Classroom Credential Provider
+```
+
+El installer nunca crea HKCU/per-user registration y nunca registra:
+
+```text
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters
+```
+
+Si el CLSID Galtek existe y apunta fuera de `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\`, el installer falla cerrado con `CREDENTIAL_PROVIDER_REGISTRATION_CONFLICT`.
+
+## Product Update
+
+Upgrade:
+
+1. valida el package nuevo;
+2. stagea una version nueva e inmutable por `packageId`;
+3. valida lo stageado;
+4. cambia `InprocServer32` a la nueva ruta;
+5. conserva provider registration;
+6. verifica read-back.
+
+No borra la version anterior antes de activar la nueva, no mata LogonUI/Winlogon, no intenta descargar la DLL vieja y no reinicia Windows automaticamente. Una instancia vieja de LogonUI puede terminar naturalmente; futuras instancias cargan la nueva ruta.
+
+## Product Uninstall
+
+`uninstall-credential-provider.ps1` remueve solo:
+
+```text
+Authentication\Credential Providers\{GALTEK_CLSID}
+SOFTWARE\Classes\CLSID\{GALTEK_CLSID}
+```
+
+Luego intenta limpiar package directories Galtek. Si Windows bloquea un archivo cargado, reporta `UNREGISTERED_REBOOT_CLEANUP_REQUIRED`. La parte de seguridad principal es que provider registration y COM registration ya no existen.
+
+El uninstall no toca ProgramData, `installation.json`, `license.dat`, bindings, credenciales, pairing, browser policies ni otros Credential Providers.
+
+## Verification
+
+`test-credential-provider-package.ps1` es read-only y no requiere elevacion. Valida artifact/manifest/hash/PE x64/firma sin tocar Program Files, HKLM ni Service Control Manager.
+
+`test-credential-provider-installation.ps1` es read-only y valida:
+
+- OS/proceso x64.
+- provider key y COM key exactos.
+- `InprocServer32` bajo Program Files Galtek.
+- DLL y manifest existentes.
+- manifest CLSID/x64/hash correctos.
+- `ThreadingModel = Apartment`.
+- ausencia de Galtek CLSID bajo Credential Provider Filters.
+- ACL sin write obvio para usuarios estandar.
+- estado Authenticode informativo/seguro.
+
+## Registro Manual Lab / Dev
 
 Scripts lab-only:
 
@@ -277,32 +406,31 @@ El registro apunta por default a:
 
 No debe apuntar al artifact del repo, Desktop, AppData alumno ni Temp. El directorio y la DLL deben quedar bajo Program Files con escritura restringida a administradores/SYSTEM/TrustedInstaller segun politica del equipo; usuarios estandar solo read/execute.
 
-## Validacion Manual
+## Validacion 19I2 En PC Descartable
 
-No ejecutar automaticamente en el equipo de desarrollo. Usar PC descartable/laboratorio.
+No ejecutar automaticamente en el equipo de desarrollo. 19I2 debe usar PC descartable/laboratorio.
 
-Antes:
+La PC debe tener:
 
-- conocer password de administrador local;
-- tener recovery disponible;
-- no probar primero en el Master real de la profesora.
+- Windows 10/11 x64 soportado.
+- password conocida de administrador local.
+- acceso fisico.
+- recovery disponible.
+- Windows Password Provider estandar funcional.
 
-Pasos:
+Nunca comenzar validacion en la unica PC Master de la maestra, en un equipo sin password administrativa conocida ni en un equipo remoto sin acceso fisico.
 
-1. Publicar/copiar la DLL al directorio lab controlado bajo Program Files.
-2. Confirmar ACL del directorio y DLL: usuarios estandar sin write.
-3. Registrar con `register-credential-provider-dev.ps1`.
-4. Cerrar o bloquear sesion en PC descartable.
-5. Confirmar que Password/PIN/Windows Hello siguen visibles.
-6. Confirmar que sin activation Galtek no intenta autenticar.
-7. Crear `LOGON_MANAGED_ACCOUNT` controlado contra un Client descartable.
-8. Confirmar que aparece tile Galtek solo con activation remota y que auto-submit ocurre una vez.
-9. Confirmar que Password/PIN/Windows Hello siguen visibles.
-10. Intentar login controlado con password correcta/incorrecta en PC descartable.
-11. Confirmar que un segundo intento exige nueva activation.
-12. Detener Agent Service y confirmar que login estandar sigue funcionando.
-13. Ejecutar `unregister-credential-provider-dev.ps1`.
-14. Confirmar que Galtek provider desaparece.
+Checklist minimo futuro:
+
+- Fresh install: publicar package, ejecutar `install-agent.ps1`, ejecutar verifier, confirmar registry exacto, path bajo Program Files, ACL y providers estandar visibles.
+- Fail-open: detener Agent Service, iniciar/cerrar sesion manual y confirmar que Password/PIN/Hello siguen disponibles.
+- No activation: sin orden Galtek, confirmar que no aparece login Galtek espontaneo ni auto-submit.
+- Real logon: provisionar `PRIMARY`, dejar `NO_SESSION`, ejecutar `LOGON_MANAGED_ACCOUNT(PRIMARY)`, confirmar login y `GET_WINDOWS_SESSION_STATE -> PRIMARY_ACTIVE`.
+- Wrong password: password Galtek incorrecta, maximo un intento, sin loop y provider estandar disponible.
+- Real switch: `PRIMARY -> SECONDARY` y `SECONDARY -> PRIMARY`, comprobando resultado y efectos.
+- Batch: switch batch, `NO_CHANGE`, `PARTIAL_SUCCESS` y retry explicito seguro.
+- Update: instalar package nuevo, confirmar que registration apunta a nueva version inmutable, no se fuerza old loaded DLL y nueva LogonUI usa version nueva.
+- Uninstall: unregister, COM key removida, provider key removida, login estandar disponible y ProgramData preservado.
 
 No agregar CLI de password ni ejecutar login real automaticamente en la maquina de desarrollo.
 
@@ -314,6 +442,5 @@ El Service no agrega timer permanente, polling, WMI, disk scan, heartbeat field 
 
 ## Pendiente Posterior
 
-- Endpoint HTTP/BatchOperation/planner/UI para logon.
-- `SWITCH_MANAGED_ACCOUNT`.
-- Validacion manual completa en PC descartable.
+- UI para batch switch/logon si se decide exponerlo.
+- Validacion manual completa 19I2 en PC descartable.

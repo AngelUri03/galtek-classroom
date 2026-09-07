@@ -15,7 +15,7 @@ The current iteration implements local Installation Identity, development Machin
 - `agent/tests/GaltekClassroom.Agent.Service.Tests/`: automated tests for Installation Identity, Machine Code, Commercial License, and Local IPC behavior.
 - `agent/tests/GaltekClassroom.Agent.Session.Tests/`: automated tests for Session Agent lifecycle, single instance locking, backoff, reconnect behavior, and CLI mode parsing.
 - `protocol/`: cross-language protocol notes, including `protocol/local-ipc-v1.md`.
-- `installer/windows/`: PowerShell scripts for publishing, installing/updating, and uninstalling the Agent Service, Session Agent, or full Agent.
+- `installer/windows/`: PowerShell scripts for publishing, installing/updating, verifying and uninstalling the Agent Service, Session Agent, Credential Provider, or full Agent.
 - `docs/`: project context, API notes, architecture notes, decisions, and handoff state.
 
 Before developing classroom functionality, read `docs/context/FUNCTIONAL_MODEL.md`. It is the stable domain contract for Devices, Students, Student Workspaces, Master Windows Binding, batch-first operations, error handling, retry, and rollback.
@@ -253,14 +253,15 @@ Publish the complete Agent from the repository root:
 .\installer\windows\publish-agent.ps1
 ```
 
-This calls the Service and Session publish scripts and writes:
+This calls the Service, Session and Credential Provider publish scripts and writes:
 
 ```text
 artifacts\windows\agent-service\
 artifacts\windows\agent-session\
+artifacts\windows\credential-provider\
 ```
 
-Both artifacts are `Release`, `win-x64`, self-contained, folder-based, and ignored by Git.
+Service and Session artifacts are `Release`, `win-x64`, self-contained, folder-based, and ignored by Git. Credential Provider publish is native `Release|x64`, emits only the DLL plus manifest, and does not register the provider.
 
 Install or update the complete Agent from an elevated PowerShell session:
 
@@ -268,11 +269,15 @@ Install or update the complete Agent from an elevated PowerShell session:
 .\installer\windows\install-agent.ps1
 ```
 
+The full installer installs Service, then Session Agent, then the Credential Provider product package. If Credential Provider install fails after Service/Session succeeded, the command fails and reports a partial Agent install.
+
 Uninstall the complete Agent:
 
 ```powershell
 .\installer\windows\uninstall-agent.ps1
 ```
+
+The full uninstaller unregisters the Credential Provider before removing the Session Agent and Agent Service.
 
 Normal uninstall preserves `%ProgramData%\Galtek\Classroom\`. To intentionally remove Installation Identity, Commercial License and Master Windows Binding:
 
@@ -324,7 +329,7 @@ Persistent machine data:
 %ProgramData%\Galtek\Classroom\
 ```
 
-Program Files contains binaries only. ProgramData contains `installation.json`, `license.dat`, `master-binding.json`, and future persistent Agent data. Updating binaries must not delete or regenerate Installation Identity or Master binding.
+Program Files contains binaries only. ProgramData contains `installation.json`, `license.dat`, `master-binding.json`, and future persistent Agent data. Updating Service binaries must not delete or regenerate Installation Identity, Master binding, `Session\` or `CredentialProvider\`.
 
 Verify service state:
 
@@ -348,7 +353,7 @@ Uninstall from an elevated PowerShell session:
 .\installer\windows\uninstall-agent-service.ps1
 ```
 
-Normal uninstall removes the Windows Service registration and installed binaries, but preserves `%ProgramData%\Galtek\Classroom\`.
+Normal Service-only uninstall removes the Windows Service registration and Service-owned binaries, but preserves `%ProgramData%\Galtek\Classroom\`, `Agent\Session\` and `Agent\CredentialProvider\`.
 
 To intentionally remove Installation Identity, Commercial License and Master Windows Binding:
 
@@ -417,6 +422,37 @@ Uninstall only the Session Agent:
 ```
 
 The Session uninstaller removes the scheduled task and `%ProgramFiles%\Galtek\Classroom\Agent\Session\`, but does not touch ProgramData.
+
+## Credential Provider
+
+The native Windows Credential Provider is installed machine-wide and x64 only. Product registration is handled by elevated installer scripts, never by the DLL or Agent runtime.
+
+Publish only the Credential Provider:
+
+```powershell
+.\installer\windows\publish-credential-provider.ps1
+```
+
+Validate the package without elevation:
+
+```powershell
+.\installer\windows\test-credential-provider-package.ps1
+```
+
+Install/update and verify from elevated 64-bit PowerShell:
+
+```powershell
+.\installer\windows\install-credential-provider.ps1
+.\installer\windows\test-credential-provider-installation.ps1
+```
+
+Uninstall:
+
+```powershell
+.\installer\windows\uninstall-credential-provider.ps1
+```
+
+The DLL is staged side-by-side under `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`, and HKLM x64 `InprocServer32` points to the active immutable DLL. Galtek never registers a Credential Provider Filter and never hides standard Windows providers. Real logon/switch validation belongs to a disposable lab PC checklist, not to development-machine install.
 
 Diagnostic commands:
 

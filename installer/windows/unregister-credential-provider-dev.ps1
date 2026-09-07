@@ -9,7 +9,7 @@ $providerName = "Galtek Classroom Credential Provider"
 $classKey = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\$providerClsid"
 $providerKey = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$providerClsid"
 
-Write-Warning "LAB ONLY: this removes only the Galtek Classroom Credential Provider registration."
+Write-Warning "LAB / DEV ONLY: this removes only the Galtek Classroom Credential Provider registration. Product uninstalls must use uninstall-credential-provider.ps1."
 Write-Warning "Windows standard Credential Providers are left untouched."
 
 if ($PSCmdlet.ShouldProcess($providerName, "Unregister Credential Provider")) {

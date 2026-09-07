@@ -12,7 +12,7 @@ $classKey = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\$providerClsid"
 $inprocKey = "$classKey\InprocServer32"
 $providerKey = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$providerClsid"
 
-Write-Warning "LAB ONLY: this registers a native Windows Credential Provider. Use only on a disposable lab PC with known local administrator recovery."
+Write-Warning "LAB / DEV ONLY: this registers a native Windows Credential Provider. Product installs must use install-credential-provider.ps1."
 Write-Warning "The Windows password/PIN/Hello providers are not filtered or modified by this script."
 
 $resolvedDllPath = [System.IO.Path]::GetFullPath($DllPath)

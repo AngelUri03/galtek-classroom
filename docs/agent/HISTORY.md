@@ -2453,3 +2453,59 @@
 ### Commit sugerido
 
 `feat(master): retry managed account switch targets`
+
+## 2026-09-06 - Prompt 19I1
+
+### Realizado
+
+- Integrado el Credential Provider nativo al lifecycle productivo normal del Agent sin ejecutar registro real ni prueba de logon/switch en la maquina de desarrollo.
+- Agregado `installer/windows/credential-provider-common.ps1` con constantes Galtek, validacion de Windows/PowerShell x64, PE x64, manifest, SHA-256, Authenticode, ACL y Registry HKLM x64.
+- Agregado `publish-credential-provider.ps1` para localizar MSBuild, compilar `GaltekClassroom.CredentialProvider` como `Release|x64`, no registrar nada y crear artifact limpio.
+- Agregado artifact productivo default `artifacts/windows/credential-provider/` con solo `GaltekClassroom.CredentialProvider.dll` y `credential-provider.manifest.json`.
+- El manifest del package contiene `schemaVersion`, `product`, `component`, CLSID fijo, `architecture=x64`, filename, SHA-256 y `packageId` deterministico `sha256-<hash-prefix>`.
+- Agregado `test-credential-provider-package.ps1` read-only para validar artifact sin elevacion, Program Files, HKLM ni SCM.
+- Agregado `install-credential-provider.ps1` productivo con elevacion, PowerShell x64, manifest/hash/PE/firma, Agent Service instalado, absence de filter Galtek, ACL y rollback in-memory de registration Galtek.
+- El install stagea versiones inmutables bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\` y registra `InprocServer32` directo a la DLL activa.
+- Registration productiva usa HKLM x64 machine-wide, `SOFTWARE\Classes\CLSID\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}` y `Authentication\Credential Providers\{...}`, con `ThreadingModel=Apartment`.
+- El installer falla cerrado con `CREDENTIAL_PROVIDER_REGISTRATION_CONFLICT` si el CLSID Galtek apunta fuera del root Galtek esperado.
+- Agregado `uninstall-credential-provider.ps1` para remover primero provider registration, luego COM registration y despues cleanup best-effort de paquetes.
+- El uninstall no mata LogonUI/Winlogon, no fuerza unload, no agenda `PendingFileRenameOperations` manualmente y no reinicia Windows automaticamente; si quedan locks reporta `UNREGISTERED_REBOOT_CLEANUP_REQUIRED`.
+- Agregado `test-credential-provider-installation.ps1` read-only para verificar registration, path, manifest/hash, `ThreadingModel`, ausencia de filter Galtek, ACL y Authenticode.
+- `publish-agent.ps1` ahora publica Service, Session Agent y Credential Provider por default; el skip del provider es explicito de desarrollo.
+- `install-agent.ps1` instala Service, Session Agent y Credential Provider en orden seguro y falla como partial install si el provider falla.
+- `uninstall-agent.ps1` desregistra Credential Provider antes de uninstall de Session Agent y Agent Service.
+- `install-agent-service.ps1` y `uninstall-agent-service.ps1` preservan `Agent\Session\` y `Agent\CredentialProvider\` en lifecycles Service-only.
+- Scripts dev `register/unregister-credential-provider-dev.ps1` quedan marcados claramente como `LAB / DEV ONLY`.
+- Release x64 del provider y tests nativos usan `RuntimeLibrary=MultiThreaded` (`/MT`).
+- Actualizados README raiz, installer README, Credential Provider docs, arquitectura, modelo funcional, reglas, estado y decisiones.
+
+### Cambios descartados
+
+- No se registro el Credential Provider en esta PC.
+- No se ejecuto `install-credential-provider.ps1`, `uninstall-credential-provider.ps1` ni scripts dev de register/unregister.
+- No se hizo prueba real de Windows logon, switch, lock screen ni LogonUI en esta maquina.
+- No se cambio LOGON/SWITCH, Protobuf, Master Backend Java, Agent Service behavior, Session Agent behavior, capabilities, bridge Service <-> Provider, secret handling, Vault, SQLite ni UI.
+- No se implemento `ICredentialProviderFilter` ni se tocaron providers estandar de Windows.
+- No se copio DLL a System32/SysWOW64/Windows/Desktop/AppData/ProgramData/Temp.
+- No se invento certificado, PFX, thumbprint, CA ni signing productivo.
+- No se agrego MSI/MSIX, setup grafico, self-update, remote installer, registry polling, heartbeat de provider instalado ni reboot automatico.
+- No se hizo commit.
+
+### Validaciones
+
+- Parser PowerShell sobre scripts nuevos/modificados de Credential Provider y orchestrators: correcto.
+- `.\installer\windows\publish-credential-provider.ps1`: correcto; MSBuild 17.14, `Release|x64`, `/MT`, 0 advertencias, 0 errores.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto; manifest, CLSID, x64, SHA-256, packageId y Authenticode verificados.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, `/MT`, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `dumpbin /dependents` sobre el DLL final: `ole32.dll`, `ADVAPI32.dll`, `Secur32.dll`, `KERNEL32.dll`; sin `VCRUNTIME*.dll`, `MSVCP*.dll` ni dependencia .NET.
+- `.\installer\windows\publish-agent.ps1`: correcto; publica artifacts de Service, Session Agent y Credential Provider.
+- Package final de Credential Provider contiene solo DLL y manifest.
+
+### Validacion manual pendiente 19I2
+
+- En PC descartable con Windows 10/11 x64, password administrativa conocida, acceso fisico, recovery y Password Provider estandar funcional: fresh install, verifier, registry/path/ACL/providers estandar, fail-open con Service detenido, no activation espontanea, logon real PRIMARY, wrong password sin loop, switch real PRIMARY/SECONDARY, batch/partial/retry, update side-by-side y uninstall con ProgramData preservado.
+
+### Commit sugerido
+
+`feat(installer): deploy credential provider safely`
