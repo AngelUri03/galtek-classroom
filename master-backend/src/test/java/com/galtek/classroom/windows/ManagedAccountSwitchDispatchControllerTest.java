@@ -39,8 +39,14 @@ import com.galtek.classroom.network.PairingResponse;
 import com.galtek.classroom.network.v1.ClientHello;
 import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.network.v1.NetworkCapability;
+import com.galtek.classroom.operations.BatchOperation;
 import com.galtek.classroom.operations.BatchOperationRepository;
+import com.galtek.classroom.operations.BatchOperationService;
+import com.galtek.classroom.operations.BatchTargetResult;
 import com.galtek.classroom.operations.ErrorCode;
+import com.galtek.classroom.operations.OperationPayload;
+import com.galtek.classroom.operations.OperationTarget;
+import com.galtek.classroom.operations.OperationTargetType;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageState;
@@ -118,6 +124,9 @@ class ManagedAccountSwitchDispatchControllerTest {
 
     @Autowired
     private BatchOperationRepository batchOperationRepository;
+
+    @Autowired
+    private BatchOperationService batchOperationService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -502,6 +511,280 @@ class ManagedAccountSwitchDispatchControllerTest {
                 .doesNotContain("sessionId");
     }
 
+    @Test
+    void retryAuthorizationRunsBeforeOperationReadOrRemoteWork() throws Exception {
+        long before = batchCount();
+        when(localAgentClient.getMasterAuthorization()).thenReturn(new MasterAuthorizationResponse(
+                "CURRENT_ACCOUNT_NOT_AUTHORIZED",
+                false,
+                true,
+                "AULA\\MaestraPrimaria",
+                "AULA\\Soporte"));
+        storageState.mark(MasterStorageStatus.UNAVAILABLE, ErrorCode.MASTER_DATABASE_UNAVAILABLE.name());
+
+        mockMvc.perform(post("/api/operations/{id}/retry", "missing-operation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of("device-1")))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CURRENT_ACCOUNT_NOT_AUTHORIZED"));
+
+        assertThat(batchCount()).isEqualTo(before);
+        verifyNoInteractions(remoteOperationGateway);
+    }
+
+    @Test
+    void retryRequestIsStrictAndDoesNotAcceptTargetAccountOverride() throws Exception {
+        String classroomId = createClassroom("Aula retry validation " + id());
+        String operationId = createStoredSwitchOperation(
+                classroomId,
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(operationResult("device-07", "PC07", TargetExecutionStatus.FAILED, ErrorCode.DEVICE_OFFLINE, 1)));
+
+        expectInvalidRetry(operationId, null);
+        expectInvalidRetry(operationId, Map.of("targetDeviceIds", List.of()));
+        expectInvalidRetry(operationId, Map.of("targetDeviceIds", List.of(" ")));
+        expectInvalidRetry(operationId, Map.of("targetDeviceIds", List.of("device-07", " device-07 ")));
+        expectInvalidRetry(operationId, Map.of(
+                "targetDeviceIds", List.of("device-07"),
+                "targetAccountId", "SECONDARY"));
+
+        for (String unsupported : List.of(
+                "sourceAccountId",
+                "password",
+                "SID",
+                "username",
+                "credentialId",
+                "vaultSessionToken",
+                "force",
+                "retryCount",
+                "operationType",
+                "newOperationId",
+                "allFailed",
+                "allRetryable",
+                "classroomId",
+                "command",
+                "payload")) {
+            expectInvalidRetry(operationId, Map.of(
+                    "targetDeviceIds", List.of("device-07"),
+                    unsupported, "not-accepted"));
+        }
+    }
+
+    @Test
+    void retryRejectsMissingOperationUnsupportedTypeAndIneligibleTargetsBeforeRemoteWork() throws Exception {
+        mockMvc.perform(post("/api/operations/{id}/retry", "missing-operation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of("device-1")))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ErrorCode.OPERATION_NOT_FOUND.name()));
+
+        String classroomId = createClassroom("Aula retry eligibility " + id());
+        String openUrlOperationId = id();
+        batchOperationService.create(
+                classroomId,
+                BatchOperation.fromTargets(
+                        openUrlOperationId,
+                        OperationType.OPEN_URL,
+                        "LOCAL_MASTER",
+                        OffsetDateTime.parse("2026-09-06T12:00:00Z"),
+                        List.of(operationResult(
+                                "device-open-url",
+                                "PC OPEN",
+                                TargetExecutionStatus.FAILED,
+                                ErrorCode.DEVICE_OFFLINE,
+                                1))),
+                OperationPayload.none());
+
+        mockMvc.perform(post("/api/operations/{id}/retry", openUrlOperationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of("device-open-url")))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.OPERATION_NOT_IMPLEMENTED.name()));
+
+        String switchOperationId = createStoredSwitchOperation(
+                classroomId,
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(
+                        operationResult("device-ok", "PC OK", TargetExecutionStatus.FAILED, ErrorCode.DEVICE_OFFLINE, 1),
+                        operationResult("device-success", "PC SUCCESS", TargetExecutionStatus.SUCCESS, null, 1),
+                        operationResult("device-no-change", "PC NO CHANGE", TargetExecutionStatus.NO_CHANGE, null, 1),
+                        operationResult("device-pending", "PC PENDING", TargetExecutionStatus.PENDING, null, 1),
+                        operationResult(
+                                "device-non-retryable",
+                                "PC NON RETRYABLE",
+                                TargetExecutionStatus.FAILED,
+                                ErrorCode.MANAGED_CREDENTIAL_NOT_CONFIGURED,
+                                1),
+                        operationResult(
+                                "device-unknown",
+                                "PC UNKNOWN",
+                                TargetExecutionStatus.FAILED,
+                                ErrorCode.OPERATION_RESULT_UNKNOWN,
+                                1)));
+        resetEndpointMocks();
+
+        for (String ineligible : List.of(
+                "device-success",
+                "device-no-change",
+                "device-pending",
+                "device-non-retryable",
+                "device-unknown",
+                "not-in-batch")) {
+            expectInvalidRetry(switchOperationId, Map.of("targetDeviceIds", List.of(ineligible)));
+        }
+        expectInvalidRetry(switchOperationId, Map.of("targetDeviceIds", List.of("device-ok", "device-success")));
+
+        verifyNoInteractions(remoteOperationGateway);
+        BatchTargetResult eligible = batchOperationRepository.findById(switchOperationId)
+                .orElseThrow()
+                .targets()
+                .stream()
+                .filter(result -> result.target().targetId().equals("device-ok"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(eligible.status()).isEqualTo(TargetExecutionStatus.FAILED);
+        assertThat(eligible.attempt()).isEqualTo(1);
+    }
+
+    @Test
+    void retryClaimsBeforeFreshSnapshotAndNoChangeUsesSameBatchOperation() throws Exception {
+        String classroomId = createClassroom("Aula retry no change " + id());
+        RegisteredClient target = registerClient(classroomId, "PC24", switchCapabilities());
+        String operationId = createStoredSwitchOperation(
+                classroomId,
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(operationResult(
+                        target.deviceId(),
+                        "PC24",
+                        TargetExecutionStatus.FAILED,
+                        ErrorCode.DEVICE_OFFLINE,
+                        1)));
+        String originalPayload = payloadJson(operationId);
+        long before = batchCount();
+        resetEndpointMocks();
+        when(remoteOperationGateway.getWindowsSessionState(any(), anyString(), eq(target.deviceId())))
+                .thenAnswer(invocation -> {
+                    BatchTargetResult claimed = batchOperationRepository.findById(operationId)
+                            .orElseThrow()
+                            .targets()
+                            .getFirst();
+                    assertThat(claimed.status()).isEqualTo(TargetExecutionStatus.PENDING);
+                    assertThat(claimed.attempt()).isEqualTo(2);
+                    return snapshotHandle(
+                            invocation.getArgument(1),
+                            invocation.getArgument(2),
+                            com.galtek.classroom.network.v1.WindowsSessionState
+                                    .WINDOWS_SESSION_STATE_PRIMARY_ACTIVE);
+                });
+
+        JsonNode response = read(mockMvc.perform(post("/api/operations/{id}/retry", operationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of(target.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.operationId").value(operationId))
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.summary.noChange").value(1))
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.NO_CHANGE.name()))
+                .andExpect(jsonPath("$.targets[0].attempt").value(2))
+                .andReturn());
+
+        assertThat(response.get("operationId").asText()).isEqualTo(operationId);
+        assertThat(batchCount()).isEqualTo(before);
+        assertThat(payloadJson(operationId)).isEqualTo(originalPayload);
+        verify(remoteOperationGateway, never()).switchManagedAccount(
+                any(),
+                anyString(),
+                anyString(),
+                any(ManagedWindowsAccountId.class));
+    }
+
+    @Test
+    void retryUsesFreshRemoteOperationIdsAndTargetAccountFromOriginalPayload() throws Exception {
+        String classroomId = createClassroom("Aula retry switch " + id());
+        RegisteredClient target = registerClient(classroomId, "PC25", switchCapabilities());
+        String operationId = createStoredSwitchOperation(
+                classroomId,
+                ManagedWindowsAccountType.SECONDARY,
+                List.of(operationResult(
+                        target.deviceId(),
+                        "PC25",
+                        TargetExecutionStatus.FAILED,
+                        ErrorCode.WINDOWS_LOGON_FAILED,
+                        1)));
+        resetEndpointMocks();
+        whenSnapshot(target, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_PRIMARY_ACTIVE);
+        whenSwitchSuccess(target);
+
+        mockMvc.perform(post("/api/operations/{id}/retry", operationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of(target.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetAccountId").value("SECONDARY"))
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.SUCCESS.name()))
+                .andExpect(jsonPath("$.targets[0].attempt").value(2));
+
+        ArgumentCaptor<String> snapshotOperationId = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> switchOperationId = ArgumentCaptor.forClass(String.class);
+        verify(remoteOperationGateway).getWindowsSessionState(any(), snapshotOperationId.capture(), eq(target.deviceId()));
+        verify(remoteOperationGateway).switchManagedAccount(
+                any(),
+                switchOperationId.capture(),
+                eq(target.deviceId()),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY));
+        assertThat(snapshotOperationId.getValue()).isNotEqualTo(operationId);
+        assertThat(switchOperationId.getValue()).isNotEqualTo(operationId);
+        assertThat(snapshotOperationId.getValue()).isNotEqualTo(switchOperationId.getValue());
+    }
+
+    @Test
+    void retryableTargetsReflectFinalRetryStateAndUnknownIsNeverRetryableForSwitch() throws Exception {
+        String classroomId = createClassroom("Aula retry final state " + id());
+        RegisteredClient target = registerClient(classroomId, "PC26", switchCapabilities());
+        String operationId = createStoredSwitchOperation(
+                classroomId,
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(operationResult(
+                        target.deviceId(),
+                        "PC26",
+                        TargetExecutionStatus.FAILED,
+                        ErrorCode.DEVICE_OFFLINE,
+                        1)));
+        resetEndpointMocks();
+        whenSnapshot(target, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_NO_SESSION);
+        whenSwitchFailure(target, ErrorCode.WINDOWS_LOGON_FAILED);
+
+        mockMvc.perform(post("/api/operations/{id}/retry", operationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of(target.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.FAILED.name()))
+                .andExpect(jsonPath("$.targets[0].errorCode").value(ErrorCode.WINDOWS_LOGON_FAILED.name()))
+                .andExpect(jsonPath("$.targets[0].retryable").value(true))
+                .andExpect(jsonPath("$.targets[0].attempt").value(2));
+        mockMvc.perform(get("/api/operations/{id}/retryable-targets", operationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].targetId").value(target.deviceId()));
+
+        resetEndpointMocks();
+        whenSnapshot(target, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_NO_SESSION);
+        whenSwitchFailure(target, ErrorCode.OPERATION_RESULT_UNKNOWN);
+
+        mockMvc.perform(post("/api/operations/{id}/retry", operationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of(target.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.FAILED.name()))
+                .andExpect(jsonPath("$.targets[0].errorCode").value(ErrorCode.OPERATION_RESULT_UNKNOWN.name()))
+                .andExpect(jsonPath("$.targets[0].retryable").value(false))
+                .andExpect(jsonPath("$.targets[0].attempt").value(3));
+        mockMvc.perform(get("/api/operations/{id}/retryable-targets", operationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
     private void resetEndpointMocks() {
         reset(localAgentClient, remoteOperationGateway);
         storageState.markReady();
@@ -515,8 +798,59 @@ class ManagedAccountSwitchDispatchControllerTest {
         when(remoteOperationGateway.switchManagedAccountResultTimeout()).thenReturn(Duration.ofMillis(50));
     }
 
+    private String createStoredSwitchOperation(
+            String classroomId,
+            ManagedWindowsAccountType targetAccountType,
+            List<BatchTargetResult> targets) throws Exception {
+        String operationId = id();
+        batchOperationService.create(
+                classroomId,
+                BatchOperation.fromTargets(
+                        operationId,
+                        OperationType.SWITCH_MANAGED_ACCOUNT,
+                        "LOCAL_MASTER",
+                        OffsetDateTime.parse("2026-09-06T12:00:00Z"),
+                        targets),
+                new OperationPayload(1, objectMapper.writeValueAsString(Map.of(
+                        "schemaVersion", 1,
+                        "targetAccountId", targetAccountType.name()))));
+        return operationId;
+    }
+
+    private BatchTargetResult operationResult(
+            String deviceId,
+            String displayName,
+            TargetExecutionStatus status,
+            ErrorCode errorCode,
+            int attempt) {
+        return new BatchTargetResult(
+                new OperationTarget(OperationTargetType.DEVICE, deviceId, displayName),
+                status,
+                errorCode,
+                errorCode == null ? null : "Stored " + errorCode.name() + ".",
+                attempt);
+    }
+
+    private String payloadJson(String operationId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT payload_json FROM batch_operations WHERE operation_id = ?",
+                String.class,
+                operationId);
+    }
+
     private void expectInvalidRequest(String classroomId, Map<String, Object> body) throws Exception {
         var builder = post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
+                .contentType(MediaType.APPLICATION_JSON);
+        if (body != null) {
+            builder.content(json(body));
+        }
+        mockMvc.perform(builder)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+    }
+
+    private void expectInvalidRetry(String operationId, Map<String, Object> body) throws Exception {
+        var builder = post("/api/operations/{id}/retry", operationId)
                 .contentType(MediaType.APPLICATION_JSON);
         if (body != null) {
             builder.content(json(body));

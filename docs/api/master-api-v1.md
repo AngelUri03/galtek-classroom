@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`; ampliado en Prompt 19H2 con retry administrativo explicito y selectivo de `SWITCH_MANAGED_ACCOUNT`.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Prompt 19H2 permite reintentar selectivamente targets fallidos retryable del mismo batch `SWITCH_MANAGED_ACCOUNT`, con snapshot fresco y operationIds remotos nuevos. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -551,14 +551,62 @@ Semantica:
 - `SUCCESS` significa que el Agent reporto exito para la primitive `SWITCH_MANAGED_ACCOUNT`; el Agent conserva autoridad final ante races, credenciales y Credential Provider.
 - `NO_CHANGE` significa que el snapshot remoto ya mostraba la cuenta objetivo activa; cuenta como exito y no es retryable.
 - Mezclas de `SUCCESS`/`NO_CHANGE` y `FAILED` producen `PARTIAL_SUCCESS`; todos exitosos producen `SUCCESS`; todos fallidos producen `FAILED`.
-- No hay retry automatico, retry endpoint ni reconciliacion productiva de `SWITCH_MANAGED_ACCOUNT` en 19H1.
-- `GET /api/operations/{id}` lee el batch durable y `GET /api/operations/{id}/retryable-targets` excluye `NO_CHANGE` y `SUCCESS`.
+- No hay retry automatico ni reconciliacion productiva de `SWITCH_MANAGED_ACCOUNT`.
+- `GET /api/operations/{id}` lee el batch durable y `GET /api/operations/{id}/retryable-targets` excluye `NO_CHANGE`, `SUCCESS` y `OPERATION_RESULT_UNKNOWN` de switch.
+
+### Retry administrativo de switch
+
+`POST /api/operations/{operationId}/retry`
+
+Endpoint protegido por `MasterAccessGuard`. Reintenta de forma explicita y selectiva targets fallidos retryable de una `BatchOperation` existente de tipo `SWITCH_MANAGED_ACCOUNT`.
+
+Request:
+
+```json
+{
+  "targetDeviceIds": [
+    "device-3"
+  ]
+}
+```
+
+Reglas de request:
+
+- Solo se acepta `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
+- `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados y tiene limite maximo de 100 targets.
+- No se aceptan `targetAccountId`, source account, password, username, SID, sessionId, credentialId, vault token, `force`, `allFailed`, timeout, command, args, shell, `groupId`, `studentId`, `allDevices` ni payload libre.
+
+Elegibilidad:
+
+- La operacion debe existir y ser `SWITCH_MANAGED_ACCOUNT`; otros tipos devuelven `400 OPERATION_NOT_IMPLEMENTED`.
+- Cada target solicitado debe pertenecer al batch original.
+- El resultado persistido actual del target debe ser `FAILED`.
+- Debe tener `errorCode` no nulo y `ErrorCode.retryable() == true`.
+- `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` nunca es retryable, aunque una bandera generica futura cambiara.
+- `SUCCESS`, `NO_CHANGE` y `PENDING` nunca son retryable.
+- Si un solo target solicitado no cumple, se rechaza toda la request y no se ejecuta trabajo remoto parcial.
+
+Semantica:
+
+- El retry actua sobre el mismo `BatchOperation`: conserva `operationId`, `createdAtUtc`, `requestedBy`, `targetCount` y payload original.
+- `targetAccountId` se toma solo del payload durable original `schemaVersion = 1`; no puede cambiarse en el body de retry.
+- Antes del primer trabajo remoto, los targets seleccionados se reclaman transaccionalmente de `FAILED` a `PENDING`, con `attempt + 1`. Si hay conflicto concurrente, se devuelve `409 CONCURRENT_MODIFICATION` y no hay trabajo remoto.
+- Despues del claim, cada target ejecuta preflight tecnico fresco con las mismas reglas del dispatch original: aula, binding, trust, presencia `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`; no exige `SESSION_AGENT_AVAILABLE`.
+- Cada target listo obtiene `GET_WINDOWS_SESSION_STATE` fresco con operationId remoto nuevo.
+- Si el snapshot ya muestra la cuenta objetivo activa, el target queda `NO_CHANGE` con el intento incrementado y no se envia mutation.
+- Si requiere mutation, el Master envia solo `SWITCH_MANAGED_ACCOUNT(targetAccountId original)` con operationId remoto nuevo; nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`.
+- Al finalizar, solo los targets seleccionados cambian a `NO_CHANGE`, `SUCCESS` o `FAILED`; el resumen y estado global del batch se recalculan sobre todos los targets.
+- Un corte de energia que deje targets en `PENDING` no dispara retry automatico en startup.
 
 Errores relevantes:
 
 - `400 INVALID_REQUEST`: body faltante, `targetAccountId` no permitido, targets vacios/duplicados/blank, mas de 100 targets o campos no soportados.
+- `400 OPERATION_NOT_IMPLEMENTED`: la operacion existe pero no es `SWITCH_MANAGED_ACCOUNT`.
+- `400 OPERATION_REJECTED`: operacion/payload original incompatible con retry seguro o target no elegible.
 - `403 <authorization.status>`: Master local no autorizado.
+- `404 OPERATION_NOT_FOUND`: operacion inexistente.
 - `404 CLASSROOM_NOT_FOUND`: aula inexistente.
+- `409 CONCURRENT_MODIFICATION`: otro retry o update cambio el batch antes del claim atomico.
 - Target `DEVICE_NOT_FOUND`, `DEVICE_NOT_REGISTERED`, `MASTER_NOT_PAIRED`, `CLIENT_REVOKED`, `DEVICE_OFFLINE`, `CAPABILITY_NOT_SUPPORTED`, `WINDOWS_SESSION_CHANGED`, `WINDOWS_SESSION_UNKNOWN`, `ACCOUNT_NOT_CONFIGURED`, `MANAGED_ACCOUNT_BINDINGS_INVALID`, `MANAGED_CREDENTIAL_NOT_CONFIGURED`, `CREDENTIAL_PROVIDER_UNAVAILABLE`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGON_NOT_CONFIRMED`, `WINDOWS_LOGOFF_FAILED`, `WINDOWS_SWITCH_NOT_CONFIRMED`, `OPERATION_REJECTED` u `OPERATION_RESULT_UNKNOWN`.
 
 ## Reconcile Power Operation
@@ -1073,8 +1121,9 @@ Los endpoints `GET` solo listan catalogo existente y aplicaciones autorizadas po
 ## Managed Accounts
 
 - `POST /api/classrooms/{id}/managed-accounts/switch`
+- `POST /api/operations/{id}/retry`
 
-El endpoint ejecuta batch remoto `SWITCH_MANAGED_ACCOUNT` sobre Devices explicitos, con snapshot previo, `NO_CHANGE` durable y sin secretos en request, Protobuf ni payload persistido.
+El endpoint de switch ejecuta batch remoto `SWITCH_MANAGED_ACCOUNT` sobre Devices explicitos, con snapshot previo, `NO_CHANGE` durable y sin secretos en request, Protobuf ni payload persistido. El retry administrativo actua solo sobre operaciones `SWITCH_MANAGED_ACCOUNT` existentes y solo sobre targets `FAILED` retryable solicitados explicitamente.
 
 ## Operations
 
@@ -1082,6 +1131,7 @@ El endpoint ejecuta batch remoto `SWITCH_MANAGED_ACCOUNT` sobre Devices explicit
 - `GET /api/operations/{id}`
 - `GET /api/operations/{id}/retryable-targets`
 - `POST /api/operations/{id}/reconcile`
+- `POST /api/operations/{id}/retry`
 
 Las operaciones devuelven resultados por target y permiten consultar fallidos retryable sin repetir targets exitosos.
 

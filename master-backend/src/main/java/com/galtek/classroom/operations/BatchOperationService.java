@@ -40,8 +40,31 @@ public class BatchOperationService {
         return batchOperationRepository.findById(operationId);
     }
 
+    public Optional<StoredBatchOperation> findStoredById(String operationId) {
+        return batchOperationRepository.findStoredById(operationId);
+    }
+
     public List<BatchTargetResult> retryableFailures(String operationId) {
         return batchOperationRepository.findRetryableFailures(operationId);
+    }
+
+    @Transactional
+    public StoredBatchOperation claimRetryTargets(
+            String operationId,
+            long expectedVersion,
+            List<BatchTargetResult> expectedTargets) {
+        return batchOperationRepository.claimRetryTargets(
+                operationId,
+                expectedVersion,
+                expectedTargets,
+                nowUtc());
+    }
+
+    @Transactional
+    public StoredBatchOperation finishRetryTargets(
+            String operationId,
+            List<BatchTargetResult> finalTargets) {
+        return batchOperationRepository.finishRetryTargets(operationId, finalTargets, nowUtc());
     }
 
     public List<BatchOperation> powerOperationsWithUnknownTarget(String deviceId) {

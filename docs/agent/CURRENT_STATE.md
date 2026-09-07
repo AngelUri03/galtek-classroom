@@ -2,15 +2,19 @@
 
 ## Ultima actualizacion
 
-2026-09-06 - Prompt 19H1.
+2026-09-06 - Prompt 19H2.
 
 ## Estado del proyecto
+
+Prompt 19H2 agrega en el Master Backend Java `POST /api/operations/{operationId}/retry` como retry administrativo explicito y selectivo solo para `BatchOperation` existentes de tipo `SWITCH_MANAGED_ACCOUNT`. El endpoint usa `MasterAccessGuard` antes de leer storage o hacer trabajo remoto, acepta solo `targetDeviceIds`, rechaza campos extra incluyendo `targetAccountId`, source, passwords, SID, username, force y allFailed, y toma la cuenta objetivo solo del payload durable original `schemaVersion = 1`.
+
+El retry opera sobre el mismo batch: conserva `operationId`, `createdAtUtc`, `requestedBy`, `targetCount` y payload. Solo acepta targets del batch original que actualmente esten `FAILED`, con `errorCode` no nulo y retryable; `SUCCESS`, `NO_CHANGE`, `PENDING` y `OPERATION_RESULT_UNKNOWN` de switch nunca se reintentan. Antes del primer snapshot remoto reclama todos los targets seleccionados transaccionalmente de `FAILED` a `PENDING` con `attempt + 1`; conflictos concurrentes devuelven `CONCURRENT_MODIFICATION` sin fanout. Cada target reclamado usa preflight tecnico fresco, snapshot fresco `GET_WINDOWS_SESSION_STATE` con operationId remoto nuevo y, si requiere mutation, solo `SWITCH_MANAGED_ACCOUNT(targetAccountId original)` con operationId remoto nuevo. No hay retry automatico, scheduler, polling ni startup recovery de targets `PENDING`.
 
 Prompt 19H1 implementa en el Master Backend Java `POST /api/classrooms/{classroomId}/managed-accounts/switch` como batch administrativo para dejar Devices explicitamente seleccionados en `PRIMARY` o `SECONDARY`. El endpoint usa `MasterAccessGuard` antes de cualquier lectura escolar, acepta solo `targetAccountId` y `targetDeviceIds`, crea una sola `BatchOperation` `SWITCH_MANAGED_ACCOUNT`, persiste targets antes del primer snapshot remoto y guarda payload no secreto con `schemaVersion` y `targetAccountId`.
 
 El preflight local por target exige Device del aula, registro/binding vigente, trust `PAIRED`, no `REVOKED`, conexion autenticada `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`; no exige `SESSION_AGENT_AVAILABLE`. Luego cada target listo obtiene `GET_WINDOWS_SESSION_STATE` con operationId propio. El planner corregido usa el snapshot real: target ya activo produce `NO_CHANGE`, `NO_SESSION` planifica logon, opposite managed activo planifica switch, `OTHER_SESSION_ACTIVE` bloquea como `WINDOWS_SESSION_CHANGED` y `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`.
 
-El Master nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`: tanto plan `LOGON` como plan `SWITCH` despachan la primitive Agent-side `SWITCH_MANAGED_ACCOUNT(target)` con otro operationId remoto unico. El Master no consulta Credential Vault, no envia password/credentialId/vault token/SID/username/sessionId, no fabrica readiness de cuenta o credencial y preserva errores estructurados del Agent. `NO_CHANGE` cuenta como exito, se persiste y queda fuera de retryable targets. No hay retry automatico ni endpoint retry; 19H2 queda pendiente para retry administrativo explicito.
+El Master nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`: tanto plan `LOGON` como plan `SWITCH` despachan la primitive Agent-side `SWITCH_MANAGED_ACCOUNT(target)` con otro operationId remoto unico. El Master no consulta Credential Vault, no envia password/credentialId/vault token/SID/username/sessionId, no fabrica readiness de cuenta o credencial y preserva errores estructurados del Agent. `NO_CHANGE` cuenta como exito, se persiste y queda fuera de retryable targets. No hay retry automatico.
 
 Prompt 19G4 completa `SWITCH_MANAGED_ACCOUNT(targetAccountId)` como operacion remota tipada para un Client individual. El Master Java agrega `MasterRemoteOperationGateway.switchManagedAccount(...)` y envia solo `ManagedWindowsAccountId account_id` (`PRIMARY`/`SECONDARY`) por Protobuf; no envia source account, password, username, SID, domain, sessionId, credentialId, vault token, force, timeout configurable, comando ni payload generico. No hay endpoint HTTP, BatchOperation, fanout, planner ni UI.
 
@@ -541,6 +545,11 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -Ddebug=false "-Dtest=ManagedAccountSwitchDispatchControllerTest,ManagedAccountSwitchPlannerTest,BatchOperationPlannerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 338 pruebas superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
 - `mvn -q "-Dtest=ManagedAccountSwitchPlannerTest,ManagedAccountSwitchDispatchControllerTest,MasterRemoteOperationGatewayTest" test` en `master-backend`: correcto.
 - `mvn -q "-Dtest=MasterSqlitePersistenceIntegrationTest,BrowserDownloadPolicyPersistenceIntegrationTest" test` en `master-backend`: correcto.
 - `mvn -q -DskipTests compile` en `master-backend`: correcto.
@@ -634,4 +643,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19H1 deja completo el primer batch Master para `SWITCH_MANAGED_ACCOUNT` con seleccion explicita de Devices, snapshot remoto de planificacion, `NO_CHANGE`, partial success y persistencia consultable por la API de operaciones. El siguiente paso recomendado es 19H2: retry administrativo explicito y selectivo solo sobre targets `FAILED` cuyo `ErrorCode.retryable()` lo permita, siempre con snapshot nuevo y operationId remoto nuevo.
+Fase 19H2 deja completo el backend Master para `SWITCH_MANAGED_ACCOUNT` batch: seleccion explicita de Devices, snapshot remoto de planificacion, `NO_CHANGE`, partial success, persistencia consultable, retry administrativo explicito y selectivo solo sobre targets `FAILED` retryable, snapshot fresco y operationIds remotos nuevos. El siguiente paso recomendado es UI React/Tauri para exponer switch batch y retry selectivo sin agregar secretos ni fanout implicito.

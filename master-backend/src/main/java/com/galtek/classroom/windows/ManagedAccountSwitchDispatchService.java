@@ -1,6 +1,7 @@
 package com.galtek.classroom.windows;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.galtek.classroom.admin.AdminDtos.ClassroomResponse;
 import com.galtek.classroom.admin.MasterAdminRepository;
@@ -30,6 +31,7 @@ import com.galtek.classroom.operations.OperationPayload;
 import com.galtek.classroom.operations.OperationTarget;
 import com.galtek.classroom.operations.OperationTargetType;
 import com.galtek.classroom.operations.OperationType;
+import com.galtek.classroom.operations.StoredBatchOperation;
 import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageHealth;
 import com.galtek.classroom.persistence.MasterStorageState;
@@ -66,6 +68,7 @@ import org.springframework.stereotype.Service;
 public class ManagedAccountSwitchDispatchService {
 
     private static final Set<String> REQUEST_FIELDS = Set.of("targetAccountId", "targetDeviceIds");
+    private static final Set<String> RETRY_REQUEST_FIELDS = Set.of("targetDeviceIds");
     private static final String REQUESTED_BY = "LOCAL_MASTER";
     private static final int MAX_TARGET_DEVICES = 100;
     private static final int MAX_CONCURRENT_TARGETS = 4;
@@ -140,6 +143,44 @@ public class ManagedAccountSwitchDispatchService {
         return ManagedAccountSwitchBatchResponse.from(completed, dispatchRequest.targetAccountType());
     }
 
+    public ManagedAccountSwitchBatchResponse retry(String operationId, Map<String, Object> request) {
+        requireAuthorizedAndStorage();
+        String cleanOperationId = required(operationId, "operationId");
+        List<String> targetDeviceIds = retryRequestFrom(request);
+        StoredBatchOperation stored = batchOperationService.findStoredById(cleanOperationId)
+                .orElseThrow(() -> notFound(ErrorCode.OPERATION_NOT_FOUND, "Operation was not found."));
+        if (stored.operation().type() != OperationType.SWITCH_MANAGED_ACCOUNT) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    ErrorCode.OPERATION_NOT_IMPLEMENTED,
+                    "Retry is supported only for SWITCH_MANAGED_ACCOUNT operations.");
+        }
+
+        ManagedWindowsAccountType targetAccountType = targetAccountTypeFrom(stored.payload());
+        List<BatchTargetResult> selectedTargets = eligibleRetryTargets(stored.operation(), targetDeviceIds);
+        StoredBatchOperation claimed = batchOperationService.claimRetryTargets(
+                cleanOperationId,
+                stored.version(),
+                selectedTargets);
+
+        Map<String, Integer> attemptsByDeviceId = claimed.operation().targets().stream()
+                .filter(target -> targetDeviceIds.contains(target.target().targetId()))
+                .collect(Collectors.toMap(
+                        target -> target.target().targetId(),
+                        BatchTargetResult::attempt,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        List<TargetPlan> retryPlans = targetPlans(
+                claimed.classroomId(),
+                targetDeviceIds,
+                attemptsByDeviceId);
+        List<BatchTargetResult> finalResults = executeTargets(retryPlans, targetAccountType);
+        StoredBatchOperation finished = batchOperationService.finishRetryTargets(
+                cleanOperationId,
+                finalResults);
+        return ManagedAccountSwitchBatchResponse.from(finished.operation(), targetAccountType);
+    }
+
     private List<BatchTargetResult> executeTargets(
             List<TargetPlan> targetPlans,
             ManagedWindowsAccountType targetAccountType) {
@@ -187,7 +228,7 @@ public class ManagedAccountSwitchDispatchService {
         RemoteOperationOutcome snapshotOutcome = dispatchAndAwaitSnapshot(targetPlan, snapshotOperationId);
         if (snapshotOutcome.status() != TargetExecutionStatus.SUCCESS
                 || snapshotOutcome.windowsSessionState() == null) {
-            return outcomeResult(targetPlan.target(), snapshotOutcome);
+            return outcomeResult(targetPlan.target(), snapshotOutcome, targetPlan.attempt());
         }
 
         WindowsSessionState sessionState = mapSessionState(snapshotOutcome.windowsSessionState());
@@ -207,16 +248,16 @@ public class ManagedAccountSwitchDispatchService {
                     TargetExecutionStatus.NO_CHANGE,
                     null,
                     "Target managed account is already active.",
-                    1);
+                    targetPlan.attempt());
         }
 
         if (plan.status() == com.galtek.classroom.operations.PreflightStatus.BLOCKED) {
-            return failed(targetPlan.target(), plan.errorCode(), plan.message(), 1);
+            return failed(targetPlan.target(), plan.errorCode(), plan.message(), targetPlan.attempt());
         }
 
         String switchOperationId = UUID.randomUUID().toString();
         RemoteOperationOutcome switchOutcome = dispatchAndAwaitSwitch(targetPlan, switchOperationId, targetAccountType);
-        return outcomeResult(targetPlan.target(), switchOutcome);
+        return outcomeResult(targetPlan.target(), switchOutcome, targetPlan.attempt());
     }
 
     private RemoteOperationOutcome dispatchAndAwaitSnapshot(TargetPlan targetPlan, String operationId) {
@@ -269,10 +310,24 @@ public class ManagedAccountSwitchDispatchService {
     }
 
     private List<TargetPlan> targetPlans(String classroomId, List<String> targetDeviceIds) {
+        return targetPlans(
+                classroomId,
+                targetDeviceIds,
+                targetDeviceIds.stream().collect(Collectors.toMap(
+                        Function.identity(),
+                        ignored -> 1,
+                        (left, right) -> left,
+                        LinkedHashMap::new)));
+    }
+
+    private List<TargetPlan> targetPlans(
+            String classroomId,
+            List<String> targetDeviceIds,
+            Map<String, Integer> attemptsByDeviceId) {
         TargetContext context = targetContext(classroomId, targetDeviceIds);
         List<TargetPlan> plans = new ArrayList<>(targetDeviceIds.size());
         for (String deviceId : targetDeviceIds) {
-            plans.add(preflight(deviceId, context));
+            plans.add(preflight(deviceId, context, attemptsByDeviceId.getOrDefault(deviceId, 1)));
         }
         return plans;
     }
@@ -291,7 +346,7 @@ public class ManagedAccountSwitchDispatchService {
         return new TargetContext(devices, bindings, snapshots, knownClients);
     }
 
-    private TargetPlan preflight(String deviceId, TargetContext context) {
+    private TargetPlan preflight(String deviceId, TargetContext context, int attempt) {
         Device device = context.devices().get(deviceId);
         OperationTarget target = new OperationTarget(
                 OperationTargetType.DEVICE,
@@ -302,7 +357,8 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.DEVICE_NOT_FOUND,
-                    "Device does not belong to classroom.");
+                    "Device does not belong to classroom.",
+                    attempt);
         }
 
         RegisteredNetworkDevice binding = context.bindings().get(deviceId);
@@ -311,10 +367,11 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.DEVICE_NOT_REGISTERED,
-                    "Device is not registered for network operations.");
+                    "Device is not registered for network operations.",
+                    attempt);
         }
 
-        TargetPlan trustBlocked = trustBlock(deviceId, target, binding, context.knownClients());
+        TargetPlan trustBlocked = trustBlock(deviceId, target, binding, context.knownClients(), attempt);
         if (trustBlocked != null) {
             return trustBlocked;
         }
@@ -325,7 +382,8 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.DEVICE_OFFLINE,
-                    "Device is offline.");
+                    "Device is offline.",
+                    attempt);
         }
 
         if (!snapshot.capabilities().contains(DeviceCapability.WINDOWS_SESSION_STATE_V1)) {
@@ -333,7 +391,8 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.CAPABILITY_NOT_SUPPORTED,
-                    "Device does not announce WINDOWS_SESSION_STATE_V1.");
+                    "Device does not announce WINDOWS_SESSION_STATE_V1.",
+                    attempt);
         }
 
         if (!snapshot.capabilities().contains(DeviceCapability.WINDOWS_SESSION_SWITCH_V1)) {
@@ -341,24 +400,27 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.CAPABILITY_NOT_SUPPORTED,
-                    "Device does not announce WINDOWS_SESSION_SWITCH_V1.");
+                    "Device does not announce WINDOWS_SESSION_SWITCH_V1.",
+                    attempt);
         }
 
-        return TargetPlan.ready(deviceId, device, target, snapshot);
+        return TargetPlan.ready(deviceId, device, target, snapshot, attempt);
     }
 
     private TargetPlan trustBlock(
             String deviceId,
             OperationTarget target,
             RegisteredNetworkDevice binding,
-            Map<UUID, KnownMasterClient> knownClients) {
+            Map<UUID, KnownMasterClient> knownClients,
+            int attempt) {
         KnownMasterClient client = knownClients.get(binding.networkIdentityId());
         if (client != null && client.status() == PairingStatus.REVOKED) {
             return TargetPlan.blocked(
                     deviceId,
                     target,
                     ErrorCode.CLIENT_REVOKED,
-                    "Client pairing has been revoked.");
+                    "Client pairing has been revoked.",
+                    attempt);
         }
 
         if (client == null || client.status() != PairingStatus.PAIRED
@@ -368,7 +430,8 @@ public class ManagedAccountSwitchDispatchService {
                     deviceId,
                     target,
                     ErrorCode.MASTER_NOT_PAIRED,
-                    "Client is not paired with this Master.");
+                    "Client is not paired with this Master.",
+                    attempt);
         }
 
         return null;
@@ -388,7 +451,7 @@ public class ManagedAccountSwitchDispatchService {
     }
 
     private ManagedAccountSwitchDispatchRequest requestFrom(Map<String, Object> request) {
-        requireKnownBody(request);
+        requireKnownBody(request, REQUEST_FIELDS);
         Object rawTargetAccountId = request.get("targetAccountId");
         if (!(rawTargetAccountId instanceof String targetAccountId) || targetAccountId.isBlank()) {
             throw validation("targetAccountId is required.");
@@ -402,6 +465,11 @@ public class ManagedAccountSwitchDispatchService {
         }
 
         return new ManagedAccountSwitchDispatchRequest(targetAccountType, targetDeviceIdsFrom(request));
+    }
+
+    private List<String> retryRequestFrom(Map<String, Object> request) {
+        requireKnownBody(request, RETRY_REQUEST_FIELDS);
+        return targetDeviceIdsFrom(request);
     }
 
     private List<String> targetDeviceIdsFrom(Map<String, Object> request) {
@@ -430,15 +498,67 @@ public class ManagedAccountSwitchDispatchService {
         return targetDeviceIds;
     }
 
-    private void requireKnownBody(Map<String, Object> request) {
+    private void requireKnownBody(Map<String, Object> request, Set<String> allowedFields) {
         if (request == null) {
             throw validation("Request body is required.");
         }
         for (String field : request.keySet()) {
-            if (!REQUEST_FIELDS.contains(field)) {
+            if (!allowedFields.contains(field)) {
                 throw validation("Request contains unsupported field: " + field + ".");
             }
         }
+    }
+
+    private ManagedWindowsAccountType targetAccountTypeFrom(OperationPayload payload) {
+        if (payload == null || payload.schemaVersion() != 1 || payload.json() == null) {
+            throw rejected("Stored operation payload is not supported.");
+        }
+        try {
+            JsonNode root = objectMapper.readTree(payload.json());
+            if (root == null || root.path("schemaVersion").asInt(-1) != 1) {
+                throw rejected("Stored operation payload schema is not supported.");
+            }
+            JsonNode targetAccountId = root.get("targetAccountId");
+            if (targetAccountId == null || !targetAccountId.isTextual()
+                    || targetAccountId.asText().isBlank()) {
+                throw rejected("Stored operation target account is missing.");
+            }
+            return ManagedWindowsAccountType.valueOf(targetAccountId.asText().trim());
+        } catch (IllegalArgumentException | JsonProcessingException exception) {
+            throw rejected("Stored operation target account is invalid.");
+        }
+    }
+
+    private List<BatchTargetResult> eligibleRetryTargets(
+            BatchOperation operation,
+            List<String> targetDeviceIds) {
+        Map<String, BatchTargetResult> targetsById = operation.targets().stream()
+                .collect(Collectors.toMap(
+                        target -> target.target().targetId(),
+                        Function.identity(),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        List<BatchTargetResult> selected = new ArrayList<>(targetDeviceIds.size());
+        for (String deviceId : targetDeviceIds) {
+            BatchTargetResult target = targetsById.get(deviceId);
+            if (target == null || target.target().type() != OperationTargetType.DEVICE) {
+                throw validation("targetDeviceIds contains a target that does not belong to the batch.");
+            }
+            if (target.status() != TargetExecutionStatus.FAILED) {
+                throw validation("targetDeviceIds contains a target that is not FAILED.");
+            }
+            if (target.errorCode() == null) {
+                throw validation("targetDeviceIds contains a failed target without an errorCode.");
+            }
+            if (target.errorCode() == ErrorCode.OPERATION_RESULT_UNKNOWN) {
+                throw validation("OPERATION_RESULT_UNKNOWN cannot be retried for SWITCH_MANAGED_ACCOUNT.");
+            }
+            if (!target.errorCode().retryable()) {
+                throw validation("targetDeviceIds contains a target whose errorCode is not retryable.");
+            }
+            selected.add(target);
+        }
+        return selected;
     }
 
     private OperationPayload payloadFor(ManagedWindowsAccountType targetAccountType) {
@@ -451,13 +571,13 @@ public class ManagedAccountSwitchDispatchService {
         }
     }
 
-    private BatchTargetResult outcomeResult(OperationTarget target, RemoteOperationOutcome outcome) {
+    private BatchTargetResult outcomeResult(OperationTarget target, RemoteOperationOutcome outcome, int attempt) {
         return new BatchTargetResult(
                 target,
                 outcome.status(),
                 outcome.errorCode(),
                 outcome.message(),
-                1);
+                attempt);
     }
 
     private BatchTargetResult failed(
@@ -544,6 +664,10 @@ public class ManagedAccountSwitchDispatchService {
         return new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_REQUEST, message);
     }
 
+    private ApiException rejected(String message) {
+        return new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.OPERATION_REJECTED, message);
+    }
+
     private record ManagedAccountSwitchDispatchRequest(
             ManagedWindowsAccountType targetAccountType,
             List<String> targetDeviceIds) {
@@ -562,22 +686,25 @@ public class ManagedAccountSwitchDispatchService {
             OperationTarget target,
             ClientConnectionSnapshot snapshot,
             ErrorCode errorCode,
-            String message) {
+            String message,
+            int attempt) {
 
         static TargetPlan ready(
                 String deviceId,
                 Device device,
                 OperationTarget target,
-                ClientConnectionSnapshot snapshot) {
-            return new TargetPlan(deviceId, device, target, snapshot, null, null);
+                ClientConnectionSnapshot snapshot,
+                int attempt) {
+            return new TargetPlan(deviceId, device, target, snapshot, null, null, attempt);
         }
 
         static TargetPlan blocked(
                 String deviceId,
                 OperationTarget target,
                 ErrorCode errorCode,
-                String message) {
-            return new TargetPlan(deviceId, null, target, null, errorCode, message);
+                String message,
+                int attempt) {
+            return new TargetPlan(deviceId, null, target, null, errorCode, message, attempt);
         }
 
         boolean ready() {
@@ -586,12 +713,12 @@ public class ManagedAccountSwitchDispatchService {
 
         BatchTargetResult intentResult() {
             return ready()
-                    ? new BatchTargetResult(target, TargetExecutionStatus.PENDING, null, "Dispatch pending.", 1)
+                    ? new BatchTargetResult(target, TargetExecutionStatus.PENDING, null, "Dispatch pending.", attempt)
                     : finalFailure();
         }
 
         BatchTargetResult finalFailure() {
-            return new BatchTargetResult(target, TargetExecutionStatus.FAILED, errorCode, message, 1);
+            return new BatchTargetResult(target, TargetExecutionStatus.FAILED, errorCode, message, attempt);
         }
     }
 }

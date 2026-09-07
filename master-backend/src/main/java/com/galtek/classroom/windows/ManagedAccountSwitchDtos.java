@@ -2,6 +2,7 @@ package com.galtek.classroom.windows;
 
 import com.galtek.classroom.operations.BatchOperation;
 import com.galtek.classroom.operations.BatchTargetResult;
+import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.TargetExecutionStatus;
 import java.util.List;
 
@@ -30,7 +31,7 @@ public final class ManagedAccountSwitchDtos {
                     operation.targetCount(),
                     ManagedAccountSwitchSummaryResponse.from(operation),
                     operation.targets().stream()
-                            .map(ManagedAccountSwitchTargetResponse::from)
+                            .map(target -> ManagedAccountSwitchTargetResponse.from(operation, target))
                             .toList());
         }
     }
@@ -63,14 +64,22 @@ public final class ManagedAccountSwitchDtos {
             String message,
             int attempt) {
 
-        static ManagedAccountSwitchTargetResponse from(BatchTargetResult target) {
+        static ManagedAccountSwitchTargetResponse from(BatchOperation operation, BatchTargetResult target) {
             return new ManagedAccountSwitchTargetResponse(
                     target.target().targetId(),
                     target.status().name(),
                     target.errorCode() == null ? null : target.errorCode().name(),
-                    target.retryable(),
+                    retryableFor(operation, target),
                     target.message(),
                     target.attempt());
+        }
+
+        private static boolean retryableFor(BatchOperation operation, BatchTargetResult target) {
+            if (operation.type() == com.galtek.classroom.operations.OperationType.SWITCH_MANAGED_ACCOUNT
+                    && target.errorCode() == ErrorCode.OPERATION_RESULT_UNKNOWN) {
+                return false;
+            }
+            return target.retryable();
         }
     }
 }

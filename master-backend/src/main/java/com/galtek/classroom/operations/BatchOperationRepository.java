@@ -12,7 +12,20 @@ public interface BatchOperationRepository {
 
     Optional<BatchOperation> findById(String operationId);
 
+    Optional<StoredBatchOperation> findStoredById(String operationId);
+
     List<BatchTargetResult> findRetryableFailures(String operationId);
+
+    StoredBatchOperation claimRetryTargets(
+            String operationId,
+            long expectedVersion,
+            List<BatchTargetResult> expectedTargets,
+            OffsetDateTime nowUtc);
+
+    StoredBatchOperation finishRetryTargets(
+            String operationId,
+            List<BatchTargetResult> finalTargets,
+            OffsetDateTime nowUtc);
 
     List<BatchOperation> findPowerOperationsWithUnknownTarget(String deviceId);
 

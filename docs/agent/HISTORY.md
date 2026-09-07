@@ -2406,3 +2406,50 @@
 ### Commit sugerido
 
 `feat(agent): switch managed windows accounts`
+
+## 2026-09-06 - Prompt 19H2
+
+### Realizado
+
+- Agregado `POST /api/operations/{operationId}/retry` para retry administrativo explicito y selectivo solo de `BatchOperation` `SWITCH_MANAGED_ACCOUNT`.
+- La request de retry acepta solo `targetDeviceIds`, obligatorio, no vacio, sin blanks, sin duplicados y maximo 100.
+- Se rechazan campos extra como `targetAccountId`, source account, password, username, SID, sessionId, credentialId, vault token, force, allFailed, groupId, studentId, allDevices, timeout, command, args y payload generico.
+- `MasterAccessGuard.requireAuthorized()` corre antes de leer storage o iniciar trabajo remoto; no se usa `MasterUnlockAccessGuard`.
+- El retry conserva `operationId`, `createdAtUtc`, `requestedBy`, `targetCount` y payload del batch original.
+- `targetAccountId` se obtiene solo del payload durable original `schemaVersion = 1`.
+- Elegibilidad por target: pertenecer al batch original, estado actual `FAILED`, `errorCode` no nulo y `ErrorCode.retryable() == true`.
+- `SUCCESS`, `NO_CHANGE`, `PENDING`, targets ajenos, errores no retryable y `OPERATION_RESULT_UNKNOWN` de switch rechazan toda la request antes del fanout.
+- Agregado claim transaccional all-or-nothing `FAILED -> PENDING` con `attempt + 1` y versionado optimista; conflictos devuelven `CONCURRENT_MODIFICATION` sin trabajo remoto.
+- Cada retry ejecuta preflight tecnico fresco y snapshot fresco `GET_WINDOWS_SESSION_STATE` con operationId remoto nuevo.
+- Si el snapshot fresco ya coincide con target, se persiste `NO_CHANGE` con attempt incrementado y no se envia mutation.
+- Si requiere mutation, el Master envia solo `SWITCH_MANAGED_ACCOUNT(targetAccountId original)` con operationId remoto nuevo.
+- El resultado final actualiza solo targets seleccionados, recalcula summary/status del batch completo y actualiza `retryable-targets` segun estado actual.
+- `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` queda defensivamente excluido de retryable targets.
+- Actualizados docs de API, arquitectura, modelo funcional, reglas, estado, decisiones, historial, batch de managed account switch y session switch.
+
+### Cambios descartados
+
+- No se agrego retry automatico, scheduler, polling, startup auto-retry ni reconciliation para `SWITCH_MANAGED_ACCOUNT`.
+- No se creo una `BatchOperation` nueva durante retry.
+- No se cambio target account desde la request de retry.
+- No se hizo retry parcial de requests malformadas o con targets inelegibles.
+- No se exigio `SESSION_AGENT_AVAILABLE`.
+- No se encadeno `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT` desde Master.
+- No se agregaron Agent changes, Protobuf changes, C++ changes, UI, provisioning, vault unlock ni Credential Provider changes.
+- No se hizo commit.
+
+### Validaciones
+
+- `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest" test` en `master-backend`: correcto.
+- `mvn -q "-Dtest=ManagedAccountSwitchDispatchControllerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -Ddebug=false "-Dtest=ManagedAccountSwitchDispatchControllerTest,ManagedAccountSwitchPlannerTest,BatchOperationPlannerTest,MasterSqlitePersistenceIntegrationTest" test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Validacion completa
+
+- `mvn -q test` en `master-backend`: correcto.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+
+### Commit sugerido
+
+`feat(master): retry managed account switch targets`

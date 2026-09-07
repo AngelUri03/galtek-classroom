@@ -30,4 +30,11 @@ public class ManagedAccountSwitchController {
             @RequestBody(required = false) Map<String, Object> request) {
         return dispatchService.dispatch(classroomId, request);
     }
+
+    @PostMapping("/operations/{operationId}/retry")
+    public ManagedAccountSwitchBatchResponse retryManagedAccountSwitch(
+            @PathVariable String operationId,
+            @RequestBody(required = false) Map<String, Object> request) {
+        return dispatchService.retry(operationId, request);
+    }
 }

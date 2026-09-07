@@ -493,6 +493,136 @@ class MasterSqlitePersistenceIntegrationTest {
     }
 
     @Test
+    void managedSwitchRetryClaimAndFinalStatePersistAcrossReopenWithoutNewBatch() {
+        Path dataDir = tempDir.resolve("switch-retry-claim");
+        String operationId = id();
+        String payloadJson = "{\"schemaVersion\":1,\"targetAccountId\":\"PRIMARY\"}";
+        OperationTarget retryTarget = new OperationTarget(OperationTargetType.DEVICE, id(), "PC Retry");
+        OperationTarget stableTarget = new OperationTarget(OperationTargetType.DEVICE, id(), "PC Stable");
+
+        try (ConfigurableApplicationContext context = start(dataDir)) {
+            Fixture fixture = createFixture(context);
+            BatchOperationService service = context.getBean(BatchOperationService.class);
+            service.create(
+                    fixture.classroomId,
+                    BatchOperation.fromTargets(
+                            operationId,
+                            OperationType.SWITCH_MANAGED_ACCOUNT,
+                            "LOCAL_MASTER",
+                            OffsetDateTime.parse("2026-09-06T12:00:00Z"),
+                            List.of(
+                                    new BatchTargetResult(
+                                            retryTarget,
+                                            TargetExecutionStatus.FAILED,
+                                            ErrorCode.DEVICE_OFFLINE,
+                                            "offline",
+                                            1),
+                                    new BatchTargetResult(
+                                            stableTarget,
+                                            TargetExecutionStatus.NO_CHANGE,
+                                            null,
+                                            "already active",
+                                            1))),
+                    new OperationPayload(1, payloadJson));
+
+            var stored = service.findStoredById(operationId).orElseThrow();
+            var claimed = service.claimRetryTargets(
+                    operationId,
+                    stored.version(),
+                    List.of(stored.operation().targets().getFirst()));
+            assertThat(claimed.operation().targets().getFirst().status()).isEqualTo(TargetExecutionStatus.PENDING);
+            assertThat(claimed.operation().targets().getFirst().attempt()).isEqualTo(2);
+
+            service.finishRetryTargets(
+                    operationId,
+                    List.of(new BatchTargetResult(
+                            retryTarget,
+                            TargetExecutionStatus.NO_CHANGE,
+                            null,
+                            "Target managed account is already active.",
+                            2)));
+        }
+
+        try (ConfigurableApplicationContext reopened = start(dataDir)) {
+            BatchOperationRepository repository = reopened.getBean(BatchOperationRepository.class);
+            BatchOperation operation = repository.findById(operationId).orElseThrow();
+            assertThat(operation.operationId()).isEqualTo(operationId);
+            assertThat(operation.status()).isEqualTo(BatchOperationStatus.SUCCESS);
+            assertThat(operation.targets())
+                    .extracting(BatchTargetResult::attempt)
+                    .containsExactly(2, 1);
+            assertThat(operation.targets())
+                    .extracting(BatchTargetResult::status)
+                    .containsExactly(TargetExecutionStatus.NO_CHANGE, TargetExecutionStatus.NO_CHANGE);
+            assertThat(reopened.getBean(BatchOperationService.class).retryableFailures(operationId)).isEmpty();
+            assertThat(reopened.getBean(JdbcTemplate.class).queryForObject(
+                    "SELECT COUNT(*) FROM batch_operations WHERE operation_id = ?",
+                    Long.class,
+                    operationId)).isEqualTo(1L);
+            assertThat(repository.findStoredById(operationId).orElseThrow().payload().json())
+                    .isEqualTo(payloadJson);
+        }
+    }
+
+    @Test
+    void managedSwitchRetryClaimRollsBackCompletelyOnOptimisticConflict() {
+        Path dataDir = tempDir.resolve("switch-retry-claim-conflict");
+        String operationId = id();
+        OperationTarget firstTarget = new OperationTarget(OperationTargetType.DEVICE, id(), "PC Claim A");
+        OperationTarget secondTarget = new OperationTarget(OperationTargetType.DEVICE, id(), "PC Claim B");
+
+        try (ConfigurableApplicationContext context = start(dataDir)) {
+            Fixture fixture = createFixture(context);
+            BatchOperationService service = context.getBean(BatchOperationService.class);
+            service.create(
+                    fixture.classroomId,
+                    BatchOperation.fromTargets(
+                            operationId,
+                            OperationType.SWITCH_MANAGED_ACCOUNT,
+                            "LOCAL_MASTER",
+                            OffsetDateTime.parse("2026-09-06T12:00:00Z"),
+                            List.of(
+                                    new BatchTargetResult(
+                                            firstTarget,
+                                            TargetExecutionStatus.FAILED,
+                                            ErrorCode.DEVICE_OFFLINE,
+                                            "offline",
+                                            1),
+                                    new BatchTargetResult(
+                                            secondTarget,
+                                            TargetExecutionStatus.FAILED,
+                                            ErrorCode.AGENT_UNAVAILABLE,
+                                            "agent unavailable",
+                                            1))),
+                    new OperationPayload(1, "{\"schemaVersion\":1,\"targetAccountId\":\"SECONDARY\"}"));
+
+            var stored = service.findStoredById(operationId).orElseThrow();
+            assertThatThrownBy(() -> service.claimRetryTargets(
+                    operationId,
+                    stored.version(),
+                    List.of(
+                            stored.operation().targets().getFirst(),
+                            new BatchTargetResult(
+                                    secondTarget,
+                                    TargetExecutionStatus.FAILED,
+                                    ErrorCode.AGENT_UNAVAILABLE,
+                                    "stale attempt",
+                                    2))))
+                    .isInstanceOf(PersistenceVersionConflictException.class);
+
+            var after = service.findStoredById(operationId).orElseThrow();
+            assertThat(after.version()).isEqualTo(stored.version());
+            assertThat(after.operation().status()).isEqualTo(BatchOperationStatus.FAILED);
+            assertThat(after.operation().targets())
+                    .extracting(BatchTargetResult::status)
+                    .containsExactly(TargetExecutionStatus.FAILED, TargetExecutionStatus.FAILED);
+            assertThat(after.operation().targets())
+                    .extracting(BatchTargetResult::attempt)
+                    .containsExactly(1, 1);
+        }
+    }
+
+    @Test
     void multiWriteBatchOperationRollsBackOnTargetFailure() {
         Path dataDir = tempDir.resolve("rollback");
 

@@ -1,5 +1,24 @@
 # Decisiones vigentes
 
+## 2026-09-06 - Prompt 19H2
+
+- El Master Backend expone `POST /api/operations/{operationId}/retry` solo para `BatchOperation` existentes de tipo `SWITCH_MANAGED_ACCOUNT`.
+- La request acepta solo `targetDeviceIds`; no acepta `targetAccountId`, source account, username, password, SID, sessionId, credentialId, vault token, force, allFailed, groupId, studentId, allDevices, timeout, command, args ni payload generico.
+- `MasterAccessGuard.requireAuthorized()` corre antes de cualquier lectura de storage, preflight o trabajo remoto. No se usa `MasterUnlockAccessGuard`.
+- El retry opera sobre la misma `BatchOperation`: conserva `operationId`, `createdAtUtc`, `requestedBy`, `targetCount` y payload.
+- `targetAccountId` se obtiene solo del payload durable original `schemaVersion = 1`; la request de retry no puede cambiarlo.
+- Un target de retry es elegible solo si pertenece al batch original, esta actualmente `FAILED`, tiene `errorCode` no nulo y `ErrorCode.retryable() == true`.
+- `SUCCESS`, `NO_CHANGE`, `PENDING`, targets ajenos y errores no retryable rechazan toda la request antes de trabajo remoto.
+- `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` nunca es retryable, aunque una bandera generica futura cambiara.
+- Antes del primer snapshot o switch remoto, todos los targets seleccionados se reclaman transaccionalmente de `FAILED` a `PENDING` con `attempt + 1`; conflictos concurrentes devuelven `CONCURRENT_MODIFICATION` sin fanout.
+- El retry ejecuta preflight tecnico fresco por target: aula, binding vigente, trust `PAIRED`, no `REVOKED`, presencia autenticada `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`.
+- `SESSION_AGENT_AVAILABLE` no es requisito del retry.
+- Cada retry usa operationIds remotos nuevos para `GET_WINDOWS_SESSION_STATE` y para `SWITCH_MANAGED_ACCOUNT`.
+- Si el snapshot fresco muestra target activo, se persiste `NO_CHANGE` con attempt incrementado y no se envia mutation.
+- Si requiere mutation, el Master envia solo `SWITCH_MANAGED_ACCOUNT(targetAccountId original)`; nunca encadena `LOGOFF_WINDOWS_SESSION + LOGON_MANAGED_ACCOUNT`.
+- Tras retry se actualizan solo targets seleccionados y se recalculan summary/status sobre todos los targets del batch.
+- No hay retry automatico, scheduler, polling, startup auto-retry de targets `PENDING`, Agent changes, Protobuf changes, C++ changes, UI, provisioning ni vault unlock.
+
 ## 2026-09-06 - Prompt 19H1
 
 - El Master Backend expone `POST /api/classrooms/{classroomId}/managed-accounts/switch` para dejar Devices explicitos en `PRIMARY` o `SECONDARY`.

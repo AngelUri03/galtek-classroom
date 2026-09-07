@@ -82,6 +82,10 @@ public record BatchOperation(
             return BatchOperationStatus.ROLLED_BACK;
         }
 
+        if (targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.PENDING)) {
+            return BatchOperationStatus.RUNNING;
+        }
+
         if (targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.FAILED)
                 && targets.stream().anyMatch(BatchOperation::completedSuccessfully)) {
             return BatchOperationStatus.PARTIAL_SUCCESS;

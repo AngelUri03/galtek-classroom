@@ -1,8 +1,10 @@
 # Windows Session Switch
 
-Prompt 19H1 agrega el batch Master `POST /api/classrooms/{classroomId}/managed-accounts/switch` sobre la primitive remota 19G4. El batch acepta solo `targetAccountId` `PRIMARY|SECONDARY` y `targetDeviceIds` explicitos, se protege con `MasterAccessGuard`, persiste una sola `BatchOperation` antes del primer snapshot, consulta `GET_WINDOWS_SESSION_STATE` por target con operationId propio y solo envia `SWITCH_MANAGED_ACCOUNT(target)` para targets cuyo snapshot permite mutation.
+Prompt 19H1 agrega el batch Master `POST /api/classrooms/{classroomId}/managed-accounts/switch` sobre la primitive remota 19G4. El batch acepta solo `targetAccountId` `PRIMARY|SECONDARY` y `targetDeviceIds` explicitos, se protege con `MasterAccessGuard`, persiste una sola `BatchOperation` antes del primer snapshot, consulta `GET_WINDOWS_SESSION_STATE` por target con operationId propio y solo envia `SWITCH_MANAGED_ACCOUNT(target)` para targets cuyo snapshot permite mutation. Prompt 19H2 agrega `POST /api/operations/{operationId}/retry` para reintentar explicitamente targets `FAILED` retryable de ese mismo batch, sin crear operacion nueva ni cambiar el target account original.
 
 `NO_CHANGE` se persiste cuando el snapshot ya coincide con el target y no envia mutation. `OTHER_SESSION_ACTIVE` se bloquea como `WINDOWS_SESSION_CHANGED`; `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`. Aunque el plan conceptual sea `LOGON` para `NO_SESSION`, el Master no envia `LOGON_MANAGED_ACCOUNT`: usa siempre `SWITCH_MANAGED_ACCOUNT(target)` porque el Agent vuelve a observar y revalidar ante races.
+
+El retry administrativo tambien exige `MasterAccessGuard`, acepta solo `targetDeviceIds`, reclama transaccionalmente `FAILED -> PENDING` con `attempt + 1`, ejecuta preflight y snapshot frescos y usa operationIds remotos nuevos. `SUCCESS`, `NO_CHANGE`, `PENDING` y `OPERATION_RESULT_UNKNOWN` de switch nunca se reintentan.
 
 Prompt 19G4 implementa `SWITCH_MANAGED_ACCOUNT` como operacion remota tipada para un Client individual. No agrega endpoint HTTP, BatchOperation, fanout, planner, UI ni cambios C++ del Credential Provider.
 
@@ -85,7 +87,7 @@ SWITCH es compuesto. Una vez que Windows acepta el logoff, la source pudo cerrar
 
 Errores posteriores posibles incluyen `CREDENTIAL_PROVIDER_UNAVAILABLE`, `WINDOWS_LOGON_FAILED`, `WINDOWS_LOGON_NOT_CONFIRMED`, `WINDOWS_SWITCH_NOT_CONFIRMED`, `WINDOWS_SESSION_CHANGED` y `WINDOWS_SESSION_UNKNOWN`.
 
-No hay rollback automatico a source, no hay retry automatico y no se crea journal/receipt nuevo en 19G4. Si el Master pierde el `OperationResult`, conserva `OPERATION_RESULT_UNKNOWN`.
+No hay rollback automatico a source, no hay retry automatico y no se crea journal/receipt nuevo en 19G4. Si el Master pierde el `OperationResult`, conserva `OPERATION_RESULT_UNKNOWN`; 19H2 no permite reintentar ese error para switch.
 
 ## Timeout
 
@@ -93,4 +95,4 @@ El Master usa timeout fijo especifico para `SWITCH_MANAGED_ACCOUNT`, separado de
 
 ## Pendiente
 
-19H1 ya integra planner/batch/endpoint para Devices explicitamente seleccionados, con partial success y `NO_CHANGE`. Quedan pendientes UI y 19H2 para retry administrativo explicito solo de errores realmente retryable.
+19H1 ya integra planner/batch/endpoint para Devices explicitamente seleccionados, con partial success y `NO_CHANGE`. 19H2 ya integra retry administrativo explicito solo de errores realmente retryable. Queda pendiente UI.

@@ -64,6 +64,20 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - El Master no fabrica readiness de cuenta o credencial del Client. La falta de binding, credential o Credential Provider se propaga como error estructurado desde el Agent y nunca dispara auto-provisioning.
 - En batch Master, `OTHER_SESSION_ACTIVE` bloquea el target como `WINDOWS_SESSION_CHANGED` y `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`.
 - No hay retry automatico de session switch. `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` no autoriza reenviar ni inferir fracaso seguro.
+- El retry administrativo de session switch solo puede existir como request explicita `POST /api/operations/{operationId}/retry` sobre una `BatchOperation` existente `SWITCH_MANAGED_ACCOUNT`; no crear batch nuevo ni cambiar `operationId`, `createdAtUtc`, `requestedBy`, `targetCount` o payload.
+- El endpoint de retry de session switch debe llamar a `MasterAccessGuard.requireAuthorized()` antes de leer storage o hacer trabajo remoto; no usar `MasterUnlockAccessGuard`.
+- La request de retry de session switch acepta solo `targetDeviceIds` explicitos, obligatorios, no vacios, sin blanks, sin duplicados y maximo 100; rechazar `targetAccountId`, source, username, password, SID, sessionId, credentialId, vault token, force, allFailed, groupId, studentId, allDevices, timeout, command, args, shell y payload libre.
+- El `targetAccountId` de retry de session switch se toma solo del payload durable original `schemaVersion = 1`; nunca de la request, UI, snapshot fresco ni estado mutable.
+- Un target de retry de session switch es elegible solo si pertenece al batch original, esta actualmente `FAILED`, tiene `errorCode` no nulo y `ErrorCode.retryable() == true`; `SUCCESS`, `NO_CHANGE`, `PENDING` y targets ajenos rechazan toda la request.
+- `OPERATION_RESULT_UNKNOWN` de `SWITCH_MANAGED_ACCOUNT` nunca es retryable aunque una bandera generica futura cambiara; conservarlo como incertidumbre segura.
+- Si cualquier target solicitado para retry de session switch es invalido, rechazar toda la request antes de tocar targets validos y antes de hacer trabajo remoto.
+- Antes del primer snapshot o switch remoto de retry, reclamar transaccionalmente todos los targets seleccionados de `FAILED` a `PENDING` con `attempt + 1`; un conflicto concurrente debe devolver `CONCURRENT_MODIFICATION` y no ejecutar fanout.
+- El retry de session switch debe repetir preflight tecnico fresco por target con aula, binding, trust, presencia `ONLINE`, `WINDOWS_SESSION_STATE_V1` y `WINDOWS_SESSION_SWITCH_V1`; no exigir `SESSION_AGENT_AVAILABLE`.
+- Cada retry de session switch debe usar operationIds remotos nuevos para `GET_WINDOWS_SESSION_STATE` y para `SWITCH_MANAGED_ACCOUNT`; no reutilizar el operationId del batch ni uno remoto anterior.
+- Si el snapshot fresco de retry ya muestra target activo, persistir `NO_CHANGE` con attempt incrementado y no enviar mutation.
+- La mutation de retry de session switch solo puede ser `SWITCH_MANAGED_ACCOUNT(targetAccountId original)`; nunca encadenar `LOGOFF_WINDOWS_SESSION` + `LOGON_MANAGED_ACCOUNT` desde Master.
+- Tras retry, actualizar solo targets seleccionados y recalcular summary/status del batch completo. Targets no seleccionados conservan su resultado.
+- No agregar scheduler, polling, background retry ni startup auto-retry para targets de session switch que queden `PENDING` por power loss.
 - Un target lento, offline o fallido no debe cancelar otros targets independientes del mismo batch.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` debe llamar a `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer datos escolares y solo puede despachar `UNLOCK_INPUT` recovery-safe. Esta excepcion no se generaliza a otros "recovery endpoints" ni autoriza acciones distintas.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
