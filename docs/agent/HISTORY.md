@@ -2726,6 +2726,16 @@
 - Corregida la semantica transaccional logica: si falla `network-identity.json` despues de crear la key en esa ejecucion, se intenta borrar la key parcial; si el cleanup falla, el resultado queda `NETWORK_IDENTITY_INVALID` con `CNG_DELETE_PARTIAL_FAILED`.
 - Conservado el fail-closed cuando falta metadata pero la key deterministica ya preexistia: no se borra, no se adopta y no se regenera silenciosamente.
 - Ampliadas pruebas contractuales de Network Identity para cleanup exitoso tras fallo post-creacion, cleanup fallido explicito y key preexistente no borrada.
+- Registrada validacion real final en PC14 fisica legacy, Windows 11 Education x64 10.0.22621 build 22621, probando `563158154937ef9092936413cbbca27611dab010`.
+- Antes del fresh install se ejecuto uninstall con `-PurgeData` y se confirmo baseline sin `GaltekClassroomAgent`, sin task `GaltekClassroomSessionAgent`, sin Program Files Agent y sin ProgramData Classroom.
+- Se observaron 4 keys CNG Galtek huerfanas historicas con prefijo `GaltekClassroom.NetworkIdentity.`; no fueron eliminadas por falta de metadata suficiente para demostrar de forma segura a que instalacion pertenecian.
+- El fresh install genero un `installationId` nuevo y un `keyName` deterministico nuevo, sin adoptar ni modificar las keys historicas.
+- Primer arranque real: Service instalado, `Running`, startup `Automatic`, cuenta `LocalSystem`; Session task instalada; Credential Provider instalado/verificado; `rebootRecommended=false`.
+- ProgramData quedo con `agent-service.running`, `installation.json` y `network-identity.json`.
+- Metadata creada: `networkIdentityId=41c339a7-371b-4c77-bf29-be8c09be4b59`, `installationId=bb7cc27f-33e1-446e-88ab-4573363cc07c`, `keyName=GaltekClassroom.NetworkIdentity.c5ca892020af7cb51e183d6cca44c026cac183fb5ee67aa82332e9da9ea73ff5`, `publicKeyFingerprint=5d9a4cfd315596b4de06db69c6110e7a31656af0a738ca0a4328d7114c942f6f`, `createdAtUtc=2026-09-13T21:11:00.3885833+00:00`.
+- No aparecieron `NETWORK_IDENTITY_INVALID`, `CNG_OPEN_PROVIDER_FAILED`, `CNG_CREATE_FAILED`, `CNG_SET_*_FAILED`, `CNG_FINALIZE_FAILED`, `CNG_EXPORT_PUBLIC_FAILED` ni `CNG_DELETE_PARTIAL_FAILED`.
+- Solo aparecio Commercial License `ACTIVATION_REQUIRED`, esperado e independiente de F05.
+- Prueba de persistencia real: tras `Restart-Service GaltekClassroomAgent -Force` y 8 segundos, el Service siguio `Running`/`Automatic`; `networkIdentityId`, `installationId`, `keyName`, `publicKeyFingerprint` y `createdAtUtc` permanecieron iguales y no aparecio ningun error de Network Identity.
 - Actualizado `docs/agent/CURRENT_STATE.md` y este historial.
 
 ### Cambios descartados
@@ -2734,22 +2744,24 @@
 - No se modificaron Credential Provider F04, Protobuf, Java/Master, pairing semantics, Commercial License, managed accounts, installer, Registry, SCM real ni el keystore real del desarrollador.
 - No se agrego retry, polling, adopcion silenciosa de key huerfana, borrado de keys preexistentes/desconocidas, private key exportable, plaintext, DPAPI alternativo ni cert store workaround.
 - No se concedio `FullControl` global ni permisos a Users/Authenticated Users.
+- No se elimino ni adopto ninguna de las 4 keys CNG huerfanas historicas.
+- No se demostro empiricamente que la llamada exacta original que fallaba fuera `NCryptSetProperty(Security Descr)`; la etapa exacta del `Access Denied` original quedo oculta por `CngKey.Create(...)`.
+- No se declaro Windows 10 validado, todas las versiones de Windows 11 validadas, pairing real validado, mTLS real validado, `LOGON_MANAGED_ACCOUNT` validado, `SWITCH_MANAGED_ACCOUNT` validado, Commercial License validada ni 19I2 completo terminado.
 - No se hizo commit.
 
 ### Validaciones
 
-- Intentado `dotnet test agent\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter NetworkIdentity --no-restore`: no ejecutable en esta maquina porque `dotnet --info` reporta runtimes .NET 8.0.21 pero `No SDKs were found`.
-- Intentado `dotnet build agent\GaltekClassroom.Agent.sln --no-restore`: no ejecutable por el mismo motivo, falta SDK .NET.
-- No se ejecuto test Windows-CNG real para no tocar el keystore productivo sin mecanismo temporal/aislado validado.
-- `git diff --check`: correcto; solo warnings de normalizacion LF/CRLF de Git.
-- Pendiente ejecutar `dotnet build` de la solucion, tests dirigidos `NetworkIdentity` y suite Service razonable en un entorno con SDK .NET.
+- Validacion real final F05 en PC14: correcta para fresh install, primer arranque, persistencia de `network-identity.json` y restart del Service sin regeneracion de identidad.
+- `git diff --check`: correcto.
+- No se ejecutaron suites automatizadas en este cierre porque el cambio fue solo documental.
 
 ### Estado 19I2
 
 - `REAL_INSTALL_VALIDATION_PENDING`.
-- F05 tiene fix por auditoria de codigo, pero NO esta validado todavia en PC14 desde baseline limpio.
-- No declarar Network Identity corregida en hardware real, transporte/pairing/logon/switch real validados ni 19I2 completo hasta repetir fresh install limpio y confirmar `READY` sin estado parcial.
+- F05: `FIX VALIDATED ON REAL HARDWARE`.
+- La validacion real cubre creacion/persistencia/restart de Network Identity CNG en PC14 Windows 11 Education x64 10.0.22621 build 22621 con build `563158154937ef9092936413cbbca27611dab010`.
+- No declarar transporte/pairing/logon/switch real validados ni 19I2 completo.
 
 ### Commit sugerido
 
-`fix(agent): make network identity creation transactional`
+`docs(agent): record network identity real validation`
