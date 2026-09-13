@@ -2697,13 +2697,59 @@
 - `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
 - `dumpbin /dependents` sobre `agent/native/GaltekClassroom.CredentialProvider/x64/Release/GaltekClassroom.CredentialProvider.dll`: dependencias `ole32.dll`, `ADVAPI32.dll`, `Secur32.dll`, `KERNEL32.dll`; sin `VCRUNTIME*.dll`, `MSVCP*.dll` ni dependencia .NET.
 - `git diff --check`: correcto.
+- Fresh install #5 desde baseline limpio en PC14 fisica legacy / recursos bajos, Windows 11 Education x64 10.0.22621 build 22621, probando `SOURCE_COMMIT=b1164499651443ab8dcb243270d6bdc40a06ea4b`, Credential Provider `PackageId=sha256-8b11b692d2bf850a`, SHA-256 `8b11b692d2bf850aeaa0d673b2c104fc085a8e14f10ed9e1b938565faba3c482`, Authenticode `NOT_SIGNED`: installation verifier `PASS`, `rebootRecommended=false`, Service `Running`/`Automatic` como `LocalSystem`, Session Agent task instalada con principal SID `S-1-5-32-545` y `RunLevel Limited`, Credential Provider registrado con `ThreadingModel=Apartment`, Galtek Filter inexistente.
+- Primer logout inmediato sin reboot intermedio tras fresh install #5: LogonUI aparecio normalmente, providers/perfiles estandar siguieron disponibles, aparecieron `ADMIN-14`, `ICH-PRIMARIA-14` e `IHTEC-SECUNDARIA-14`, el campo de password estuvo disponible, no hubo pantalla vacia ni bloqueo aparente, y `ADMIN-14` pudo iniciar sesion mediante password estandar.
+- Post-roundtrip en hardware real: usuario actual `ich11\admin-14`, `GaltekClassroomAgent` siguio `Running`/`Automatic`, `GaltekClassroom.Agent.Session` quedo activo con `SessionId=2`, y no hubo Application Error / Windows Error Reporting reciente relacionado con LogonUI ni `GaltekClassroom.CredentialProvider`.
 
 ### Estado 19I2
 
 - `REAL_INSTALL_VALIDATION_PENDING`.
-- F04 sigue abierto hasta repetir instalacion limpia/validacion real en la PC de laboratorio.
-- No declarar LogonUI validado.
+- F04: `FIX VALIDATED ON REAL HARDWARE`.
+- La validacion real cubre el fix de enumeracion fail-open del Credential Provider en Windows 11 Education x64 10.0.22621 build 22621 sobre PC14 fisica, primer logout post fresh install limpio sin reboot intermedio, providers estandar disponibles y logon manual de `ADMIN-14`.
+- No declarar Windows 10 validado, todas las versiones de Windows 11 validadas, `LOGON_MANAGED_ACCOUNT` validado, `SWITCH_MANAGED_ACCOUNT` validado, activation real Galtek validada, Commercial License validada, Network Identity corregida ni 19I2 completo terminado.
+- Network Identity / CNG queda como hallazgo separado: CNG create `Access Denied` observado anteriormente; llave existente sin `network-identity.json` posterior; pendiente de investigacion separada.
 
 ### Commit sugerido
 
-`fix(credential-provider): keep logon enumeration fail-open`
+`docs(agent): record credential provider real validation`
+
+## 2026-09-13 - Prompt 19I2-F05
+
+### Realizado
+
+- Auditado el estado parcial real de Network Identity observado en PC14 fisica legacy, Windows 11 Education x64 10.0.22621 build 22621, con Agent Service productivo `LocalSystem`/`Automatic`/`Running` desde build `b1164499651443ab8dcb243270d6bdc40a06ea4b`.
+- Registrada evidencia real: primer intento `NETWORK_IDENTITY_INVALID` por `CNG network identity key could not be created: Acceso denegado`; despues de restart, `network-identity.json` ausente pero key CNG deterministica existente, con fail-closed y sin regeneracion/adopcion silenciosa.
+- Auditada la creacion Windows CNG: el codigo anterior usaba `CngKey.Create(...)` con `Security Descr` dentro de `CngKeyCreationParameters`, lo que ocultaba la etapa nativa exacta y no expresaba explicitamente `DACL_SECURITY_INFORMATION` al aplicar el descriptor.
+- Reemplazada solo la creacion de key Windows por llamadas `NCryptOpenStorageProvider`, `NCryptCreatePersistedKey`, `NCryptSetProperty`, `NCryptFinalizeKey` y validacion posterior de apertura/export publico/fingerprint.
+- Agregados mensajes diagnosticos seguros por etapa: `CNG_OPEN_PROVIDER_FAILED`, `CNG_CREATE_FAILED`, `CNG_SET_LENGTH_FAILED`, `CNG_SET_EXPORT_POLICY_FAILED`, `CNG_SET_KEY_USAGE_FAILED`, `CNG_SET_SECURITY_DESCRIPTOR_FAILED`, `CNG_FINALIZE_FAILED`, `CNG_EXPORT_PUBLIC_FAILED` y `CNG_DELETE_PARTIAL_FAILED`.
+- Conservados provider Microsoft Software Key Storage Provider, key de maquina, private key no exportable, uso signing-only, `network-identity.json` solo publico y DACL minima `SYSTEM` + `Builtin Administrators`.
+- Corregida la semantica transaccional logica: si falla `network-identity.json` despues de crear la key en esa ejecucion, se intenta borrar la key parcial; si el cleanup falla, el resultado queda `NETWORK_IDENTITY_INVALID` con `CNG_DELETE_PARTIAL_FAILED`.
+- Conservado el fail-closed cuando falta metadata pero la key deterministica ya preexistia: no se borra, no se adopta y no se regenera silenciosamente.
+- Ampliadas pruebas contractuales de Network Identity para cleanup exitoso tras fallo post-creacion, cleanup fallido explicito y key preexistente no borrada.
+- Actualizado `docs/agent/CURRENT_STATE.md` y este historial.
+
+### Cambios descartados
+
+- No se avanzo `LOGON_MANAGED_ACCOUNT` ni `SWITCH_MANAGED_ACCOUNT`.
+- No se modificaron Credential Provider F04, Protobuf, Java/Master, pairing semantics, Commercial License, managed accounts, installer, Registry, SCM real ni el keystore real del desarrollador.
+- No se agrego retry, polling, adopcion silenciosa de key huerfana, borrado de keys preexistentes/desconocidas, private key exportable, plaintext, DPAPI alternativo ni cert store workaround.
+- No se concedio `FullControl` global ni permisos a Users/Authenticated Users.
+- No se hizo commit.
+
+### Validaciones
+
+- Intentado `dotnet test agent\tests\GaltekClassroom.Agent.Service.Tests\GaltekClassroom.Agent.Service.Tests.csproj --filter NetworkIdentity --no-restore`: no ejecutable en esta maquina porque `dotnet --info` reporta runtimes .NET 8.0.21 pero `No SDKs were found`.
+- Intentado `dotnet build agent\GaltekClassroom.Agent.sln --no-restore`: no ejecutable por el mismo motivo, falta SDK .NET.
+- No se ejecuto test Windows-CNG real para no tocar el keystore productivo sin mecanismo temporal/aislado validado.
+- `git diff --check`: correcto; solo warnings de normalizacion LF/CRLF de Git.
+- Pendiente ejecutar `dotnet build` de la solucion, tests dirigidos `NetworkIdentity` y suite Service razonable en un entorno con SDK .NET.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- F05 tiene fix por auditoria de codigo, pero NO esta validado todavia en PC14 desde baseline limpio.
+- No declarar Network Identity corregida en hardware real, transporte/pairing/logon/switch real validados ni 19I2 completo hasta repetir fresh install limpio y confirmar `READY` sin estado parcial.
+
+### Commit sugerido
+
+`fix(agent): make network identity creation transactional`

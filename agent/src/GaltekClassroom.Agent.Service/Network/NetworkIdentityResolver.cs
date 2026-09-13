@@ -243,7 +243,13 @@ public sealed class NetworkIdentityResolver
                 or UnauthorizedAccessException
                 or InvalidOperationException)
         {
-            _keyStore.Delete(descriptor.KeyName);
+            var delete = _keyStore.Delete(descriptor.KeyName);
+            if (!delete.Deleted)
+            {
+                return NetworkIdentityResolution.Invalid(
+                    filePath,
+                    $"network-identity.json could not be written: {exception.Message}; CNG_DELETE_PARTIAL_FAILED: {delete.ErrorMessage}");
+            }
 
             return NetworkIdentityResolution.Invalid(
                 filePath,

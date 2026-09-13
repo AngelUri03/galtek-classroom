@@ -49,6 +49,45 @@ public sealed class NetworkIdentityTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveAsync_WhenMetadataWriteFailsAfterKeyCreation_DeletesNewKey()
+    {
+        var keyStore = new FakeNetworkIdentityKeyStore();
+        var descriptor = NetworkIdentityKeyDescriptor.ForInstallation(InstallationId);
+        Directory.CreateDirectory(Path.Combine(_dataDirectory, NetworkIdentityConstants.FileName));
+
+        var result = await CreateResolver(keyStore)
+            .ResolveAsync(CreateInstallationIdentity(InstallationId), CancellationToken.None);
+
+        Assert.Equal(NetworkIdentityStatus.Invalid, result.Status);
+        Assert.Equal(NetworkIdentityConstants.InvalidErrorCode, result.ErrorCode);
+        Assert.Contains("could not be written", result.ErrorMessage);
+        Assert.Equal(1, keyStore.CreateCalls);
+        Assert.Equal(1, keyStore.DeleteCalls);
+        Assert.False(keyStore.Exists(descriptor.KeyName));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WhenCleanupFailsAfterMetadataWriteFailure_ReturnsExplicitError()
+    {
+        var keyStore = new FakeNetworkIdentityKeyStore
+        {
+            FailDelete = true
+        };
+        var descriptor = NetworkIdentityKeyDescriptor.ForInstallation(InstallationId);
+        Directory.CreateDirectory(Path.Combine(_dataDirectory, NetworkIdentityConstants.FileName));
+
+        var result = await CreateResolver(keyStore)
+            .ResolveAsync(CreateInstallationIdentity(InstallationId), CancellationToken.None);
+
+        Assert.Equal(NetworkIdentityStatus.Invalid, result.Status);
+        Assert.Equal(NetworkIdentityConstants.InvalidErrorCode, result.ErrorCode);
+        Assert.Contains("CNG_DELETE_PARTIAL_FAILED", result.ErrorMessage);
+        Assert.Equal(1, keyStore.CreateCalls);
+        Assert.Equal(1, keyStore.DeleteCalls);
+        Assert.True(keyStore.Exists(descriptor.KeyName));
+    }
+
+    [Fact]
     public async Task ResolveAsync_WhenReopened_PreservesNetworkIdentityAndFingerprint()
     {
         var keyStore = new FakeNetworkIdentityKeyStore();
@@ -154,6 +193,8 @@ public sealed class NetworkIdentityTests : IDisposable
         Assert.Equal(NetworkIdentityConstants.InvalidErrorCode, result.ErrorCode);
         Assert.Contains("refusing to regenerate", result.ErrorMessage);
         Assert.Equal(1, keyStore.CreateCalls);
+        Assert.Equal(0, keyStore.DeleteCalls);
+        Assert.True(keyStore.Exists(descriptor.KeyName));
     }
 
     [Fact]
@@ -288,6 +329,9 @@ public sealed class NetworkIdentityTests : IDisposable
         private readonly Dictionary<string, string> _publicFingerprints = new(StringComparer.Ordinal);
 
         public int CreateCalls { get; private set; }
+        public int DeleteCalls { get; private set; }
+
+        public bool FailDelete { get; init; }
 
         public bool Exists(string keyName)
         {
@@ -347,6 +391,12 @@ public sealed class NetworkIdentityTests : IDisposable
 
         public NetworkIdentityKeyDeleteResult Delete(string keyName)
         {
+            DeleteCalls++;
+            if (FailDelete)
+            {
+                return NetworkIdentityKeyDeleteResult.Failed("fake delete failed");
+            }
+
             _publicFingerprints.Remove(keyName);
 
             return NetworkIdentityKeyDeleteResult.Success();

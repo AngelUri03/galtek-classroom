@@ -1,7 +1,10 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.Win32.SafeHandles;
 
 namespace GaltekClassroom.Agent.Service.Network;
 
@@ -263,9 +266,19 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
 {
     private static readonly CngProvider Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider;
     private const CngKeyOpenOptions OpenOptions = CngKeyOpenOptions.MachineKey;
+    private const string ProviderName = "Microsoft Software Key Storage Provider";
+    private const string RsaAlgorithmName = "RSA";
     private const string RsaKeyLengthPropertyName = "Length";
+    private const string ExportPolicyPropertyName = "Export Policy";
+    private const string KeyUsagePropertyName = "Key Usage";
     private const string SecurityDescriptorPropertyName = "Security Descr";
     private const string LocalSystemAndAdministratorsFullControlSddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+    private const int ErrorSuccess = 0;
+    private const int NcryptMachineKeyFlag = 0x00000020;
+    private const int NcryptSilentFlag = 0x00000040;
+    private const int NcryptPersistFlag = unchecked((int)0x80000000);
+    private const int NcryptAllowSigningFlag = 0x00000002;
+    private const int DaclSecurityInformation = 0x00000004;
 
     public bool Exists(string keyName)
     {
@@ -300,24 +313,112 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
             return NetworkIdentityKeyCreationResult.AlreadyExists(keyName);
         }
 
+        SafeNCryptKeyHandle? key = null;
         try
         {
-            using var key = CngKey.Create(
-                CngAlgorithm.Rsa,
-                keyName,
-                CreateKeyParameters());
+            var openProvider = NativeMethods.NCryptOpenStorageProvider(
+                out var provider,
+                ProviderName,
+                dwFlags: 0);
+            using (provider)
+            {
+                if (openProvider != ErrorSuccess)
+                {
+                    return NetworkIdentityKeyCreationResult.Failed(
+                        FormatCngFailure("CNG_OPEN_PROVIDER_FAILED", openProvider));
+                }
 
-            return NetworkIdentityKeyCreationResult.Success(ComputePublicKeyFingerprint(key));
-        }
-        catch (CryptographicException exception)
-        {
-            return NetworkIdentityKeyCreationResult.Failed(
-                $"CNG network identity key could not be created: {exception.Message}");
+                var createKey = NativeMethods.NCryptCreatePersistedKey(
+                    provider,
+                    out key,
+                    RsaAlgorithmName,
+                    keyName,
+                    dwLegacyKeySpec: 0,
+                    NcryptMachineKeyFlag);
+                if (createKey != ErrorSuccess)
+                {
+                    return NetworkIdentityKeyCreationResult.Failed(
+                        FormatCngFailure("CNG_CREATE_FAILED", createKey));
+                }
+
+                var setLength = SetDwordProperty(
+                    key,
+                    RsaKeyLengthPropertyName,
+                    NetworkIdentityConstants.RsaKeySizeBits,
+                    NcryptPersistFlag);
+                if (setLength != ErrorSuccess)
+                {
+                    return DeletePartialAndFail(key, "CNG_SET_LENGTH_FAILED", setLength);
+                }
+
+                var setExportPolicy = SetDwordProperty(
+                    key,
+                    ExportPolicyPropertyName,
+                    0,
+                    NcryptPersistFlag);
+                if (setExportPolicy != ErrorSuccess)
+                {
+                    return DeletePartialAndFail(key, "CNG_SET_EXPORT_POLICY_FAILED", setExportPolicy);
+                }
+
+                var setKeyUsage = SetDwordProperty(
+                    key,
+                    KeyUsagePropertyName,
+                    NcryptAllowSigningFlag,
+                    NcryptPersistFlag);
+                if (setKeyUsage != ErrorSuccess)
+                {
+                    return DeletePartialAndFail(key, "CNG_SET_KEY_USAGE_FAILED", setKeyUsage);
+                }
+
+                var securityDescriptor = CreateRestrictedSecurityDescriptor();
+                var setSecurityDescriptor = NativeMethods.NCryptSetProperty(
+                    key,
+                    SecurityDescriptorPropertyName,
+                    securityDescriptor,
+                    securityDescriptor.Length,
+                    DaclSecurityInformation | NcryptSilentFlag);
+                if (setSecurityDescriptor != ErrorSuccess)
+                {
+                    return DeletePartialAndFail(
+                        key,
+                        "CNG_SET_SECURITY_DESCRIPTOR_FAILED",
+                        setSecurityDescriptor);
+                }
+
+                var finalizeKey = NativeMethods.NCryptFinalizeKey(key, NcryptSilentFlag);
+                if (finalizeKey != ErrorSuccess)
+                {
+                    return DeletePartialAndFail(key, "CNG_FINALIZE_FAILED", finalizeKey);
+                }
+            }
+
+            key.Dispose();
+            key = null;
+
+            var lookup = GetPublicKeyFingerprint(keyName);
+            if (lookup.Status != NetworkIdentityKeyLookupStatus.Found)
+            {
+                var delete = Delete(keyName);
+                var message = lookup.ErrorMessage ?? "Network Identity public key could not be exported.";
+                if (!delete.Deleted)
+                {
+                    message = $"{message}; CNG_DELETE_PARTIAL_FAILED: {delete.ErrorMessage}";
+                }
+
+                return NetworkIdentityKeyCreationResult.Failed($"CNG_EXPORT_PUBLIC_FAILED: {message}");
+            }
+
+            return NetworkIdentityKeyCreationResult.Success(lookup.PublicKeyFingerprint!);
         }
         catch (PlatformNotSupportedException exception)
         {
             return NetworkIdentityKeyCreationResult.Failed(
-                $"CNG network identity key could not be created: {exception.Message}");
+                $"CNG_CREATE_FAILED: CNG network identity key could not be created: {exception.Message}");
+        }
+        finally
+        {
+            key?.Dispose();
         }
     }
 
@@ -524,26 +625,33 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         }
     }
 
-    private static CngKeyCreationParameters CreateKeyParameters()
+    private static int SetDwordProperty(
+        SafeNCryptKeyHandle key,
+        string propertyName,
+        int value,
+        int flags)
     {
-        var parameters = new CngKeyCreationParameters
+        return NativeMethods.NCryptSetProperty(
+            key,
+            propertyName,
+            BitConverter.GetBytes(value),
+            sizeof(int),
+            flags);
+    }
+
+    private static NetworkIdentityKeyCreationResult DeletePartialAndFail(
+        SafeNCryptKeyHandle key,
+        string stage,
+        int status)
+    {
+        var message = FormatCngFailure(stage, status);
+        var delete = key.DeleteKey();
+        if (delete != ErrorSuccess)
         {
-            Provider = Provider,
-            KeyCreationOptions = CngKeyCreationOptions.MachineKey,
-            ExportPolicy = CngExportPolicies.None,
-            KeyUsage = CngKeyUsages.Signing
-        };
+            message = $"{message}; {FormatCngFailure("CNG_DELETE_PARTIAL_FAILED", delete)}";
+        }
 
-        parameters.Parameters.Add(new CngProperty(
-            RsaKeyLengthPropertyName,
-            BitConverter.GetBytes(NetworkIdentityConstants.RsaKeySizeBits),
-            CngPropertyOptions.None));
-        parameters.Parameters.Add(new CngProperty(
-            SecurityDescriptorPropertyName,
-            CreateRestrictedSecurityDescriptor(),
-            CngPropertyOptions.Persist));
-
-        return parameters;
+        return NetworkIdentityKeyCreationResult.Failed(message);
     }
 
     private static byte[] CreateRestrictedSecurityDescriptor()
@@ -571,6 +679,35 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
         return ExportPublicKey(key).Fingerprint;
     }
 
+    private static string FormatCngFailure(string stage, int status)
+    {
+        return $"{stage}: {DescribeSecurityStatus(status)}";
+    }
+
+    private static string DescribeSecurityStatus(int status)
+    {
+        var unsignedStatus = unchecked((uint)status);
+        var statusName = unsignedStatus switch
+        {
+            0x80090009 => "NTE_BAD_FLAGS",
+            0x8009000F => "NTE_EXISTS",
+            0x80090010 => "NTE_PERM",
+            0x80090016 => "NTE_BAD_KEYSET",
+            0x80090027 => "NTE_INVALID_PARAMETER",
+            0x80090029 => "NTE_BAD_DATA",
+            0x8009002A => "NTE_NOT_SUPPORTED",
+            5 => "ERROR_ACCESS_DENIED",
+            1338 => "ERROR_INVALID_SECURITY_DESCR",
+            _ => "SECURITY_STATUS"
+        };
+
+        var message = unsignedStatus <= 0xFFFF
+            ? new Win32Exception(status).Message
+            : new CryptographicException(status).Message;
+
+        return $"{statusName} 0x{unsignedStatus:X8} ({message})";
+    }
+
     private static string SanitizeSubjectName(string subjectName)
     {
         var sanitized = new char[subjectName.Length];
@@ -588,6 +725,82 @@ public sealed class WindowsCngNetworkIdentityKeyStore : INetworkIdentityKeyStore
     private sealed record NetworkIdentityPublicKey(
         string Fingerprint,
         string SubjectPublicKeyInfoBase64);
+
+    private sealed class SafeNCryptProviderHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        private SafeNCryptProviderHandle()
+            : base(ownsHandle: true)
+        {
+        }
+
+        protected override bool ReleaseHandle()
+        {
+            return NativeMethods.NCryptFreeObject(handle) == ErrorSuccess;
+        }
+    }
+
+    private sealed class SafeNCryptKeyHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        private SafeNCryptKeyHandle()
+            : base(ownsHandle: true)
+        {
+        }
+
+        public int DeleteKey()
+        {
+            var status = NativeMethods.NCryptDeleteKey(handle, dwFlags: 0);
+            if (status == ErrorSuccess)
+            {
+                SetHandleAsInvalid();
+            }
+
+            return status;
+        }
+
+        protected override bool ReleaseHandle()
+        {
+            return NativeMethods.NCryptFreeObject(handle) == ErrorSuccess;
+        }
+    }
+
+    private static partial class NativeMethods
+    {
+        [DllImport("ncrypt.dll", CharSet = CharSet.Unicode)]
+        public static extern int NCryptOpenStorageProvider(
+            out SafeNCryptProviderHandle phProvider,
+            string pszProviderName,
+            int dwFlags);
+
+        [DllImport("ncrypt.dll", CharSet = CharSet.Unicode)]
+        public static extern int NCryptCreatePersistedKey(
+            SafeNCryptProviderHandle hProvider,
+            out SafeNCryptKeyHandle phKey,
+            string pszAlgId,
+            string pszKeyName,
+            int dwLegacyKeySpec,
+            int dwFlags);
+
+        [DllImport("ncrypt.dll", CharSet = CharSet.Unicode)]
+        public static extern int NCryptSetProperty(
+            SafeNCryptKeyHandle hObject,
+            string pszProperty,
+            byte[] pbInput,
+            int cbInput,
+            int dwFlags);
+
+        [DllImport("ncrypt.dll")]
+        public static extern int NCryptFinalizeKey(
+            SafeNCryptKeyHandle hKey,
+            int dwFlags);
+
+        [DllImport("ncrypt.dll")]
+        public static extern int NCryptDeleteKey(
+            IntPtr hKey,
+            int dwFlags);
+
+        [DllImport("ncrypt.dll")]
+        public static extern int NCryptFreeObject(IntPtr hObject);
+    }
 }
 
 public sealed class UnsupportedNetworkIdentityKeyStore : INetworkIdentityKeyStore
