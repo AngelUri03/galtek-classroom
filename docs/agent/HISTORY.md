@@ -2660,3 +2660,50 @@
 ### Commit sugerido
 
 `fix(installer): correct credential provider acl validation`
+
+## 2026-09-13 - Prompt 19I2-F04
+
+### Realizado
+
+- Registrado el fallo real de fresh install #4 completo sobre PC descartable Windows 11 Education x64 10.0.22621: primera entrada real a LogonUI tras install dejo la pantalla sin credential tiles ni campo de password.
+- Registrado que LogonUI permanecio visualmente vivo, sin Application Error 1000, sin WER, sin faulting module GaltekClassroom.CredentialProvider.dll y sin errores relevantes en Winlogon/Operational ni Authentication User Interface/Operational.
+- Registrado que Safe Mode/reboot restauro providers estandar y `ADMIN-14` pudo volver a iniciar sesion.
+- Clasificado F04 como `PROVIDER ENUMERATION / CALLBACK BLOCKING BUG`.
+- Auditado el Credential Provider nativo: `GetCredentialCount` hacia I/O de pipe con timeout solo en `WaitNamedPipe`, pero `WriteFile`, `FlushFileBuffers` y `ReadFile` quedaban sin deadline real.
+- Corregido el bridge nativo para usar handles overlapped y timeout/cancelacion end-to-end en solicitudes acotadas (`GET_PENDING_ACTIVATION_METADATA`, `GET_PENDING_ACTIVATION_IDENTITY`, `ACQUIRE_PENDING_CREDENTIAL`, `REPORT_LOGON_RESULT`).
+- Eliminado `FlushFileBuffers` del cliente de pipe para evitar esperas no necesarias contra el Service.
+- Mantenido `WAIT_FOR_ACTIVATION_CHANGE` exclusivamente en el listener background; su escritura inicial queda acotada/cancelable y la lectura long-poll queda cancelable por `UnAdvise`.
+- Protegido el snapshot de provider (`_usageScenario`, `_hasCredential`, `_identity`) con mutex sin mantener locks durante I/O de pipe ni durante `CredentialsChanged`.
+- `GetCredentialAt` copia el snapshot bajo lock y construye la credential fuera del lock; sin activation valida retorna `E_INVALIDARG` solo para Galtek.
+- Ampliado el self-test nativo con un named pipe falso que acepta la conexion pero no responde, verificando fail-open acotado de `GetCredentialCount`.
+- Agregadas pruebas nativas de `Advise(nullptr)->UnAdvise`, repeated construct/destroy provider y semantica sin activation `count=0`, `CREDENTIAL_PROVIDER_NO_DEFAULT`, `autoLogon=FALSE`.
+- Documentado hallazgo separado de Network Identity: primer start con CNG create `Access Denied`; restart con llave CNG existente pero `network-identity.json` faltante y negativa a regenerar silenciosamente.
+
+### Cambios descartados
+
+- No se implementaron nuevas funciones.
+- No se avanzo PRIMARY/SECONDARY, provisioning, LOGON ni SWITCH.
+- No se corrigio Network Identity en este prompt.
+- No se agrego `ICredentialProviderFilter`, no se registro otro CLSID y no se ocultaron providers estandar.
+- No se agrego retry loop, polling sano ni aumento cosmetico de timeouts.
+- No se modificaron Java, Master, Protobuf, installer, HKLM, Service startup ni scripts de registro.
+- No se ejecuto logout/restart ni registro real en la maquina de desarrollo.
+- No se hizo commit.
+
+### Validaciones
+
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `dumpbin /dependents` sobre `agent/native/GaltekClassroom.CredentialProvider/x64/Release/GaltekClassroom.CredentialProvider.dll`: dependencias `ole32.dll`, `ADVAPI32.dll`, `Secur32.dll`, `KERNEL32.dll`; sin `VCRUNTIME*.dll`, `MSVCP*.dll` ni dependencia .NET.
+- `git diff --check`: correcto.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- F04 sigue abierto hasta repetir instalacion limpia/validacion real en la PC de laboratorio.
+- No declarar LogonUI validado.
+
+### Commit sugerido
+
+`fix(credential-provider): keep logon enumeration fail-open`

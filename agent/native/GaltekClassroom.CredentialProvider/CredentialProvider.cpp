@@ -7,6 +7,7 @@
 #include <objbase.h>
 #include <cstring>
 #include <new>
+#include <mutex>
 
 extern long g_objectCount;
 
@@ -107,11 +108,18 @@ HRESULT GaltekCredentialProvider::SetUsageScenario(
 
     if (usageScenario == CPUS_LOGON)
     {
+        std::lock_guard<std::mutex> lock(_stateMutex);
         _usageScenario = usageScenario;
         return S_OK;
     }
 
-    _usageScenario = CPUS_INVALID;
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        _usageScenario = CPUS_INVALID;
+        _hasCredential = false;
+        _identity = BridgeActivationIdentity{};
+    }
+
     return E_NOTIMPL;
 }
 
@@ -127,7 +135,13 @@ HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT
     StopNotificationWorker();
 
     _adviseContext = adviseContext;
-    if (events != nullptr && _usageScenario == CPUS_LOGON)
+    CREDENTIAL_PROVIDER_USAGE_SCENARIO usageScenario = CPUS_INVALID;
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        usageScenario = _usageScenario;
+    }
+
+    if (events != nullptr && usageScenario == CPUS_LOGON)
     {
         IStream* eventsStream = nullptr;
         HRESULT hr = CoMarshalInterThreadInterfaceInStream(
@@ -244,29 +258,42 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
         return E_POINTER;
     }
 
-    _hasCredential = false;
-    _identity = BridgeActivationIdentity{};
     *count = 0;
     *defaultCredential = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *autoLogonWithDefault = FALSE;
 
-    if (_usageScenario != CPUS_LOGON)
+    CREDENTIAL_PROVIDER_USAGE_SCENARIO usageScenario = CPUS_INVALID;
     {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        usageScenario = _usageScenario;
+    }
+
+    if (usageScenario != CPUS_LOGON)
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        _hasCredential = false;
+        _identity = BridgeActivationIdentity{};
         return S_OK;
     }
 
     BridgeClient bridge;
     BridgeActivationIdentity identity;
+    bool hasCredential = false;
     if (bridge.GetPendingActivationIdentity(250, &identity))
     {
-        _identity = identity;
-        _hasCredential = true;
+        hasCredential = true;
         *count = 1;
         if (identity.autoSubmitRequested)
         {
             *defaultCredential = 0;
             *autoLogonWithDefault = TRUE;
         }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        _identity = hasCredential ? identity : BridgeActivationIdentity{};
+        _hasCredential = hasCredential;
     }
 
     return S_OK;
@@ -282,12 +309,26 @@ HRESULT GaltekCredentialProvider::GetCredentialAt(
     }
 
     *credential = nullptr;
-    if (!_hasCredential || credentialIndex != 0)
+    BridgeActivationIdentity identity;
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        if (!_hasCredential || credentialIndex != 0)
+        {
+            return E_INVALIDARG;
+        }
+
+        identity = _identity;
+    }
+
+    if (identity.activationId.empty()
+        || identity.userSid.empty()
+        || identity.domain.empty()
+        || identity.username.empty())
     {
         return E_INVALIDARG;
     }
 
-    GaltekCredential* value = new (std::nothrow) GaltekCredential(_identity);
+    GaltekCredential* value = new (std::nothrow) GaltekCredential(identity);
     if (value == nullptr)
     {
         return E_OUTOFMEMORY;

@@ -34,35 +34,91 @@ namespace
         return *length > 0 && *length <= kMaxMessageBytes;
     }
 
-    bool WriteAll(HANDLE pipe, const BYTE* data, DWORD length)
+    ULONGLONG TimeoutDeadline(DWORD timeoutMilliseconds)
     {
-        DWORD offset = 0;
-        while (offset < length)
-        {
-            DWORD written = 0;
-            if (!WriteFile(pipe, data + offset, length - offset, &written, nullptr) || written == 0)
-            {
-                return false;
-            }
-
-            offset += written;
-        }
-
-        return FlushFileBuffers(pipe) != FALSE;
+        return GetTickCount64() + timeoutMilliseconds;
     }
 
-    bool ReadAll(HANDLE pipe, BYTE* data, DWORD length)
+    DWORD RemainingTimeout(ULONGLONG deadline)
+    {
+        if (deadline == MAXULONGLONG)
+        {
+            return INFINITE;
+        }
+
+        const ULONGLONG now = GetTickCount64();
+        if (now >= deadline)
+        {
+            return 0;
+        }
+
+        const ULONGLONG remaining = deadline - now;
+        return remaining > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining);
+    }
+
+    bool WaitForIo(
+        HANDLE file,
+        OVERLAPPED* overlapped,
+        HANDLE cancelEvent,
+        ULONGLONG deadline,
+        DWORD* transferred)
+    {
+        HANDLE events[2] = { overlapped->hEvent, cancelEvent };
+        const DWORD eventCount = cancelEvent == nullptr ? 1u : 2u;
+        const DWORD wait = WaitForMultipleObjects(
+            eventCount,
+            events,
+            FALSE,
+            RemainingTimeout(deadline));
+        if (wait != WAIT_OBJECT_0)
+        {
+            CancelIoEx(file, overlapped);
+            DWORD ignored = 0;
+            GetOverlappedResult(file, overlapped, &ignored, TRUE);
+            return false;
+        }
+
+        return GetOverlappedResult(file, overlapped, transferred, FALSE) != FALSE;
+    }
+
+    bool TransferAll(
+        HANDLE pipe,
+        BYTE* data,
+        DWORD length,
+        HANDLE cancelEvent,
+        ULONGLONG deadline,
+        bool write)
     {
         DWORD offset = 0;
         while (offset < length)
         {
-            DWORD read = 0;
-            if (!ReadFile(pipe, data + offset, length - offset, &read, nullptr) || read == 0)
+            OVERLAPPED overlapped{};
+            overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (overlapped.hEvent == nullptr)
             {
                 return false;
             }
 
-            offset += read;
+            DWORD transferred = 0;
+            BOOL ok = write
+                ? WriteFile(pipe, data + offset, length - offset, nullptr, &overlapped)
+                : ReadFile(pipe, data + offset, length - offset, nullptr, &overlapped);
+            if (!ok && GetLastError() == ERROR_IO_PENDING)
+            {
+                ok = WaitForIo(pipe, &overlapped, cancelEvent, deadline, &transferred);
+            }
+            else if (ok)
+            {
+                ok = GetOverlappedResult(pipe, &overlapped, &transferred, FALSE);
+            }
+
+            CloseHandle(overlapped.hEvent);
+            if (!ok || transferred == 0)
+            {
+                return false;
+            }
+
+            offset += transferred;
         }
 
         return true;
@@ -108,39 +164,25 @@ namespace
         return frame;
     }
 
-    bool ReadFrameBytes(HANDLE pipe, std::vector<BYTE>* payload)
+    bool WriteAllCancelable(
+        HANDLE pipe,
+        const BYTE* data,
+        DWORD length,
+        HANDLE cancelEvent,
+        ULONGLONG deadline)
     {
-        BYTE lengthBuffer[sizeof(DWORD)]{};
-        if (!ReadAll(pipe, lengthBuffer, sizeof(lengthBuffer)))
+        if (data == nullptr && length != 0)
         {
             return false;
         }
 
-        DWORD length = 0;
-        if (!ReadBigEndianLength(lengthBuffer, &length))
-        {
-            return false;
-        }
-
-        payload->assign(length, 0);
-        if (!ReadAll(pipe, payload->data(), length))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    bool ReadFrame(HANDLE pipe, std::string* json)
-    {
-        std::vector<BYTE> payload;
-        if (!ReadFrameBytes(pipe, &payload))
-        {
-            return false;
-        }
-
-        json->assign(reinterpret_cast<const char*>(payload.data()), payload.size());
-        return true;
+        return TransferAll(
+            pipe,
+            const_cast<BYTE*>(data),
+            length,
+            cancelEvent,
+            deadline,
+            true);
     }
 
     bool FlushUtf8Segment(const std::string& segment, std::wstring* value)
@@ -401,94 +443,24 @@ namespace
         return OpenBridgePipe(timeoutMilliseconds, false, pipe);
     }
 
-    bool SendRequestReadBytes(
-        const std::string& request,
-        DWORD timeoutMilliseconds,
-        SecureByteBuffer* response)
-    {
-        HANDLE pipe = INVALID_HANDLE_VALUE;
-        if (!OpenBridgePipe(timeoutMilliseconds, &pipe))
-        {
-            return false;
-        }
-
-        const std::vector<BYTE> frame = FrameJson(request);
-        std::vector<BYTE> payload;
-        const bool ok = WriteAll(pipe, frame.data(), static_cast<DWORD>(frame.size()))
-            && ReadFrameBytes(pipe, &payload);
-        CloseHandle(pipe);
-
-        if (!ok)
-        {
-            return false;
-        }
-
-        *response = SecureByteBuffer(std::move(payload));
-        return true;
-    }
-
-    bool WaitForIo(
-        HANDLE file,
-        OVERLAPPED* overlapped,
+    bool ReadAllCancelable(
+        HANDLE pipe,
+        BYTE* data,
+        DWORD length,
         HANDLE cancelEvent,
-        DWORD* transferred)
+        ULONGLONG deadline)
     {
-        HANDLE events[] = { overlapped->hEvent, cancelEvent };
-        const DWORD wait = WaitForMultipleObjects(ARRAYSIZE(events), events, FALSE, INFINITE);
-        if (wait == WAIT_OBJECT_0 + 1)
-        {
-            CancelIoEx(file, overlapped);
-            return false;
-        }
-
-        if (wait != WAIT_OBJECT_0)
-        {
-            CancelIoEx(file, overlapped);
-            return false;
-        }
-
-        return GetOverlappedResult(file, overlapped, transferred, FALSE) != FALSE;
+        return TransferAll(pipe, data, length, cancelEvent, deadline, false);
     }
 
-    bool ReadAllCancelable(HANDLE pipe, BYTE* data, DWORD length, HANDLE cancelEvent)
-    {
-        DWORD offset = 0;
-        while (offset < length)
-        {
-            OVERLAPPED overlapped{};
-            overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-            if (overlapped.hEvent == nullptr)
-            {
-                return false;
-            }
-
-            DWORD read = 0;
-            BOOL ok = ReadFile(pipe, data + offset, length - offset, nullptr, &overlapped);
-            if (!ok && GetLastError() == ERROR_IO_PENDING)
-            {
-                ok = WaitForIo(pipe, &overlapped, cancelEvent, &read);
-            }
-            else if (ok)
-            {
-                ok = GetOverlappedResult(pipe, &overlapped, &read, FALSE);
-            }
-
-            CloseHandle(overlapped.hEvent);
-            if (!ok || read == 0)
-            {
-                return false;
-            }
-
-            offset += read;
-        }
-
-        return true;
-    }
-
-    bool ReadFrameCancelable(HANDLE pipe, HANDLE cancelEvent, std::string* json)
+    bool ReadFrameBytesCancelable(
+        HANDLE pipe,
+        HANDLE cancelEvent,
+        ULONGLONG deadline,
+        std::vector<BYTE>* payload)
     {
         BYTE lengthBuffer[sizeof(DWORD)]{};
-        if (!ReadAllCancelable(pipe, lengthBuffer, sizeof(lengthBuffer), cancelEvent))
+        if (!ReadAllCancelable(pipe, lengthBuffer, sizeof(lengthBuffer), cancelEvent, deadline))
         {
             return false;
         }
@@ -499,14 +471,62 @@ namespace
             return false;
         }
 
-        std::vector<BYTE> payload(length, 0);
-        if (!ReadAllCancelable(pipe, payload.data(), length, cancelEvent))
+        payload->assign(length, 0);
+        if (!ReadAllCancelable(pipe, payload->data(), length, cancelEvent, deadline))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool ReadFrameCancelable(
+        HANDLE pipe,
+        HANDLE cancelEvent,
+        ULONGLONG deadline,
+        std::string* json)
+    {
+        std::vector<BYTE> payload;
+        if (!ReadFrameBytesCancelable(pipe, cancelEvent, deadline, &payload))
         {
             return false;
         }
 
         json->assign(reinterpret_cast<const char*>(payload.data()), payload.size());
         SecureZeroMemory(payload.data(), payload.size());
+        return true;
+    }
+
+    bool SendRequestReadBytes(
+        const std::string& request,
+        DWORD timeoutMilliseconds,
+        SecureByteBuffer* response)
+    {
+        const ULONGLONG deadline = TimeoutDeadline(timeoutMilliseconds);
+
+        HANDLE pipe = INVALID_HANDLE_VALUE;
+        if (!OpenBridgePipe(RemainingTimeout(deadline), true, &pipe))
+        {
+            return false;
+        }
+
+        const std::vector<BYTE> frame = FrameJson(request);
+        std::vector<BYTE> payload;
+        const bool ok = WriteAllCancelable(
+                pipe,
+                frame.data(),
+                static_cast<DWORD>(frame.size()),
+                nullptr,
+                deadline)
+            && ReadFrameBytesCancelable(pipe, nullptr, deadline, &payload);
+        CloseHandle(pipe);
+
+        if (!ok)
+        {
+            return false;
+        }
+
+        *response = SecureByteBuffer(std::move(payload));
         return true;
     }
 
@@ -850,8 +870,13 @@ bool BridgeClient::WaitForActivationChange(
 
     const std::vector<BYTE> frame = FrameJson(request);
     std::string response;
-    const bool ok = WriteAll(pipe, frame.data(), static_cast<DWORD>(frame.size()))
-        && ReadFrameCancelable(pipe, cancelEvent, &response);
+    const bool ok = WriteAllCancelable(
+            pipe,
+            frame.data(),
+            static_cast<DWORD>(frame.size()),
+            cancelEvent,
+            TimeoutDeadline(250))
+        && ReadFrameCancelable(pipe, cancelEvent, MAXULONGLONG, &response);
     CloseHandle(pipe);
 
     if (!ok

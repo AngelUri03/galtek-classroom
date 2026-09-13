@@ -2,9 +2,21 @@
 
 ## Ultima actualizacion
 
-2026-09-13 - Prompt 19I2-F03: correccion de falso positivo ACL del Credential Provider installer.
+2026-09-13 - Prompt 19I2-F04: auditoria/fix de bloqueo de enumeracion LogonUI del Credential Provider.
 
 ## Estado del proyecto
+
+Prompt 19I2-F04 audita un fallo real de enumeracion de LogonUI observado en fresh install #4 completo sobre PC descartable Windows 11 Education x64 10.0.22621. El Credential Provider Galtek quedo instalado desde commit `657bb3db67500656b4e4479e79c27da5c99d3ff3`, CLSID `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}`, DLL `C:\Program Files\Galtek\Classroom\Agent\CredentialProvider\versions\sha256-7756057f7dda0a44\GaltekClassroom.CredentialProvider.dll`, hash `7756057f7dda0a440db6b21688c624e0e85989ac98073c09a53cd687dcf3949e`, `ThreadingModel=Apartment`, sin Credential Provider Filter Galtek. Password Provider, Client32Provider y GenericFilter permanecieron registrados.
+
+En la primera entrada real a LogonUI tras install aparecio inicialmente la pantalla/reloj normal de Windows 11; al intentar acceder al login no aparecieron tiles ni campo de password, tampoco `ADMIN-14`, `ICH-PRIMARIA-14` ni `IHTEC-SECUNDARIA-14`. LogonUI permanecio visualmente vivo con fondo y controles inferiores, no hubo login automatico Galtek, fue necesario entrar a recuperacion/Safe Mode, y tras reinicio los providers estandar volvieron a aparecer; `ADMIN-14` pudo iniciar sesion normalmente. No hubo evidencia de crash: sin Application Error 1000 de LogonUI, sin WER de LogonUI, sin faulting module GaltekClassroom.CredentialProvider.dll y sin errores relevantes en Winlogon/Operational ni Authentication User Interface/Operational. F04 se clasifica como `PROVIDER ENUMERATION / CALLBACK BLOCKING BUG`.
+
+La auditoria encontro una raiz de codigo capaz de explicar F04: `GetCredentialCount` consultaba `GET_PENDING_ACTIVATION_IDENTITY` con timeout solo en `WaitNamedPipe`, pero luego hacia `WriteFile`, `FlushFileBuffers` y `ReadFile` sin deadline real; si el Agent Service aceptaba el pipe pero no respondia, el thread COM/UI de LogonUI podia quedar bloqueado durante la enumeracion. El listener de `WAIT_FOR_ACTIVATION_CHANGE` tambien podia dejar `UnAdvise` esperando si quedaba atrapado en escritura/flush no cancelable. El fix convierte el I/O del bridge a handles overlapped con timeout/cancelacion end-to-end para las solicitudes acotadas, elimina `FlushFileBuffers` del cliente, mantiene `WAIT_FOR_ACTIVATION_CHANGE` solo en thread background cancelable, y protege el snapshot `_hasCredential/_identity/_usageScenario` con mutex sin sostener locks durante I/O ni callbacks COM.
+
+Semantica obligatoria post-F04: sin activation, con Service unavailable/degraded, licencia no activa, Network Identity invalid, pipe inexistente/lento o cualquier error de bridge, Galtek queda fail-open: `GetCredentialCount` devuelve `S_OK`, `count=0`, `default=CREDENTIAL_PROVIDER_NO_DEFAULT`, `autoLogon=FALSE`; `GetCredentialAt(0)` falla solo para Galtek cuando no hay snapshot valido y no debe afectar providers estandar. F04 sigue abierto hasta root cause/fix + nueva prueba desde instalacion limpia; no declarar LogonUI validado.
+
+Hallazgo separado de Network Identity observado durante F04, sin corregir aqui: primer start del Agent Service mostro `NETWORK_IDENTITY_INVALID` por `CNG network identity key could not be created: Acceso denegado`; tras restart, `network-identity.json is missing but its Galtek CNG key already exists; refusing to regenerate silently.` No asumir causalidad con F04; requiere investigacion posterior separada.
+
+Estado 19I2 despues de F04: `REAL_INSTALL_VALIDATION_PENDING`. No declarar 19I2 superado, installer real validado, CP validado ni LogonUI validado hasta repetir instalacion limpia/validacion real en la PC de laboratorio.
 
 Prompt 19I2-F03 corrige un INSTALLER BUG encontrado en el fresh install #3 sobre la PC descartable Windows 11 Education x64 10.0.22621 con Windows en espanol. 19I2-F01 ya quedo validado en hardware real: el Service se crea/configura/inicia correctamente. 19I2-F02 ya quedo validado en hardware real: la Scheduled Task del Session Agent se instala usando `S-1-5-32-545` y la validacion locale-independent resolvio correctamente `Usuarios -> S-1-5-32-545`. Por primera vez la instalacion real avanzo hasta el installer del Credential Provider y fallo antes del registro con `Credential Provider binaries must not be writable by standard users`.
 
@@ -689,4 +701,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install/validacion real en la PC descartable despues del fix F03 de ACL del Credential Provider, y solo entonces continuar la validacion real de registry/path/ACL/providers estandar, fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.
+Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install/validacion real en la PC descartable despues del fix F04 de enumeracion fail-open del Credential Provider, y solo entonces continuar la validacion real de registry/path/ACL/providers estandar, fail-open, no activation espontanea, LogonUI visible con providers estandar, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.
