@@ -2,9 +2,15 @@
 
 ## Ultima actualizacion
 
-2026-09-07 - Estabilizacion post-auditoria de cimientos.
+2026-09-13 - Prompt 19I2-F01: correccion de tokenizacion sc.exe del installer real.
 
 ## Estado del proyecto
+
+Prompt 19I2-F01 corrige un INSTALLER BUG encontrado en una primera instalacion real sobre una PC descartable Windows 11 Education x64 10.0.22621. `sc.exe create` fallaba al crear `GaltekClassroomAgent` con exit code 1639 porque `install-agent-service.ps1` enviaba opciones de `sc.exe` como argv combinados (`binPath= <value>`, `DisplayName= <value>`, `start= auto`, `obj= LocalSystem`, `reset= <value>`, `actions= <value>`) en vez de separar option y value como requiere la sintaxis nativa.
+
+El fallo fue fail-safe: el Service no fue creado, la scheduled task `GaltekClassroomSessionAgent` no fue instalada, el Credential Provider Galtek no fue registrado, el COM CLSID Galtek no fue registrado, y solo quedaron copiados binarios/directorios previos bajo Program Files/ProgramData antes de abortar. La correccion extrae builders PowerShell puros para argv de Service Control y ajusta `create`, `config` y recovery `failure` para enviar `binPath=`, `DisplayName=`, `start=`, `obj=`, `reset=` y `actions=` como tokens separados de sus valores, conservando el quoting del ImagePath para rutas bajo `C:\Program Files\...`. `description`, `failureflag` y `delete` fueron auditados y no requieren cambio de tokenizacion.
+
+Estado 19I2 despues del fix: `REAL_INSTALL_VALIDATION_PENDING`. No declarar 19I2 superado ni installer real validado hasta repetir fresh install en la PC de laboratorio.
 
 La estabilizacion post-auditoria corrige hallazgos de cimientos sin avanzar 19I2 ni cambiar contratos funcionales. El `RemoteOperationDispatcher` del Agent ahora falla al construirse si DI registra dos handlers productivos para el mismo `NetworkOperationType`, con mensaje no secreto del tipo `Duplicate remote operation handler registration: SWITCH_MANAGED_ACCOUNT`. La deduplicacion vigente sigue usando `RequestSignature`; el helper stale `SameParameters` fue eliminado. Se actualizaron residuos documentales de Local IPC unlock y Managed Windows Accounts para reflejar 18B2/19H1/19H2. No hubo cambios en Protobuf, Java, native C++, installer, SQLite, Credential Provider, capabilities ni handlers funcionales.
 
@@ -665,4 +671,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19I1 deja preparado el lifecycle productivo del Credential Provider dentro del Agent: publish/package verification, install/update side-by-side, verification read-only, uninstall seguro y orquestacion full Agent. El siguiente paso recomendado es 19I2 en una PC descartable para validar fresh install, fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.
+Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install en la PC descartable despues del fix de tokenizacion `sc.exe`, y solo entonces continuar la validacion real de fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.

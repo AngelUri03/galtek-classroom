@@ -2537,3 +2537,41 @@
 ### Commit sugerido
 
 `chore: stabilize foundations after architecture audit`
+
+## 2026-09-13 - Prompt 19I2-F01
+
+### Realizado
+
+- Corregido INSTALLER BUG detectado en PC real descartable Windows 11 Education x64 10.0.22621 durante la primera instalacion real de 19I2.
+- `sc.exe create` fallaba con exit code 1639 porque el Service installer enviaba opciones y valores como un solo argv: `binPath= <value>`, `DisplayName= <value>`, `start= auto`, `obj= LocalSystem`, `reset= <value>` y `actions= <value>`.
+- El fallo real fue fail-safe: `GaltekClassroomAgent` no fue creado, `GaltekClassroomSessionAgent` no fue instalado, el Credential Provider no fue registrado y el CLSID COM Galtek no fue registrado.
+- Agregado `installer/windows/agent-service-sc-arguments.ps1` con builders PowerShell puros para argv nativos de `sc.exe`.
+- Actualizado `install-agent-service.ps1` para usar tokens separados en `create`, `config` y recovery `failure`.
+- Conservado el quoting del ImagePath alrededor del executable bajo `C:\Program Files\...`.
+- Auditadas todas las llamadas `Invoke-ScExe`/`sc.exe` en `installer/windows`: `description`, `failureflag` y `delete` ya usaban tokenizacion correcta y no se cambiaron.
+- Agregado `installer/windows/test-agent-service-sc-arguments.ps1` para cubrir el contrato de argumentos sin tocar Service Control Manager real.
+- Actualizado `docs/agent/CURRENT_STATE.md` y este historial.
+
+### Cambios descartados
+
+- No se avanzo la validacion real 19I2.
+- No se creo, configuro ni borro ningun Windows Service real en la laptop de desarrollo.
+- No se modificaron Protobuf, Java, Agent runtime, Session runtime, Credential Provider, Registry, Task Scheduler, SCM real, arquitectura de lifecycle ni politica de recovery.
+- No se cambio `ServiceName`, `DisplayName`, `LocalSystem`, startup automatico, recovery 5/15/60, reset 86400, Program Files, ProgramData ni preservacion de Session/CredentialProvider.
+- No se hizo commit.
+
+### Validaciones
+
+- `.\installer\windows\test-agent-service-sc-arguments.ps1`: correcto.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `rg` de `Invoke-ScExe`/`sc.exe` en `installer/windows`: create/config/failure corregidos; description/failureflag/delete auditados.
+- `git diff --check`: correcto.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- No declarar installer real validado hasta repetir fresh install en la PC de laboratorio.
+
+### Commit sugerido
+
+`fix(installer): correct service control arguments`

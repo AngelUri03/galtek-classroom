@@ -16,6 +16,8 @@ $PreservedInstallSubdirectories = @('Session', 'CredentialProvider')
 $RecoveryResetSeconds = 86400
 $RecoveryActions = 'restart/5000/restart/15000/restart/60000'
 
+. (Join-Path $PSScriptRoot 'agent-service-sc-arguments.ps1')
+
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -156,7 +158,7 @@ $commonApplicationData = [Environment]::GetFolderPath([Environment+SpecialFolder
 $installDirectory = Resolve-FullPath (Join-Path $programFiles 'Galtek\Classroom\Agent')
 $dataDirectory = Resolve-FullPath (Join-Path $commonApplicationData 'Galtek\Classroom')
 $serviceExecutablePath = Join-Path $installDirectory $ServiceExecutableName
-$binaryPathName = '"' + $serviceExecutablePath + '"'
+$binaryPathName = New-AgentServiceBinaryPathName -ExecutablePath $serviceExecutablePath
 
 Assert-PathInsideDirectory -Path $installDirectory -ParentDirectory $programFiles -Purpose 'Agent Service install directory'
 Assert-PathInsideDirectory -Path $dataDirectory -ParentDirectory $commonApplicationData -Purpose 'Agent data directory'
@@ -179,34 +181,15 @@ Copy-Item -Path (Join-Path $artifactDirectory '*') -Destination $installDirector
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -eq $service) {
     Write-Host "Creating Windows Service $ServiceName..."
-    Invoke-ScExe -Arguments @(
-        'create',
-        $ServiceName,
-        "binPath= $binaryPathName",
-        "DisplayName= $ServiceDisplayName",
-        'start= auto',
-        'obj= LocalSystem'
-    )
+    Invoke-ScExe -Arguments (New-AgentServiceCreateScArguments -ServiceName $ServiceName -BinaryPathName $binaryPathName -ServiceDisplayName $ServiceDisplayName)
 }
 else {
     Write-Host "Configuring existing Windows Service $ServiceName..."
-    Invoke-ScExe -Arguments @(
-        'config',
-        $ServiceName,
-        "binPath= $binaryPathName",
-        "DisplayName= $ServiceDisplayName",
-        'start= auto',
-        'obj= LocalSystem'
-    )
+    Invoke-ScExe -Arguments (New-AgentServiceConfigScArguments -ServiceName $ServiceName -BinaryPathName $binaryPathName -ServiceDisplayName $ServiceDisplayName)
 }
 
 Invoke-ScExe -Arguments @('description', $ServiceName, $ServiceDescription)
-Invoke-ScExe -Arguments @(
-    'failure',
-    $ServiceName,
-    "reset= $RecoveryResetSeconds",
-    "actions= $RecoveryActions"
-)
+Invoke-ScExe -Arguments (New-AgentServiceFailureScArguments -ServiceName $ServiceName -RecoveryResetSeconds $RecoveryResetSeconds -RecoveryActions $RecoveryActions)
 Invoke-ScExe -Arguments @('failureflag', $ServiceName, '1')
 
 Write-Host "Starting service $ServiceName..."
