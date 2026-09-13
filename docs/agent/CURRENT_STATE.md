@@ -2,9 +2,17 @@
 
 ## Ultima actualizacion
 
-2026-09-13 - Prompt 19I2-F02: validacion locale-independent del principal de Session Agent.
+2026-09-13 - Prompt 19I2-F03: correccion de falso positivo ACL del Credential Provider installer.
 
 ## Estado del proyecto
+
+Prompt 19I2-F03 corrige un INSTALLER BUG encontrado en el fresh install #3 sobre la PC descartable Windows 11 Education x64 10.0.22621 con Windows en espanol. 19I2-F01 ya quedo validado en hardware real: el Service se crea/configura/inicia correctamente. 19I2-F02 ya quedo validado en hardware real: la Scheduled Task del Session Agent se instala usando `S-1-5-32-545` y la validacion locale-independent resolvio correctamente `Usuarios -> S-1-5-32-545`. Por primera vez la instalacion real avanzo hasta el installer del Credential Provider y fallo antes del registro con `Credential Provider binaries must not be writable by standard users`.
+
+El fallo F03 fue un falso positivo de ACL: la ACL legitima heredada de Program Files contenia `BUILTIN\Usuarios: ReadAndExecute, Synchronize` en `CredentialProvider\`, `CredentialProvider\versions\`, `versions\<packageId>\`, DLL y manifest. Esos derechos no conceden escritura, reemplazo, borrado ni control de ACL. La raiz fue que `Test-FileSystemRightsIncludeWrite` construia un write mask mezclando derechos atomicos con enums compuestos (`Write`, `Modify`, `FullControl`); esos compuestos incluyen bits que tambien aparecen en permisos legitimos de lectura/ejecucion y `Synchronize`.
+
+19I2-F03 cambia la deteccion a derechos peligrosos atomicos: `WriteData/CreateFiles`, `AppendData/CreateDirectories`, `WriteExtendedAttributes`, `WriteAttributes`, `Delete`, `DeleteSubdirectoriesAndFiles`, `ChangePermissions` y `TakeOwnership`. `Write`, `Modify` y `FullControl` siguen rechazados naturalmente porque contienen uno o mas de esos bits. `Get-StandardUserWritableAclEntries` solo clasifica como concesion writable una ACE efectiva de tipo `Allow` para SIDs estandar no privilegiados (`S-1-1-0`, `S-1-5-11`, `S-1-5-32-545`); una ACE `Deny` no se reporta como writable, y Administrators/SYSTEM/TrustedInstaller pueden conservar FullControl.
+
+El rollback de la instalacion real dejo Galtek Provider, COM Galtek y Credential Provider Filter Galtek sin registrar. Credential Provider todavia NO esta validado en LogonUI. Estado 19I2 despues del fix: `REAL_INSTALL_VALIDATION_PENDING`. No declarar 19I2 superado, installer real validado, CP instalado/validado ni LogonUI validado hasta repetir la instalacion/validacion real en la PC de laboratorio.
 
 Prompt 19I2-F02 corrige un INSTALLER BUG encontrado en la segunda instalacion real sobre una PC descartable Windows 11 Education x64 10.0.22621 con Windows en espanol. El fix previo 19I2-F01 quedo validado en hardware real: `sc.exe create` ya crea correctamente `GaltekClassroomAgent`, el Service queda `StartMode Auto`, `Account LocalSystem` y `Running`. La instalacion avanzo despues al Session Agent y fallo al validar la Scheduled Task porque `Get-ScheduledTask` devolvio el grupo integrado `S-1-5-32-545` como nombre localizado (`Usuarios`) mientras `Assert-SessionAgentTask` comparaba texto contra el SID literal.
 
@@ -24,7 +32,7 @@ Prompt 19I1 integra el Credential Provider nativo al lifecycle normal del Agent 
 
 Release x64 del Credential Provider y su self-test nativo usan `RuntimeLibrary=MultiThreaded` (`/MT`) para evitar dependencia productiva de Visual C++ Redistributable manual dentro de LogonUI. El publish productivo localiza MSBuild, compila `Release|x64`, valida PE x64, calcula SHA-256 despues de producir la DLL final y reporta estado Authenticode sin fingir firma. `SIGNED_INVALID` falla cerrado; `NOT_SIGNED` queda permitido solo para deployment controlado/lab hasta que exista signing real.
 
-El install productivo exige elevacion, Windows x64, PowerShell x64, manifest valido, hash correcto, DLL PE x64, firma no invalida, Agent Service instalado, ACL sin write obvio para `Everyone`/`Authenticated Users`/`Builtin Users`, ausencia de filter Galtek y registro HKLM x64. Staging es side-by-side bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`; `InprocServer32` apunta directo a la DLL de la version activa. El installer captura rollback in-memory de las claves Galtek y falla cerrado ante conflicto si el CLSID apunta fuera del root Galtek.
+El install productivo exige elevacion, Windows x64, PowerShell x64, manifest valido, hash correcto, DLL PE x64, firma no invalida, Agent Service instalado, ACL sin write para SIDs estandar no privilegiados (`S-1-1-0`, `S-1-5-11`, `S-1-5-32-545`), ausencia de filter Galtek y registro HKLM x64. Staging es side-by-side bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`; `InprocServer32` apunta directo a la DLL de la version activa. El installer captura rollback in-memory de las claves Galtek y falla cerrado ante conflicto si el CLSID apunta fuera del root Galtek.
 
 El uninstall productivo elimina solo el provider key Galtek y luego la registration COM Galtek; despues intenta limpiar paquetes best-effort sin matar LogonUI/Winlogon, sin reboot automatico y sin tocar otros providers. Si queda una DLL locked, reporta `UNREGISTERED_REBOOT_CLEANUP_REQUIRED`. Los orchestrators `publish-agent.ps1`, `install-agent.ps1` y `uninstall-agent.ps1` integran Service, Session Agent y Credential Provider en orden seguro. Los scripts especificos de Service preservan `Agent\Session\` y `Agent\CredentialProvider\`; los scripts de Session no tocan Credential Provider. La validacion real queda en estado `PACKAGE_VERIFIED`, `INSTALLER_PREPARED`, `REAL_LOGON_VALIDATION_PENDING`.
 
@@ -681,4 +689,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install/validacion real en la PC descartable despues del fix F02 de principal locale-independent, y solo entonces continuar la validacion real de fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.
+Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install/validacion real en la PC descartable despues del fix F03 de ACL del Credential Provider, y solo entonces continuar la validacion real de registry/path/ACL/providers estandar, fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.

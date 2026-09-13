@@ -216,39 +216,56 @@ function Test-FileSystemRightsIncludeWrite {
         [System.Security.AccessControl.FileSystemRights]::CreateDirectories -bor
         [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
         [System.Security.AccessControl.FileSystemRights]::WriteAttributes -bor
-        [System.Security.AccessControl.FileSystemRights]::Write -bor
-        [System.Security.AccessControl.FileSystemRights]::Modify -bor
-        [System.Security.AccessControl.FileSystemRights]::FullControl -bor
+        [System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [System.Security.AccessControl.FileSystemRights]::TakeOwnership
 
     return (($Rights -band $writeMask) -ne 0)
 }
 
-function Get-StandardUserWritableAclEntries {
-    param([Parameter(Mandatory = $true)][string] $Path)
-
-    $standardUserSids = @(
+function Get-StandardUserSidValues {
+    return @(
         'S-1-1-0',
         'S-1-5-11',
         'S-1-5-32-545'
     )
+}
+
+function Resolve-IdentityReferenceSidValue {
+    param([Parameter(Mandatory = $true)][System.Security.Principal.IdentityReference] $IdentityReference)
+
+    try {
+        return $IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    }
+    catch {
+        return $IdentityReference.Value
+    }
+}
+
+function Test-FileSystemAccessRuleGrantsStandardUserWrite {
+    param(
+        [Parameter(Mandatory = $true)] $Rule,
+        [string[]] $StandardUserSids = (Get-StandardUserSidValues)
+    )
+
+    if ($Rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
+        return $false
+    }
+
+    $sid = Resolve-IdentityReferenceSidValue -IdentityReference $Rule.IdentityReference
+    return ($StandardUserSids -contains $sid -and (Test-FileSystemRightsIncludeWrite -Rights $Rule.FileSystemRights))
+}
+
+function Get-StandardUserWritableAclEntries {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $standardUserSids = Get-StandardUserSidValues
 
     $acl = Get-Acl -LiteralPath $Path
     foreach ($rule in $acl.Access) {
-        if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
-            continue
-        }
-
-        $sid = $null
-        try {
-            $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-        }
-        catch {
-            $sid = $rule.IdentityReference.Value
-        }
-
-        if ($standardUserSids -contains $sid -and (Test-FileSystemRightsIncludeWrite -Rights $rule.FileSystemRights)) {
+        if (Test-FileSystemAccessRuleGrantsStandardUserWrite -Rule $rule -StandardUserSids $standardUserSids) {
+            $sid = Resolve-IdentityReferenceSidValue -IdentityReference $rule.IdentityReference
             [pscustomobject]@{
                 Path = $Path
                 Identity = $rule.IdentityReference.Value

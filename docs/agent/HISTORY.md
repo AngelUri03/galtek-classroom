@@ -2612,3 +2612,51 @@
 ### Commit sugerido
 
 `fix(installer): validate session task principal by sid`
+
+## 2026-09-13 - Prompt 19I2-F03
+
+### Realizado
+
+- Registrado el resultado real de hardware de 19I2-F02: en fresh install #3, la Scheduled Task del Session Agent se instalo correctamente usando `S-1-5-32-545`, y la validacion locale-independent resolvio `Usuarios -> S-1-5-32-545`.
+- La instalacion real alcanzo por primera vez el installer del Credential Provider y fallo antes del registro con `Credential Provider binaries must not be writable by standard users`.
+- Confirmado falso positivo: `BUILTIN\Usuarios: ReadAndExecute, Synchronize` fue reportado como writable en `CredentialProvider\`, `CredentialProvider\versions\`, `versions\<packageId>\`, DLL y manifest, aunque esos derechos no conceden escritura.
+- Corregido `Test-FileSystemRightsIncludeWrite` para detectar solo derechos peligrosos atomicos: `WriteData/CreateFiles`, `AppendData/CreateDirectories`, `WriteExtendedAttributes`, `WriteAttributes`, `Delete`, `DeleteSubdirectoriesAndFiles`, `ChangePermissions` y `TakeOwnership`.
+- Eliminado el uso de enums compuestos `Write`, `Modify` y `FullControl` dentro del write mask; siguen rechazados naturalmente porque contienen bits atomicos peligrosos.
+- Extraidos helpers PowerShell puros para autoridad por SID y evaluacion de ACE: `Get-StandardUserSidValues`, `Resolve-IdentityReferenceSidValue` y `Test-FileSystemAccessRuleGrantsStandardUserWrite`.
+- `Get-StandardUserWritableAclEntries` conserva la politica compartida por package verifier e install verifier, pero solo interpreta ACE `Allow` como concesion writable.
+- Una ACE `Deny` con bits peligrosos no se reporta como writable; Administrators/SYSTEM/TrustedInstaller pueden conservar FullControl sin contarse como standard-user writable.
+- Agregado `installer/windows/test-credential-provider-acl-contract.ps1` para cubrir read-only normal de Program Files, derechos peligrosos atomicos, compuestos `Write`/`Modify`/`FullControl`, ACE `Deny`, SID privilegiado Administrators y ausencia de dependencia de nombres localizados.
+- Actualizado `docs/agent/CURRENT_STATE.md` y este historial.
+
+### Cambios descartados
+
+- No se quito la validacion ACL.
+- No se permitio `Write`, `Modify` ni `FullControl` para `S-1-1-0`, `S-1-5-11` o `S-1-5-32-545`.
+- No se modificaron ACL reales de la laptop de desarrollo ni de Program Files.
+- No se cambio funcionalidad del Credential Provider.
+- No se modificaron C++, Agent runtime, Session Agent, Java, Protobuf, gRPC ni contratos remotos.
+- No se registro el Credential Provider, COM provider ni filter en la laptop de desarrollo.
+- No se tocaron Client32Provider, GenericFilter, Password Provider, PIN, Hello ni otros providers.
+- No se hizo commit.
+
+### Validaciones
+
+- `.\installer\windows\test-credential-provider-acl-contract.ps1`: correcto.
+- `.\installer\windows\test-agent-service-sc-arguments.ps1`: correcto.
+- `.\installer\windows\test-session-agent-task-contract.ps1`: correcto.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `git diff --check`: correcto.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- F01 ya validado en hardware real.
+- F02 ya validado en hardware real.
+- Credential Provider todavia NO esta validado en LogonUI.
+- Rollback dejo Galtek Provider/COM/Filter sin registrar.
+- No declarar CP instalado/validado ni 19I2 completado hasta repetir fresh install/validacion real en la PC de laboratorio.
+
+### Commit sugerido
+
+`fix(installer): correct credential provider acl validation`
