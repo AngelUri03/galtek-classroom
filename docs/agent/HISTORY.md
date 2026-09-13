@@ -2575,3 +2575,40 @@
 ### Commit sugerido
 
 `fix(installer): correct service control arguments`
+
+## 2026-09-13 - Prompt 19I2-F02
+
+### Realizado
+
+- Registrado el resultado real de hardware de 19I2-F01: en la segunda instalacion sobre Windows 11 Education x64 10.0.22621 en espanol, el Service `GaltekClassroomAgent` ya fue creado, configurado como `Automatic`, corriendo como `LocalSystem` y en estado `Running`.
+- Corregido el fallo posterior del Session Agent: `Get-ScheduledTask` devolvio el principal del grupo integrado `S-1-5-32-545` como nombre localizado (`Usuarios`) y la validacion comparaba esa representacion textual contra el SID literal.
+- Agregado `installer/windows/session-agent-task-contract.ps1` con helper PowerShell puro para resolver una identidad de principal a SID: primero `SecurityIdentifier`, despues `NTAccount.Translate(SecurityIdentifier)`.
+- Actualizado `install-session-agent.ps1` para seguir creando la Scheduled Task con `S-1-5-32-545`, pero validar comparando el SID normalizado contra `S-1-5-32-545`.
+- Conservadas las validaciones existentes de `RunLevel Limited`, trigger `AtLogon`, executable exacto, argumento `--background`, `MultipleInstances Parallel`, no requerir red y no LocalSystem; esta ultima ahora se evalua por SID `S-1-5-18`.
+- Agregado `installer/windows/test-session-agent-task-contract.ps1` para cubrir SID literal valido, identidad no-SID resoluble al SID esperado, identidad resoluble a otro SID, identidad no resoluble, ausencia de hardcode textual de nombres localizados y regresion de settings/trigger/action/runlevel.
+- Actualizado `docs/agent/CURRENT_STATE.md` y este historial.
+
+### Cambios descartados
+
+- No se registro ninguna Scheduled Task real en la laptop de desarrollo.
+- No se avanzo otra prueba de 19I2 ni se declaro validado el Session Agent.
+- No se modificaron Java, Protobuf, Agent runtime, Session runtime, Credential Provider, Credential Provider Filter, contratos remotos, Registry, Service Control Manager real ni Task Scheduler real.
+- No se aceptan por string nombres localizados como autoridad; la autoridad sigue siendo solo el SID resuelto.
+- No se hizo commit.
+
+### Validaciones
+
+- `.\installer\windows\test-session-agent-task-contract.ps1`: correcto.
+- `.\installer\windows\test-agent-service-sc-arguments.ps1`: correcto.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `git diff --check`: correcto.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- Credential Provider todavia no fue alcanzado por la validacion real completa.
+- No declarar 19I2 superado ni Session Agent validado hasta repetir validacion real en la PC de laboratorio.
+
+### Commit sugerido
+
+`fix(installer): validate session task principal by sid`

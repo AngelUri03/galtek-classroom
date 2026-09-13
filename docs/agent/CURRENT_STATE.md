@@ -2,15 +2,21 @@
 
 ## Ultima actualizacion
 
-2026-09-13 - Prompt 19I2-F01: correccion de tokenizacion sc.exe del installer real.
+2026-09-13 - Prompt 19I2-F02: validacion locale-independent del principal de Session Agent.
 
 ## Estado del proyecto
 
-Prompt 19I2-F01 corrige un INSTALLER BUG encontrado en una primera instalacion real sobre una PC descartable Windows 11 Education x64 10.0.22621. `sc.exe create` fallaba al crear `GaltekClassroomAgent` con exit code 1639 porque `install-agent-service.ps1` enviaba opciones de `sc.exe` como argv combinados (`binPath= <value>`, `DisplayName= <value>`, `start= auto`, `obj= LocalSystem`, `reset= <value>`, `actions= <value>`) en vez de separar option y value como requiere la sintaxis nativa.
+Prompt 19I2-F02 corrige un INSTALLER BUG encontrado en la segunda instalacion real sobre una PC descartable Windows 11 Education x64 10.0.22621 con Windows en espanol. El fix previo 19I2-F01 quedo validado en hardware real: `sc.exe create` ya crea correctamente `GaltekClassroomAgent`, el Service queda `StartMode Auto`, `Account LocalSystem` y `Running`. La instalacion avanzo despues al Session Agent y fallo al validar la Scheduled Task porque `Get-ScheduledTask` devolvio el grupo integrado `S-1-5-32-545` como nombre localizado (`Usuarios`) mientras `Assert-SessionAgentTask` comparaba texto contra el SID literal.
+
+La raiz del fallo era una comparacion textual locale-dependent entre representaciones equivalentes de la misma identidad Windows. 19I2-F02 extrae un helper PowerShell puro para normalizar identidades de principal: primero intenta interpretar el valor como `SecurityIdentifier`; si no es SID, intenta resolverlo como `NTAccount` a `SecurityIdentifier`; la comparacion final se hace solo contra `.Value == S-1-5-32-545`. Identidades no resolubles o resueltas a otro SID fallan cerrado. La validacion conserva `RunLevel Limited`, trigger `AtLogon`, executable exacto, argumento `--background`, `MultipleInstances Parallel`, no requerir red y rechazo de LocalSystem por SID `S-1-5-18`.
+
+El estado post-fallo real de la PC descartable antes de F02 fue: Service `GaltekClassroomAgent` creado y corriendo, binarios de Session copiados a Program Files, proceso Session no iniciado, Credential Provider Galtek no registrado, COM Galtek no registrado y Credential Provider Filter Galtek no registrado. Credential Provider todavia no fue alcanzado por la validacion real completa.
+
+Estado 19I2 despues del fix: `REAL_INSTALL_VALIDATION_PENDING`. No declarar 19I2 superado, installer real validado ni Session Agent validado hasta repetir la instalacion/validacion real en la PC de laboratorio.
+
+Prompt 19I2-F01 corrigio un INSTALLER BUG encontrado en una primera instalacion real sobre una PC descartable Windows 11 Education x64 10.0.22621. `sc.exe create` fallaba al crear `GaltekClassroomAgent` con exit code 1639 porque `install-agent-service.ps1` enviaba opciones de `sc.exe` como argv combinados (`binPath= <value>`, `DisplayName= <value>`, `start= auto`, `obj= LocalSystem`, `reset= <value>`, `actions= <value>`) en vez de separar option y value como requiere la sintaxis nativa.
 
 El fallo fue fail-safe: el Service no fue creado, la scheduled task `GaltekClassroomSessionAgent` no fue instalada, el Credential Provider Galtek no fue registrado, el COM CLSID Galtek no fue registrado, y solo quedaron copiados binarios/directorios previos bajo Program Files/ProgramData antes de abortar. La correccion extrae builders PowerShell puros para argv de Service Control y ajusta `create`, `config` y recovery `failure` para enviar `binPath=`, `DisplayName=`, `start=`, `obj=`, `reset=` y `actions=` como tokens separados de sus valores, conservando el quoting del ImagePath para rutas bajo `C:\Program Files\...`. `description`, `failureflag` y `delete` fueron auditados y no requieren cambio de tokenizacion.
-
-Estado 19I2 despues del fix: `REAL_INSTALL_VALIDATION_PENDING`. No declarar 19I2 superado ni installer real validado hasta repetir fresh install en la PC de laboratorio.
 
 La estabilizacion post-auditoria corrige hallazgos de cimientos sin avanzar 19I2 ni cambiar contratos funcionales. El `RemoteOperationDispatcher` del Agent ahora falla al construirse si DI registra dos handlers productivos para el mismo `NetworkOperationType`, con mensaje no secreto del tipo `Duplicate remote operation handler registration: SWITCH_MANAGED_ACCOUNT`. La deduplicacion vigente sigue usando `RequestSignature`; el helper stale `SameParameters` fue eliminado. Se actualizaron residuos documentales de Local IPC unlock y Managed Windows Accounts para reflejar 18B2/19H1/19H2. No hubo cambios en Protobuf, Java, native C++, installer, SQLite, Credential Provider, capabilities ni handlers funcionales.
 
@@ -562,6 +568,10 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Pruebas ejecutadas
 
+- `.\installer\windows\test-session-agent-task-contract.ps1`: correcto; cubre SID literal, identidad no-SID resoluble al SID esperado, identidad resoluble a otro SID, identidad no resoluble, rechazo de LocalSystem por SID, ausencia de hardcode textual de nombres localizados en el helper y regresion de RunLevel/AtLogon/executable/argumentos/settings.
+- `.\installer\windows\test-agent-service-sc-arguments.ps1`: correcto.
+- Parser PowerShell de `installer/windows/*.ps1`: correcto.
+- `rg` dirigido sobre `InteractiveUsersGroupSid`, comparaciones directas de `GroupId`, `Principal.GroupId`, `Principal.UserId`, `New-ScheduledTaskPrincipal`, `Get-ScheduledTask` y `Register-ScheduledTask`: la validacion del principal queda en normalizacion/resolucion a SID; no queda comparacion textual SID vs nombre localizado.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~RemoteOperationDispatcher|FullyQualifiedName~MasterNetworkTransport|FullyQualifiedName~ClientCapabilityProvider|FullyQualifiedName~OperationContracts"` en `agent`: correcto, 54 pruebas Service superadas; Session sin coincidencias.
 - `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 620 pruebas Service superadas.
 - `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
@@ -671,4 +681,4 @@ El producto todavia no tiene UI, mDNS, discovery real, captura, filesystem real,
 
 ## Proximo paso recomendado
 
-Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install en la PC descartable despues del fix de tokenizacion `sc.exe`, y solo entonces continuar la validacion real de fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.
+Fase 19I2 sigue en `REAL_INSTALL_VALIDATION_PENDING`. Repetir fresh install/validacion real en la PC descartable despues del fix F02 de principal locale-independent, y solo entonces continuar la validacion real de fail-open, no activation espontanea, logon real, wrong password, switch real, batch/update/uninstall y providers estandar visibles.

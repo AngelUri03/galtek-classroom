@@ -11,7 +11,9 @@ $ErrorActionPreference = 'Stop'
 $TaskName = 'GaltekClassroomSessionAgent'
 $TaskDescription = 'Galtek Classroom Session Agent'
 $SessionExecutableName = 'GaltekClassroom.Agent.Session.exe'
-$InteractiveUsersGroupSid = 'S-1-5-32-545'
+$SessionTaskPrincipalSid = 'S-1-5-32-545'
+
+. (Join-Path $PSScriptRoot 'session-agent-task-contract.ps1')
 
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -109,7 +111,7 @@ function Register-SessionAgentTask {
 
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $principal = New-ScheduledTaskPrincipal `
-        -GroupId $InteractiveUsersGroupSid `
+        -GroupId $SessionTaskPrincipalSid `
         -RunLevel Limited
 
     $settings = New-ScheduledTaskSettingsSet `
@@ -137,40 +139,10 @@ function Assert-SessionAgentTask {
     param([Parameter(Mandatory = $true)][string] $ExecutablePath)
 
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
-    $action = @($task.Actions)[0]
-    $trigger = @($task.Triggers)[0]
-
-    if ($task.Principal.GroupId -ne $InteractiveUsersGroupSid) {
-        throw "Scheduled Task principal must be Builtin Users SID $InteractiveUsersGroupSid. Actual: $($task.Principal.GroupId)"
-    }
-
-    if ($task.Principal.UserId -eq 'SYSTEM' -or $task.Principal.UserId -eq 'LocalSystem') {
-        throw "Scheduled Task must not run as SYSTEM."
-    }
-
-    if ($task.Principal.RunLevel.ToString() -ne 'Limited') {
-        throw "Scheduled Task run level must be Limited. Actual: $($task.Principal.RunLevel)"
-    }
-
-    if ($trigger.CimClass.CimClassName -ne 'MSFT_TaskLogonTrigger') {
-        throw "Scheduled Task trigger must be AtLogon. Actual: $($trigger.CimClass.CimClassName)"
-    }
-
-    if (-not [string]::Equals((Resolve-FullPath $action.Execute), (Resolve-FullPath $ExecutablePath), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Scheduled Task executable mismatch. Actual: $($action.Execute)"
-    }
-
-    if ($action.Arguments -ne '--background') {
-        throw "Scheduled Task argument must be --background. Actual: $($action.Arguments)"
-    }
-
-    if ($task.Settings.MultipleInstances.ToString() -ne 'Parallel') {
-        throw "Scheduled Task MultipleInstances must be Parallel. Actual: $($task.Settings.MultipleInstances)"
-    }
-
-    if ($task.Settings.RunOnlyIfNetworkAvailable) {
-        throw "Scheduled Task must not require network availability."
-    }
+    Assert-SessionAgentTaskContract `
+        -Task $task `
+        -ExecutablePath $ExecutablePath `
+        -ExpectedPrincipalGroupSid $SessionTaskPrincipalSid
 }
 
 if (-not (Test-IsElevated)) {
@@ -232,7 +204,7 @@ if (-not $NoStartCurrentSession) {
 
 Write-Host "Session Agent installed."
 Write-Host "TaskName: $TaskName"
-Write-Host "PrincipalGroupSid: $InteractiveUsersGroupSid"
+Write-Host "PrincipalGroupSid: $SessionTaskPrincipalSid"
 Write-Host "RunLevel: Limited"
 Write-Host "MultipleInstances: Parallel"
 Write-Host "Executable: $sessionExecutablePath"
