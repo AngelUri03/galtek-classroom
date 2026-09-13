@@ -2765,3 +2765,45 @@
 ### Commit sugerido
 
 `docs(agent): record network identity real validation`
+
+## 2026-09-13 - Prompt 19I2 Stage G
+
+### Realizado
+
+- Registrada validacion real de Managed Account Bindings en PC14 fisica, Windows 11 Education x64 version/build 10.0.22621 / 22621, con Agent build `563158154937ef9092936413cbbca27611dab010`.
+- Baseline real: usuario administrador actual `ICH11\ADMIN-14`; `ADMIN-14` enabled con SID terminado en `-1006`; `ICH-PRIMARIA-14` enabled con SID terminado en `-1007`; `IHTEC-SECUNDARIA-14` enabled con SID terminado en `-1008`; `managed-windows-accounts.json` inicialmente ausente.
+- Creados bindings mediante CLI administrativa local: `PRIMARY -> ICH11\ICH-PRIMARIA-14` con SID terminado en `-1007`, y `SECONDARY -> ICH11\IHTEC-SECUNDARIA-14` con SID terminado en `-1008`.
+- Ambos bindings devolvieron `configured=true`, `credentialConfigured=false` y `status=CREDENTIAL_NOT_CONFIGURED`.
+- Confirmado que `managed-windows-accounts.json` quedo creado.
+- Confirmada persistencia real tras `Restart-Service GaltekClassroomAgent -Force`: el Service volvio `Running` / `Automatic`; `PRIMARY` conservo `ICH11\ICH-PRIMARIA-14`; `SECONDARY` conservo `ICH11\IHTEC-SECUNDARIA-14`; ambos conservaron `CREDENTIAL_NOT_CONFIGURED`.
+- Actualizado `docs/agent/CURRENT_STATE.md`, `docs/agent/HISTORY.md` y `docs/windows/MANAGED_WINDOWS_ACCOUNTS.md`.
+
+### Cambios descartados
+
+- No se implemento codigo.
+- No se modificaron C#/.NET/C++/Java/Protobuf/installer.
+- No se valido password/DPAPI real.
+- No se valido `PROVISION_MANAGED_CREDENTIAL`.
+- No se valido `LOGON_MANAGED_ACCOUNT`.
+- No se valido `SWITCH_MANAGED_ACCOUNT`.
+- No se valido Commercial License.
+- No se valido pairing/mTLS real.
+- No se declaro 19I2 completo terminado.
+- No se hizo commit.
+
+### Validaciones
+
+- Validacion real Stage G en PC14: correcta para bindings locales `PRIMARY`/`SECONDARY` y persistencia tras restart del Service.
+- `git diff --check`: correcto.
+- No se ejecutaron suites automatizadas porque el cambio fue solo documental.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- Stage G: `REAL VALIDATED`.
+- La validacion real cubre bindings locales y persistencia de `managed-windows-accounts.json` en PC14 Windows 11 Education x64 10.0.22621 build 22621 con build `563158154937ef9092936413cbbca27611dab010`.
+- No declarar password/DPAPI real, provisioning, logon, switch, Commercial License, pairing/mTLS real ni 19I2 completo validados.
+
+### Commit sugerido
+
+`docs(agent): record managed account binding validation`

@@ -141,7 +141,7 @@ ACL objetivo: `LocalSystem` y `Builtin Administrators` con `FullControl`; usuari
 - login, logoff, switch o Credential Provider;
 - creacion, borrado, renombre o cambio de password de cuentas Windows.
 
-19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera. 19G4 agrega `SWITCH_MANAGED_ACCOUNT` individual Agent-side. 19H1 agrega endpoint, `BatchOperation` y planner Master para switch batch sobre Devices explicitos. 19H2 agrega retry administrativo explicito y selectivo del mismo batch. La UI sigue pendiente, reveal Client-side sigue sin existir y la validacion real de laboratorio del Credential Provider queda pendiente para 19I2.
+19D implementa passwords solo como almacenamiento local cifrado interno del Agent Service. 19E1 agrega provisioning remoto seguro con `PROVISION_MANAGED_CREDENTIAL`; 19E2 agrega el bridge interno Credential Vault -> MasterRemoteOperationGateway. 19G1/19G2 agregan Credential Provider V2 y serialization local. 19G3 agrega `LOGON_MANAGED_ACCOUNT` remoto individual mediante activation efimera. 19G4 agrega `SWITCH_MANAGED_ACCOUNT` individual Agent-side. 19H1 agrega endpoint, `BatchOperation` y planner Master para switch batch sobre Devices explicitos. 19H2 agrega retry administrativo explicito y selectivo del mismo batch. 19I2 Stage G valido en hardware real los bindings locales y persistencia de este archivo. La UI sigue pendiente, reveal Client-side sigue sin existir y la validacion real de password/DPAPI, provisioning, logon, switch, Commercial License y pairing/mTLS sigue pendiente.
 
 No agrega timers, polling, WMI, enumeracion de usuarios, profile scanning ni trabajo idle. La resolucion ocurre solo on-demand durante bind/replace/list/status.
 
@@ -189,22 +189,36 @@ Si target ya esta activo, SWITCH no consulta DPAPI ni cierra nada. Si una source
 
 Despues del logoff aceptado, SWITCH espera de forma acotada hasta `NO_SESSION` antes de iniciar el logon target. Si no se confirma, devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`. Si el target aparece activo durante la espera, el resultado es `SUCCESS` sin crear activation nueva.
 
+## Validacion Real 19I2 Stage G
+
+Stage G quedo `REAL VALIDATED` en PC14 fisica, Windows 11 Education x64 version/build 10.0.22621 / 22621, con Agent build `563158154937ef9092936413cbbca27611dab010`.
+
+Baseline real: usuario administrador actual `ICH11\ADMIN-14`; `ADMIN-14` enabled con SID terminado en `-1006`; `ICH-PRIMARIA-14` enabled con SID terminado en `-1007`; `IHTEC-SECUNDARIA-14` enabled con SID terminado en `-1008`; `managed-windows-accounts.json` inicialmente ausente.
+
+Bindings creados mediante CLI administrativa local:
+
+- `PRIMARY -> ICH11\ICH-PRIMARIA-14`, SID terminado en `-1007`.
+- `SECONDARY -> ICH11\IHTEC-SECUNDARIA-14`, SID terminado en `-1008`.
+
+Ambos devolvieron `configured=true`, `credentialConfigured=false` y `status=CREDENTIAL_NOT_CONFIGURED`. El archivo `managed-windows-accounts.json` quedo creado.
+
+Persistencia real: tras `Restart-Service GaltekClassroomAgent -Force`, el Service volvio `Running` / `Automatic`; `PRIMARY` conservo `ICH11\ICH-PRIMARIA-14`; `SECONDARY` conservo `ICH11\IHTEC-SECUNDARIA-14`; ambos conservaron `CREDENTIAL_NOT_CONFIGURED`.
+
+Esta validacion cubre solo bindings locales y persistencia. No valida password/DPAPI real, `PROVISION_MANAGED_CREDENTIAL`, `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, Commercial License, pairing/mTLS real ni cierre global de 19I2.
+
 ## Validacion Manual Pendiente
 
 En una PC descartable:
 
-1. Crear o usar cuentas locales reales `Primaria` y `Secundaria`.
-2. Ejecutar bind de `PRIMARY -> Primaria` y `SECONDARY -> Secundaria`.
-3. Verificar que list muestre ambas con `CREDENTIAL_NOT_CONFIGURED`.
-4. Renombrar `Primaria`; el SID permanece y el binding sigue valido.
-5. Provisionar credencial con `PROVISION_MANAGED_CREDENTIAL` y confirmar status interno `READY`.
-6. En laboratorio 19G3 o posterior, crear activation segura y confirmar que el provider muestra tile Galtek solo mientras el SID resuelve.
-7. Rebindear `PRIMARY` despues de identity y antes de acquire; confirmar que no revela credential y exige nueva activation.
-8. Con `PRIMARY` logueado, ejecutar `LOGOFF_WINDOWS_SESSION(PRIMARY)` y confirmar que cierra solo si el SID activo coincide.
-9. Borrar `Primaria` dejando su sesion viva; confirmar que `LOGOFF_WINDOWS_SESSION(PRIMARY)` todavia puede cerrarla por SID.
-10. Borrar `Primaria`; el binding queda `ACCOUNT_NOT_FOUND` para status/list y el provider no enumera tile.
-11. Crear otra `Primaria`; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
-12. Ejecutar replace explicito para `PRIMARY -> nueva Primaria`.
+1. Renombrar una cuenta binded; el SID permanece y el binding sigue valido.
+2. Provisionar credencial con `PROVISION_MANAGED_CREDENTIAL` y confirmar status interno `READY`.
+3. En laboratorio 19G3 o posterior, crear activation segura y confirmar que el provider muestra tile Galtek solo mientras el SID resuelve.
+4. Rebindear `PRIMARY` despues de identity y antes de acquire; confirmar que no revela credential y exige nueva activation.
+5. Con `PRIMARY` logueado, ejecutar `LOGOFF_WINDOWS_SESSION(PRIMARY)` y confirmar que cierra solo si el SID activo coincide.
+6. Borrar `PRIMARY` dejando su sesion viva; confirmar que `LOGOFF_WINDOWS_SESSION(PRIMARY)` todavia puede cerrarla por SID.
+7. Borrar la cuenta binded; el binding queda `ACCOUNT_NOT_FOUND` para status/list y el provider no enumera tile.
+8. Crear otra cuenta con el mismo nombre; el SID nuevo no se adopta automaticamente y la credencial vieja no queda usable.
+9. Ejecutar replace explicito para apuntar el slot al nuevo SID.
 
 Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticamente en 19B.
 
@@ -212,4 +226,4 @@ Galtek no debe borrar, crear, renombrar ni modificar cuentas Windows automaticam
 
 - UI de cuentas Windows administradas.
 - Reveal Client-side: no implementado.
-- Validacion real 19I2 de Credential Provider/logon/switch en PC descartable.
+- Validacion real 19I2 de password/DPAPI, `PROVISION_MANAGED_CREDENTIAL`, Credential Provider/logon/switch, Commercial License y pairing/mTLS en PC descartable.
