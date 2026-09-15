@@ -2,12 +2,13 @@
 
 Galtek Classroom is a LAN-first classroom and cybercafe administration product for Windows environments. The product will let one or more Master computers supervise authorized Client computers in a local network, while keeping commercial licensing, network trust, and device identity as separate concerns.
 
-The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, local Master Windows Binding authorization through the Agent Service, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, SQLite persistence for the Master classroom domain, and the first protected Master administrative API. It does not implement remote control, discovery, pairing, screen capture, projection, network transport, or the future desktop UI.
+The current iteration implements local Installation Identity, development Machine Code output, local Commercial License validation, local Master Windows Binding authorization through the Agent Service, Local IPC API v1 for read-only status queries, a real installable Windows Service flow for the Agent Service, a background/autostart lifecycle for the Session Agent, SQLite persistence for the Master classroom domain, the first protected Master administrative API, and the first Master UI foundation shell. It does not implement remote control, discovery, screen capture, projection, real classroom UI data binding, or final desktop packaging.
 
 ## Architecture
 
 - `master-backend/`: Java 21, Spring Boot 3.x, Maven backend for the Master application.
 - `master-backend/src/main/resources/db/migration/sqlite/`: Flyway migrations for the Master SQLite database.
+- `master-ui/`: React 18, TypeScript and Webpack 5 foundation for the desktop-oriented Master UI. It intentionally does not use Vite.
 - `agent/`: C#/.NET solution for Windows Agent components.
 - `agent/src/GaltekClassroom.Agent.Service/`: Worker Service / Generic Host; owns Installation Identity and Commercial License locally, and hosts Local IPC API v1.
 - `agent/src/GaltekClassroom.Agent.Session/`: silent user-session Agent with background lifecycle, Local IPC supervisor, and status/ping diagnostics.
@@ -26,6 +27,7 @@ Before developing classroom functionality, read `docs/context/FUNCTIONAL_MODEL.m
 - Java 21.
 - Maven 3.9+.
 - .NET SDK 8.0 LTS or newer compatible LTS SDK.
+- Node.js and npm for `master-ui/`.
 
 In this workspace, the global `dotnet` command may expose only the runtime. Use `C:\Users\angel\.dotnet\dotnet.exe` when that happens.
 

@@ -2,9 +2,25 @@
 
 ## Ultima actualizacion
 
-2026-09-15 - Paso 19 / 19I2 REAL E2E VALIDATED ON PC14.
+2026-09-15 - Paso 20A.2 visual foundation frozen.
 
 ## Estado del proyecto
+
+Paso 20A inicia el Master UI real en `master-ui/` con React 18, TypeScript y Webpack 5 explicito, sin Vite, sin Tauri y sin Electron. Antes de esta unidad no existia frontend, `package.json`, lockfile ni tooling UI en el repositorio.
+
+Paso 20A.2 congela la foundation visual vigente de Galtek Classroom para poder avanzar despues a 20B con datos reales. La sub-paleta oficial de Classroom queda definida como azul academico/cobalto moderno con primary `#456FE8`, distinta del azul corporativo GALTEK `#104C75`, que permanece como referencia de marca madre. El amarillo GALTEK `#FFA60C` se conserva solo como firma/acento muy puntual, no como superficie dominante.
+
+El Master UI empaqueta localmente `Kodchasan` mediante `@fontsource/kodchasan` y lo usa como tipografia principal de toda la interfaz: marca, lockup, titulos, body, metadata, cards, navegacion, chips, metricas, botones y captions. No se usa `Inter`, no se usan Google Fonts ni CDN, y los fallbacks tipograficos vigentes son `"Kodchasan", "Segoe UI Variable", "Segoe UI", sans-serif`. Se reutiliza el asset oficial `Logo.png` encontrado en la carpeta GALTEK como `master-ui/src/assets/galtek-logo.png`, sin redibujarlo, deformarlo ni recolorearlo.
+
+La UI queda refinada con tokens centralizados de color, neutrales frios, radios, sombras, motion, foco y tipografia. La cantidad de color en superficies queda reducida: Classroom Blue y blancos/neutrales dominan la interfaz; los estados semanticos `success`, `warning`, `danger` y `offline` quedan reservados para indicadores pequenos como punto, icono o detalle corto. Summary cards y device cards comparten una misma superficie Galtek Classroom, sin tintes ni bordes semanticos dominantes; selected usa Classroom Blue como estado de interaccion del producto. Sidebar y top header conservan composicion, hover, focus-visible, selected y pressed sin implementar seleccion real.
+
+Paso 20A.2 no avanza 20B: no conecta `/api/network/clients`, `/api/master/bootstrap`, `/api/classrooms` ni datos reales; no agrega APIs fake, no implementa operaciones, seleccion real, auth, settings, Tauri ni packaging; no toca backend, Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
+
+El shell desktop ya incluye sidebar fija/colapsable, header superior, navegacion visual para Aula, Alumnos, Aplicaciones, Archivos, Navegacion, Actividad y Configuracion, y dashboard Aula con resumen y tarjetas dummy de equipos. Solo `Aula` queda funcional como vista activa del shell.
+
+Los datos visibles del dashboard son placeholders locales encapsulados en `master-ui/src/mock/mockClassroomDashboard.ts`. No se conecto `/api/network/clients`, no se agrego backend fake, no se implementaron operaciones reales del aula ni se toco Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, Credential Vault backend, licensing o installer.
+
+Validacion 20A.2: `npm run typecheck` correcto, `npm run build` correcto y `git diff --check` correcto. `rg "Inter|fontsource/inter" master-ui/src master-ui/package.json master-ui/package-lock.json -n` quedo sin coincidencias; el comando amplio `rg "Inter|fontsource/inter" master-ui -n` solo encuentra `esModuleInterop` en `tsconfig.json`, que no es una referencia funcional a la fuente Inter. `npm uninstall @fontsource/inter` mantuvo las 3 vulnerabilidades moderadas transitivas ya existentes; no se ejecuto `npm audit fix --force` para no ampliar alcance.
 
 Paso 19 / 19I2 queda cerrado como `REAL E2E VALIDATED ON PC14` para PC14 fisica con Windows 11 Education x64 build 22621.
 

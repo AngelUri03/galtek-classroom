@@ -1,0 +1,61 @@
+:root {
+  --brand-galtek-blue: #104c75;
+  --brand-galtek-yellow: #ffa60c;
+
+  --classroom-50: #f5f7ff;
+  --classroom-100: #ebefff;
+  --classroom-200: #d8e0ff;
+  --classroom-300: #b4c4ff;
+  --classroom-400: #819cf5;
+  --classroom-500: #587bef;
+  --classroom-600: #456fe8;
+  --classroom-700: #365bc8;
+  --classroom-800: #304ba2;
+  --classroom-900: #293f80;
+  --classroom-950: #192650;
+
+  --canvas: #f7f8fc;
+  --surface: #ffffff;
+  --surface-soft: #f2f4fa;
+  --surface-elevated: #ffffff;
+  --text-primary: #171a24;
+  --text-secondary: #555d70;
+  --text-tertiary: #828a9d;
+  --border-soft: #e7eaf1;
+  --border-medium: #d8dde8;
+
+  --success: #2f9d72;
+  --warning: #d99016;
+  --danger: #d94a55;
+  --info: #456fe8;
+  --offline: #9299a8;
+
+  --focus-ring: 0 0 0 3px rgba(69, 111, 232, 0.18);
+
+  --shadow-xs: 0 1px 2px rgba(20, 31, 55, 0.04);
+  --shadow-sm:
+    0 1px 2px rgba(20, 31, 55, 0.04),
+    0 8px 24px rgba(32, 53, 95, 0.07);
+  --shadow-md:
+    0 1px 2px rgba(20, 31, 55, 0.05),
+    0 14px 34px rgba(32, 53, 95, 0.1);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  --motion-quick: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 180ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --font-ui: "Kodchasan", "Segoe UI Variable", "Segoe UI", sans-serif;
+  --font-brand: var(--font-ui);
+  --font-body: var(--font-ui);
+
+  --sidebar-expanded: 264px;
+  --sidebar-collapsed: 78px;
+  --header-height: 76px;
+}

@@ -1,5 +1,98 @@
 # Historial
 
+## 2026-09-15 - Paso 20A.2 visual foundation frozen
+
+### Realizado
+
+- Eliminada la dependencia `@fontsource/inter` del Master UI y actualizado el lockfile con `npm uninstall @fontsource/inter`.
+- Eliminados imports de Inter en `master-ui/src/main.tsx`.
+- Reducidos los imports de `@fontsource/kodchasan` a los pesos realmente usados: 400 y 700.
+- Actualizados tokens tipograficos para que toda la interfaz use `Kodchasan` con fallbacks `"Segoe UI Variable", "Segoe UI", sans-serif`.
+- Reducida la cantidad de color en superficies: Classroom Blue y blancos/neutrales quedan como lenguaje visual principal.
+- Ajustadas summary cards para que las cuatro se vean como una misma familia Classroom Blue; `Con atencion` conserva solo un indicador warning pequeno en el icono.
+- Ajustadas device cards para compartir la misma superficie neutral/Classroom; los estados `online`, `offline`, `attention` y `degraded` quedan en puntos pequenos de estado, sin franja vertical semantica ni icono semantico dominante.
+- Conservados sidebar, top header, hover, focus-visible, selected, pressed, motion corto y `prefers-reduced-motion`.
+- Registrado que la foundation visual 20A queda congelada para avanzar a 20B.
+
+### Cambios descartados
+
+- No se avanzo 20B.
+- No se conectaron `/api/network/clients`, `/api/master/bootstrap`, `/api/classrooms` ni datos reales.
+- No se agregaron APIs fake, seleccion real, nuevas paginas, librerias, fuentes, animaciones nuevas, backend, Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
+- No se hizo commit.
+
+### Validacion
+
+- `npm run typecheck` en `master-ui`: correcto.
+- `npm run build` en `master-ui`: correcto; empaqueto fuentes locales desde `@fontsource/kodchasan` y no empaqueto `@fontsource/inter`.
+- `git diff --check`: correcto; solo warnings locales LF->CRLF del working tree en archivos trackeados.
+- `rg "Inter|fontsource/inter" master-ui/src master-ui/package.json master-ui/package-lock.json -n`: sin coincidencias.
+- `rg "Inter|fontsource/inter" master-ui -n`: solo coincide con `esModuleInterop` en `master-ui/tsconfig.json`, falso positivo de TypeScript y no referencia funcional a la fuente Inter.
+
+## 2026-09-15 - Paso 20A.1 Galtek Classroom visual identity foundation
+
+### Realizado
+
+- Leidos contexto, arquitectura, modelo funcional, reglas de desarrollo, estado, decisiones, historial, README raiz, README de `master-ui`, `git status`, `git diff`, `git log --oneline -15`, `master-ui/src`, estilos, componentes, package.json y assets disponibles.
+- Localizado `Manual de Identidad Empresarial.pdf` fuera del workspace y leido el documento editable equivalente `Manual de Identidad Empresarial.docx` para corroborar Kodchasan, azul GALTEK `#104C75`, amarillo GALTEK `#FFA60C`, blanco, negro suave y regla de no degradar azul/amarillo.
+- Localizado asset oficial `C:\Users\angel\Documents\Trabajo\Galtek\Logo.png`, inspeccionado visualmente y copiado como `master-ui/src/assets/galtek-logo.png` para reutilizarlo sin redibujar, deformar ni recolorear.
+- Agregadas dependencias locales `@fontsource/kodchasan` y `@fontsource/inter`; importadas en `src/main.tsx` sin Google Fonts ni CDN.
+- Agregado soporte Webpack `asset/resource` para empaquetar el logo oficial dentro del build.
+- Reemplazado el theme anterior por tokens centralizados de marca, escala Classroom, neutrales frios, superficies, texto, bordes, estados semanticos, radios, sombras, motion, foco y tipografia.
+- Refinados sidebar, top header, summary cards y device cards con identidad cobalto Classroom, firma amarilla puntual, profundidad sutil, foco visible, hover, pressed y selected preparado.
+- Preparados estados visuales futuros de device cards para `ONLINE`, `OFFLINE`, `IN_USE`, `ATTENTION` y `DEGRADED` sin conectar logica real.
+- Revisadas capturas headless en `1366x768` y `1920x1080` desde dev server local `http://127.0.0.1:3001/`.
+
+### Cambios descartados
+
+- No se avanzo 20B.
+- No se conectaron `/api/network/clients`, `/api/master/bootstrap`, `/api/classrooms` ni datos reales.
+- No se agregaron APIs fake, seleccion real, shutdown/restart, lock/unlock, OPEN_URL, OPEN_APPLICATION, alumnos, archivos, policies, actividad, settings reales, auth/login, onboarding, licencias, pairing UI ni Tauri.
+- No se tocaron backend, Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
+- No se agregaron Tailwind, Styled Components, Emotion, Sass, CSS-in-JS nuevo ni librerias visuales pesadas.
+- No se hizo commit.
+
+### Validacion
+
+- `npm run typecheck` en `master-ui`: correcto.
+- `npm run build` en `master-ui`: correcto; empaqueto fuentes locales `.woff/.woff2` desde `@fontsource` y `assets/galtek-logo...png`.
+- `npx webpack serve --mode development --host 127.0.0.1 --port 3001`: correcto; puerto 3000 estaba ocupado.
+- Captura headless Chrome `1366x768`: correcta, sin solapes obvios y con logo/fuentes renderizados.
+- Captura headless Chrome `1920x1080`: correcta, sin solapes obvios y con logo/fuentes renderizados.
+- `git diff --check`: correcto; solo warnings locales LF->CRLF del working tree en archivos trackeados.
+- `rg "fonts\\.googleapis|fonts\\.gstatic|Google Fonts|cdn|@import url" master-ui -n`: sin coincidencias.
+
+## 2026-09-15 - Paso 20A Master UI foundation
+
+### Realizado
+
+- Auditado el repositorio antes de modificar: contexto, arquitectura, modelo funcional, reglas de desarrollo, estado, decisiones, historial, `git status`, `git diff`, log reciente, estructura del repo, README y configuracion existente.
+- Confirmado que no existia frontend real: no habia `package.json`, lockfile, Webpack/Vite/Tauri config ni README de frontend.
+- Creada base `master-ui/` con React 18, TypeScript y Webpack 5 explicito, sin Vite, sin Tauri y sin Electron.
+- Implementado shell desktop con sidebar colapsable, header superior, navegacion visual y dashboard Aula.
+- Agregadas secciones visuales iniciales: Aula, Alumnos, Aplicaciones, Archivos, Navegacion, Actividad y Configuracion.
+- Implementado header con producto, aula placeholder, estado general del Master y area futura de profesora.
+- Implementado dashboard Aula con tarjetas de resumen `Equipos`, `En linea`, `En uso` y `Con atencion`, mas grid dummy de PCs para validar layout.
+- Encapsulados los datos temporales en `master-ui/src/mock/mockClassroomDashboard.ts`.
+- Agregados estilos globales/theme con acento Galtek `#086c5c`, fondos neutros, foco visible, hover/focus en sidebar y tarjetas, transiciones cortas y layout desktop adaptable.
+- Agregado README minimo del frontend con stack y comandos.
+- Actualizado README raiz para reflejar que existe foundation UI.
+
+### Cambios descartados
+
+- No se conecto `/api/network/clients`.
+- No se implementaron dispositivos reales, seleccion batch, operaciones remotas, alumnos CRUD, archivos, policies, monitoreo, captura, settings reales, login, onboarding, persistencia frontend ni packaging Tauri.
+- No se tocaron Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, Credential Vault backend, licensing ni installer.
+- No se agrego Redux, Zustand, MobX, React Query, Storybook, Tailwind ni design system externo.
+- No se hizo commit.
+
+### Validacion
+
+- `npm install` en `master-ui`: correcto; reporto 3 vulnerabilidades moderadas transitivas y una advertencia deprecada en `uuid@8.3.2`.
+- `npm run typecheck` en `master-ui`: correcto.
+- `npm run build` en `master-ui`: correcto.
+- `git diff --check`: correcto.
+
 ## 2026-09-15 - Cierre fisico Paso 19 / 19I2 PC14
 
 ### Realizado

@@ -1,5 +1,40 @@
 # Decisiones vigentes
 
+## 2026-09-15 - Paso 20A.2 visual foundation frozen
+
+- Galtek Classroom usa `Kodchasan` como tipografia principal de toda la UI mediante `@fontsource/kodchasan`, empaquetada localmente.
+- `Inter` deja de ser tipografia vigente del producto y se elimina de dependencias, imports y tokens funcionales de la UI.
+- Los fallbacks tipograficos vigentes son `"Kodchasan", "Segoe UI Variable", "Segoe UI", sans-serif`; no se agrega ninguna otra familia.
+- Classroom Blue `#456FE8` (`Classroom 600`) queda como color de producto para identidad, interaccion activa, selected, bordes estructurales e iconografia principal.
+- El amarillo GALTEK `#FFA60C` queda reservado para acentos muy puntuales; no se usa como superficie dominante.
+- Los estados semanticos `success`, `warning`, `danger` y `offline` se reservan para indicadores pequenos: punto de estado, icono, badge, texto corto o detalle aislado.
+- Summary cards y device cards quedan visualmente dentro de una misma familia Classroom Blue + blanco/neutrales; los estados no dominan la superficie ni definen la identidad completa del componente.
+- La foundation visual de 20A queda congelada para avanzar a 20B con datos reales.
+- No se avanzo 20B, no se conectaron APIs reales, no se agregaron APIs fake y no se toco backend, Agent, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
+
+## 2026-09-15 - Paso 20A.1 Galtek Classroom visual identity foundation
+
+- Galtek Classroom define identidad cromatica propia como azul academico/cobalto moderno.
+- El primary oficial de Classroom es `#456FE8` (`Classroom 600`), con escala `50 #F5F7FF`, `100 #EBEFFF`, `200 #D8E0FF`, `300 #B4C4FF`, `400 #819CF5`, `500 #587BEF`, `600 #456FE8`, `700 #365BC8`, `800 #304BA2`, `900 #293F80` y `950 #192650`.
+- El azul corporativo GALTEK `#104C75` permanece como referencia de marca madre y no como primary del producto Classroom.
+- El amarillo GALTEK `#FFA60C` se usa solo como firma/acento puntual.
+- `Kodchasan` queda como tipografia de marca mediante `@fontsource/kodchasan`, empaquetada localmente.
+- Antecedente historico: en 20A.1 `Inter` existia como complementaria de lectura; el estado vigente de 20A.2 es full `Kodchasan`.
+- Se reutiliza el logo oficial `Logo.png` encontrado en la carpeta GALTEK, copiado a `master-ui/src/assets/galtek-logo.png`, sin redibujar, deformar ni recolorear.
+- Los estados semanticos de device cards quedan preparados visualmente sin dominar la identidad del componente: indicadores, iconos, borde/acento y texto.
+- No se avanzo 20B, no se conectaron APIs reales, no se agregaron APIs fake y no se toco backend, Agent, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
+
+## 2026-09-15 - Paso 20A Master UI foundation
+
+- Antes de 20A no existia frontend real en el repositorio: no habia `package.json`, lockfile, Webpack/Vite/Tauri config ni README de frontend.
+- El Master UI foundation vive en `master-ui/` como aplicacion React 18 + TypeScript + Webpack 5 explicito.
+- Vite no se usa. Tauri no se agrega todavia porque no existia y 20A solo requiere foundation visual local.
+- La UI queda orientada a escritorio, no mobile-first; se asume operacion en monitores desde 1366x768 hasta 2560x1440.
+- La identidad visual usa `#086c5c` como acento Galtek moderado sobre fondos neutros claros, con bordes contenidos y sombras suaves.
+- Solo `Aula` es vista activa funcional en 20A. Las demas secciones quedan como navegacion visual del shell sin pantalla real.
+- Los placeholders del dashboard Aula se concentran en `mockClassroomDashboard` para facilitar reemplazo por API real en 20B.
+- No se conecta `/api/network/clients`, no se crean APIs fake, no se agregan operaciones reales, login, persistencia frontend ni packaging desktop.
+
 ## 2026-09-15 - PC14 Paso 19 / 19I2 real E2E
 
 - Paso 19 / 19I2 queda `REAL E2E VALIDATED ON PC14` para PC14 fisica con Windows 11 Education x64 build 22621.
