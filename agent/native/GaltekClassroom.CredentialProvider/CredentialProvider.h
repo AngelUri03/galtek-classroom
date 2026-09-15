@@ -6,11 +6,15 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <string>
 
 class GaltekCredentialProvider final : public ICredentialProvider
 {
 public:
     GaltekCredentialProvider();
+#ifdef GALTEK_CREDENTIAL_PROVIDER_TESTS
+    explicit GaltekCredentialProvider(const std::wstring& bridgePipeName);
+#endif
 
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
     IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -27,8 +31,12 @@ public:
 
 private:
     ~GaltekCredentialProvider();
-    void StopNotificationWorker();
-    void NotificationWorker(IStream* eventsStream, UINT_PTR adviseContext, HANDLE stopEvent);
+    void StopNotificationWorker(const wchar_t* reason);
+    static void NotificationWorker(
+        IStream* eventsStream,
+        UINT_PTR adviseContext,
+        HANDLE stopEvent,
+        std::wstring bridgePipeName);
 
     LONG _referenceCount;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO _usageScenario;
@@ -39,4 +47,5 @@ private:
     HANDLE _notificationStopEvent;
     std::thread _notificationThread;
     std::atomic_bool _notificationRunning;
+    std::wstring _bridgePipeName;
 };

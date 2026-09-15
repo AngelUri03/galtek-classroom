@@ -1,14 +1,22 @@
 using System.Text;
+using System.Reflection;
+using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.CredentialProviderBridge;
 using GaltekClassroom.Agent.Service.Identity;
+using GaltekClassroom.Agent.Service.Ipc;
+using GaltekClassroom.Agent.Service.Licensing;
 using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.Master;
+using GaltekClassroom.Agent.Service.Network;
 using GaltekClassroom.Agent.Service.NetworkTransport;
+using GaltekClassroom.Agent.Service.Pairing;
+using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Service.WindowsSessions;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GaltekClassroom.Agent.Service.Tests;
@@ -304,6 +312,48 @@ public sealed class WindowsSessionLogonTests : IDisposable
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(IRemoteOperationHandler)
             && descriptor.ImplementationType == typeof(LogonManagedAccountOperationHandler));
+    }
+
+    [Fact]
+    public async Task ServiceCollection_BridgeAndLogonShareCredentialProviderActivationAuthority()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(builder => builder.ClearProviders());
+        services.AddInstallationIdentityServices();
+        services.AddCommercialLicenseServices();
+        services.AddMasterAuthorizationServices();
+        services.AddNetworkIdentityServices();
+        services.AddClientPairingServices();
+        services.AddMasterNetworkTransportServices(new ConfigurationBuilder().Build());
+        services.AddLocalIpcServices();
+        services.AddSessionCommandServices();
+        services.AddApplicationBindingServices();
+        services.AddManagedWindowsAccountBindingServices();
+        services.AddCredentialProviderBridgeServices();
+
+        await using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true });
+
+        var store = provider.GetRequiredService<ICredentialProviderActivationStore>();
+        var activationService = provider.GetRequiredService<CredentialProviderActivationService>();
+        var bridgeHandler = provider.GetRequiredService<CredentialProviderBridgeRequestHandler>();
+        var logonService = provider.GetRequiredService<WindowsSessionLogonService>();
+
+        var logonActivationService = typeof(WindowsSessionLogonService)
+            .GetField("_activationService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(logonService);
+        var activationStore = typeof(CredentialProviderActivationService)
+            .GetField("_activationStore", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(activationService);
+
+        Assert.Same(activationService, logonActivationService);
+        Assert.Same(store, activationStore);
+
+        bridgeHandler.MarkListenerObserved();
+
+        Assert.Equal(
+            CredentialProviderListenerAvailability.FreshPresence,
+            await activationService.WaitForListenerAvailabilityAsync(TimeSpan.Zero, CancellationToken.None));
     }
 
     public void Dispose()

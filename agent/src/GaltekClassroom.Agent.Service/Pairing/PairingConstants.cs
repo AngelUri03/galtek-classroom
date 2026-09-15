@@ -4,6 +4,7 @@ public static class PairingConstants
 {
     public const int SchemaVersion = 1;
     public const string Purpose = "GALTEK_CLASSROOM_MASTER_CLIENT_PAIRING_V1";
+    public const string ClientDescriptorPurpose = "GALTEK_CLASSROOM_CLIENT_PAIRING_DESCRIPTOR_V1";
     public const string AuthorizedMastersFileName = "authorized-masters.json";
     public const int PairingChallengeTtlMinutes = 5;
     public const int NonceSizeBytes = 32;

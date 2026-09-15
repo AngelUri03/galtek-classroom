@@ -75,6 +75,9 @@ private:
 class BridgeClient
 {
 public:
+    BridgeClient();
+    explicit BridgeClient(const std::wstring& pipeName);
+
     BridgeActivationStatus GetPendingActivationMetadata(DWORD timeoutMilliseconds) const;
     bool GetPendingActivationIdentity(
         DWORD timeoutMilliseconds,
@@ -91,4 +94,7 @@ public:
         const std::string& activationId,
         const char* outcome,
         DWORD timeoutMilliseconds) const;
+
+private:
+    std::wstring _pipeName;
 };

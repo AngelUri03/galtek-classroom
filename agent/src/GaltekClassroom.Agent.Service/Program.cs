@@ -96,6 +96,32 @@ if (commandLine.Mode == AgentCommandMode.RuntimeDiagnostics)
     return;
 }
 
+if (commandLine.Mode is AgentCommandMode.PairingExportDescriptor or AgentCommandMode.PairingAcceptChallenge)
+{
+    builder.Logging.ClearProviders();
+
+    await using var serviceProvider = builder.Services.BuildServiceProvider();
+    var bootstrap = serviceProvider.GetRequiredService<PairingFileBootstrapService>();
+    var result = commandLine.Mode == AgentCommandMode.PairingExportDescriptor
+        ? await bootstrap.ExportClientDescriptorAsync(
+            commandLine.PairingDescriptorOutputPath ?? string.Empty,
+            CancellationToken.None)
+        : await bootstrap.AcceptChallengeAsync(
+            commandLine.PairingChallengeInputPath ?? string.Empty,
+            commandLine.PairingResponseOutputPath ?? string.Empty,
+            commandLine.ApprovePairing,
+            CancellationToken.None);
+
+    Console.WriteLine(bootstrap.SerializeResult(result));
+
+    if (!result.Succeeded)
+    {
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
 if (commandLine.Mode is AgentCommandMode.ActivateLicenseFromStdin or AgentCommandMode.ActivateLicenseFromFile)
 {
     builder.Logging.ClearProviders();

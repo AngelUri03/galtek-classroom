@@ -152,7 +152,8 @@ public sealed class RemoteOperationDispatcher
                 handlerResult.ErrorCode,
                 handlerResult.Message,
                 startedAt,
-                handlerResult.WindowsSessionState);
+                handlerResult.WindowsSessionState,
+                handlerResult.ManagedAccountStatus);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -191,7 +192,8 @@ public sealed class RemoteOperationDispatcher
         NetworkOperationErrorCode errorCode,
         string message,
         DateTimeOffset startedAt,
-        WindowsSessionStateResult? windowsSessionState = null)
+        WindowsSessionStateResult? windowsSessionState = null,
+        ManagedAccountStatusResult? managedAccountStatus = null)
     {
         var result = new OperationResult
         {
@@ -209,6 +211,11 @@ public sealed class RemoteOperationDispatcher
         if (windowsSessionState is not null)
         {
             result.WindowsSessionState = windowsSessionState;
+        }
+
+        if (managedAccountStatus is not null)
+        {
+            result.ManagedAccountStatus = managedAccountStatus;
         }
 
         return result;

@@ -166,11 +166,24 @@ message OperationResult {
 
   oneof result_details {
     WindowsSessionStateResult windows_session_state = 20;
+    ManagedAccountStatusResult managed_account_status = 21;
   }
 }
 
 message WindowsSessionStateResult {
   WindowsSessionState state = 1;
+}
+
+message ManagedAccountStatusResult {
+  repeated ManagedAccountStatus accounts = 1;
+}
+
+message ManagedAccountStatus {
+  ManagedWindowsAccountId account_id = 1;
+  bool configured = 2;
+  bool credential_configured = 3;
+  ManagedAccountCredentialStatus credential_status = 4;
+  string windows_account_name = 5;
 }
 
 message OperationStatusQuery {
@@ -203,6 +216,7 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGOFF_V1 = 12;
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGON_V1 = 13;
   NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1 = 14;
+  NETWORK_CAPABILITY_MANAGED_ACCOUNT_STATUS_V1 = 15;
 }
 
 enum NetworkOperationType {
@@ -226,12 +240,21 @@ enum NetworkOperationType {
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY = 17;
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY = 18;
   NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL = 19;
+  NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS = 20;
 }
 
 enum ManagedWindowsAccountId {
   MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED = 0;
   MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY = 1;
   MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY = 2;
+}
+
+enum ManagedAccountCredentialStatus {
+  MANAGED_ACCOUNT_CREDENTIAL_STATUS_UNSPECIFIED = 0;
+  MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED = 1;
+  MANAGED_ACCOUNT_CREDENTIAL_STATUS_CREDENTIAL_NOT_CONFIGURED = 2;
+  MANAGED_ACCOUNT_CREDENTIAL_STATUS_ACCOUNT_NOT_FOUND = 3;
+  MANAGED_ACCOUNT_CREDENTIAL_STATUS_READY = 4;
 }
 
 enum BrowserPolicyMode {

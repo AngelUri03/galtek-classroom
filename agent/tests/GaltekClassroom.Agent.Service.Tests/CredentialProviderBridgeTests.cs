@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
@@ -122,7 +123,7 @@ public sealed class CredentialProviderBridgeTests
             observedGeneration,
             FixedNow,
             cancellation.Token);
-        Assert.True(await store.WaitForListenerAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.FromSeconds(1), FixedNow, CancellationToken.None));
         Assert.Equal(1, store.ListenerCount);
 
         var activation = store.SetRemotePending(
@@ -138,13 +139,194 @@ public sealed class CredentialProviderBridgeTests
     }
 
     [Fact]
+    public void ActivationStore_IdentitySnapshotDoesNotPublishEnumerationGeneration()
+    {
+        var store = new CredentialProviderActivationStore();
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+        var observedGeneration = store.CurrentGeneration(FixedNow);
+
+        Assert.True(store.TrySnapshotIdentity(activation.ActivationId, PrimarySid, FixedNow, out var snapshotted));
+
+        Assert.Equal(CredentialProviderActivationState.IdentityResolved, snapshotted!.State);
+        Assert.Equal(observedGeneration, store.CurrentGeneration(FixedNow));
+    }
+
+    [Fact]
+    public async Task ActivationStore_ConsumeHidesActivationWithoutWakingEnumerationWaiter()
+    {
+        var store = new CredentialProviderActivationStore();
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+        Assert.True(store.TrySnapshotIdentity(activation.ActivationId, PrimarySid, FixedNow, out _));
+        var observedGeneration = store.CurrentGeneration(FixedNow);
+        using var cancellation = new CancellationTokenSource();
+
+        var waitTask = store.WaitForGenerationChangeAsync(
+            observedGeneration,
+            FixedNow,
+            cancellation.Token);
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.FromSeconds(1), FixedNow, CancellationToken.None));
+
+        Assert.True(store.TryConsume(activation.ActivationId, PrimarySid, FixedNow, out var consumed));
+
+        Assert.Equal(CredentialProviderActivationState.Consumed, consumed!.State);
+        Assert.Null(store.GetPending(FixedNow));
+        Assert.Equal(observedGeneration, store.CurrentGeneration(FixedNow));
+        Assert.False(waitTask.IsCompleted);
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitTask);
+    }
+
+    [Fact]
+    public async Task ActivationStore_CompletionAfterConsumePublishesEnumerationGeneration()
+    {
+        var store = new CredentialProviderActivationStore();
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true).Activation!;
+        Assert.True(store.TrySnapshotIdentity(activation.ActivationId, PrimarySid, FixedNow, out _));
+        Assert.True(store.TryConsume(activation.ActivationId, PrimarySid, FixedNow, out _));
+        var observedGeneration = store.CurrentGeneration(FixedNow);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var waitTask = store.WaitForGenerationChangeAsync(
+            observedGeneration,
+            FixedNow,
+            cancellation.Token);
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.FromSeconds(1), FixedNow, CancellationToken.None));
+
+        Assert.True(store.TryComplete(
+            activation.ActivationId,
+            CredentialProviderLogonCompletionOutcome.Failed,
+            FixedNow));
+
+        Assert.True(await waitTask > observedGeneration);
+        Assert.Null(store.GetPending(FixedNow));
+    }
+
+    [Fact]
     public async Task ActivationStore_WaitForListenerReturnsFalseWhenNoValidatedListenerArrives()
     {
         var store = new CredentialProviderActivationStore();
 
-        var available = await store.WaitForListenerAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+        var available = await store.WaitForListenerAsync(TimeSpan.FromMilliseconds(1), FixedNow, CancellationToken.None);
 
         Assert.False(available);
+    }
+
+    [Fact]
+    public async Task ActivationStore_RecentAuthorizedBridgeObservationMakesListenerAvailable()
+    {
+        var store = new CredentialProviderActivationStore();
+
+        var now = DateTimeOffset.UtcNow;
+
+        store.MarkListenerObserved(now, TimeSpan.FromSeconds(3));
+
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.Zero, now, CancellationToken.None));
+        Assert.Equal(
+            CredentialProviderListenerAvailability.FreshPresence,
+            await store.WaitForListenerAvailabilityAsync(TimeSpan.Zero, now, CancellationToken.None));
+        Assert.Equal(0, store.ListenerCount);
+    }
+
+    [Fact]
+    public async Task ActivationStore_ExpiredBridgeObservationDoesNotMakeListenerAvailable()
+    {
+        var store = new CredentialProviderActivationStore();
+
+        var now = DateTimeOffset.UtcNow;
+
+        store.MarkListenerObserved(now.AddSeconds(-10), TimeSpan.FromMilliseconds(1));
+
+        Assert.False(await store.WaitForListenerAsync(TimeSpan.FromMilliseconds(1), now, CancellationToken.None));
+        Assert.Equal(
+            CredentialProviderListenerAvailability.Unavailable,
+            await store.WaitForListenerAvailabilityAsync(TimeSpan.FromMilliseconds(1), now, CancellationToken.None));
+        Assert.Equal(0, store.ListenerCount);
+    }
+
+    [Fact]
+    public async Task ActivationStore_BlockedWaiterWakesWhenFreshPresenceArrives()
+    {
+        var store = new CredentialProviderActivationStore();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var waitTask = store.WaitForListenerAvailabilityAsync(
+            TimeSpan.FromSeconds(5),
+            FixedNow,
+            cancellation.Token);
+        await Task.Delay(50, cancellation.Token);
+        Assert.False(waitTask.IsCompleted);
+
+        store.MarkListenerObserved(FixedNow.AddMilliseconds(500), TimeSpan.FromSeconds(3));
+
+        Assert.Equal(
+            CredentialProviderListenerAvailability.FreshPresence,
+            await waitTask.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task ActivationStore_RepeatedBlockedWaitersDoNotLoseFreshPresenceWakeup()
+    {
+        for (var index = 0; index < 50; index++)
+        {
+            var store = new CredentialProviderActivationStore();
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+            var waitTask = store.WaitForListenerAvailabilityAsync(
+                TimeSpan.FromSeconds(5),
+                FixedNow,
+                cancellation.Token);
+
+            await Task.Yield();
+            store.MarkListenerObserved(FixedNow.AddMilliseconds(500), TimeSpan.FromSeconds(3));
+
+            Assert.Equal(
+                CredentialProviderListenerAvailability.FreshPresence,
+                await waitTask.WaitAsync(TimeSpan.FromSeconds(2)));
+        }
+    }
+
+    [Fact]
+    public async Task ActivationStore_RecentBridgeObservationLetsActivationWakeNextWaiter()
+    {
+        var store = new CredentialProviderActivationStore();
+
+        var now = DateTimeOffset.UtcNow;
+
+        store.MarkListenerObserved(now, TimeSpan.FromSeconds(3));
+        Assert.True(await store.WaitForListenerAsync(TimeSpan.Zero, now, CancellationToken.None));
+
+        var observedGeneration = store.CurrentGeneration(FixedNow);
+        var activation = store.SetRemotePending(
+            "operation-1",
+            ClassroomManagedWindowsAccountTypes.Primary,
+            FixedNow,
+            TimeSpan.FromSeconds(30),
+            autoSubmitRequested: true);
+
+        var generation = await store.WaitForGenerationChangeAsync(
+            observedGeneration,
+            FixedNow,
+            CancellationToken.None);
+
+        Assert.True(activation.Succeeded);
+        Assert.True(generation > observedGeneration);
+        Assert.Equal(0, store.ListenerCount);
     }
 
     [Fact]
@@ -425,6 +607,37 @@ public sealed class CredentialProviderBridgeTests
         Assert.True(response.Generation > observedGeneration);
     }
 
+    [Fact]
+    public async Task RequestHandler_MarkListenerObservedMakesAvailabilityVisibleWithoutLongPoll()
+    {
+        var clock = new MutableClock(DateTimeOffset.UtcNow);
+        var store = new CredentialProviderActivationStore();
+        var service = new CredentialProviderActivationService(store, clock);
+        var handler = new CredentialProviderBridgeRequestHandler(service);
+
+        handler.MarkListenerObserved();
+
+        Assert.True(await service.WaitForListenerAsync(TimeSpan.Zero, CancellationToken.None));
+        Assert.Equal(0, store.ListenerCount);
+    }
+
+    [Fact]
+    public async Task RequestHandler_UnauthorizedCallerDoesNotMarkFreshPresence()
+    {
+        var clock = new MutableClock(DateTimeOffset.UtcNow);
+        var store = new CredentialProviderActivationStore();
+        var service = new CredentialProviderActivationService(store, clock);
+        var handler = new CredentialProviderBridgeRequestHandler(service);
+
+        var response = await handler.HandleAsync(
+            Request(CredentialProviderBridgeOperations.Ping),
+            CredentialProviderCallerValidation.Deny("fake caller"),
+            CancellationToken.None);
+
+        Assert.Equal(CredentialProviderBridgeErrorCodes.Unauthorized, response.ErrorCode);
+        Assert.False(await service.WaitForListenerAsync(TimeSpan.Zero, CancellationToken.None));
+    }
+
     [Theory]
     [InlineData(CredentialProviderLogonResultOutcomes.Success, CredentialProviderLogonCompletionOutcome.Success)]
     [InlineData(CredentialProviderLogonResultOutcomes.Failed, CredentialProviderLogonCompletionOutcome.Failed)]
@@ -608,6 +821,7 @@ public sealed class CredentialProviderBridgeTests
         var result = verifier.Verify(pipe);
 
         Assert.False(result.Authorized);
+        Assert.Equal(CredentialProviderCallerValidationStages.NotLocalSystem, result.FailureStage);
     }
 
     [Fact]
@@ -620,6 +834,7 @@ public sealed class CredentialProviderBridgeTests
         var result = verifier.Verify(pipe);
 
         Assert.False(result.Authorized);
+        Assert.Equal(CredentialProviderCallerValidationStages.Image, result.FailureStage);
     }
 
     [Fact]
@@ -635,6 +850,7 @@ public sealed class CredentialProviderBridgeTests
         var result = verifier.Verify(pipe);
 
         Assert.False(result.Authorized);
+        Assert.Equal(CredentialProviderCallerValidationStages.Process, result.FailureStage);
     }
 
     [Fact]
@@ -647,6 +863,84 @@ public sealed class CredentialProviderBridgeTests
 
         Assert.True(result.Authorized);
         Assert.Equal(CredentialProviderBridgeProtocol.LocalSystemSid, result.ClientWindowsSid);
+    }
+
+    [Fact]
+    public void CallerVerifier_WhenTokenQueryFails_PreservesStageAndWin32Error()
+    {
+        using var pipe = CreateUnconnectedPipe();
+        var expectedPath = CredentialProviderCallerVerifier.DefaultExpectedLogonUiPath();
+        var verifier = new CredentialProviderCallerVerifier(
+            new FakePipeInspector(
+                123,
+                CredentialProviderCallerSidResult.Failure(
+                    CredentialProviderCallerValidationStages.OpenThreadToken,
+                    windowsErrorCode: 5)),
+            new FakeProcessInspector(new CredentialProviderCallerProcessInfo(123, 1, expectedPath)),
+            expectedPath);
+
+        var result = verifier.Verify(pipe);
+
+        Assert.False(result.Authorized);
+        Assert.Equal(CredentialProviderCallerValidationStages.OpenThreadToken, result.FailureStage);
+        Assert.Equal(5, result.WindowsErrorCode);
+    }
+
+    [Fact]
+    public void CallerPipeInspector_UsesTokenQueryOnlyAndReadsTokenUserInsideImpersonation()
+    {
+        using var pipe = CreateUnconnectedPipe();
+        var native = new FakePipeNative(CredentialProviderBridgeProtocol.LocalSystemSid);
+        var inspector = new WindowsCredentialProviderCallerPipeInspector(native);
+
+        var result = inspector.GetClientSid(pipe);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(CredentialProviderBridgeProtocol.LocalSystemSid, result.WindowsSid);
+        Assert.Equal(WindowsCredentialProviderCallerPipeInspector.TokenQueryAccess, native.OpenThreadTokenDesiredAccess);
+        Assert.True(native.OpenThreadTokenWasInsideImpersonation);
+        Assert.True(native.GetTokenInformationWasInsideImpersonation);
+        Assert.True(native.RevertToSelfCalled);
+    }
+
+    [Fact]
+    public void CallerPipeInspector_WhenOpenThreadTokenFails_ReturnsExactStageAndError()
+    {
+        using var pipe = CreateUnconnectedPipe();
+        var native = new FakePipeNative(CredentialProviderBridgeProtocol.LocalSystemSid)
+        {
+            OpenThreadTokenSucceeds = false,
+            LastError = 1008
+        };
+        var inspector = new WindowsCredentialProviderCallerPipeInspector(native);
+
+        var result = inspector.GetClientSid(pipe);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(CredentialProviderCallerValidationStages.OpenThreadToken, result.FailureStage);
+        Assert.Equal(1008, result.WindowsErrorCode);
+        Assert.Equal(WindowsCredentialProviderCallerPipeInspector.TokenQueryAccess, native.OpenThreadTokenDesiredAccess);
+        Assert.True(native.RevertToSelfCalled);
+    }
+
+    [Fact]
+    public void CallerPipeInspector_WhenConvertSidFails_ReturnsTokenSidStage()
+    {
+        using var pipe = CreateUnconnectedPipe();
+        var native = new FakePipeNative(CredentialProviderBridgeProtocol.LocalSystemSid)
+        {
+            ConvertSidToStringSidSucceeds = false,
+            LastError = 1337
+        };
+        var inspector = new WindowsCredentialProviderCallerPipeInspector(native);
+
+        var result = inspector.GetClientSid(pipe);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(CredentialProviderCallerValidationStages.TokenSid, result.FailureStage);
+        Assert.Equal(1337, result.WindowsErrorCode);
+        Assert.True(native.GetTokenInformationWasInsideImpersonation);
+        Assert.True(native.RevertToSelfCalled);
     }
 
     [Fact]
@@ -749,6 +1043,80 @@ public sealed class CredentialProviderBridgeTests
             rules[0].IdentityReference);
     }
 
+    [Fact]
+    public void CallerPipeNative_WindowsExportsResolveForProductiveEntryPoints()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var nativeType = typeof(WindowsCredentialProviderCallerPipeNative);
+        var imports = new[]
+        {
+            new NativeImportExpectation(
+                "NativeImpersonateNamedPipeClient",
+                "advapi32.dll",
+                "ImpersonateNamedPipeClient",
+                ReturnsBool: true),
+            new NativeImportExpectation("NativeOpenThreadToken", "advapi32.dll", "OpenThreadToken", ReturnsBool: true),
+            new NativeImportExpectation(
+                "NativeGetTokenInformation",
+                "advapi32.dll",
+                "GetTokenInformation",
+                ReturnsBool: true),
+            new NativeImportExpectation(
+                "NativeConvertSidToStringSid",
+                "advapi32.dll",
+                "ConvertSidToStringSidW",
+                ReturnsBool: true,
+                ExpectedCharSet: CharSet.Unicode),
+            new NativeImportExpectation("NativeLocalFree", "kernel32.dll", "LocalFree", ReturnsBool: false),
+            new NativeImportExpectation("NativeCloseHandle", "kernel32.dll", "CloseHandle", ReturnsBool: true),
+            new NativeImportExpectation("NativeRevertToSelf", "advapi32.dll", "RevertToSelf", ReturnsBool: true)
+        };
+
+        foreach (var import in imports)
+        {
+            var method = nativeType.GetMethod(import.ManagedName, BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var attribute = method.GetCustomAttribute<DllImportAttribute>();
+            Assert.NotNull(attribute);
+            Assert.Equal(import.DllName, attribute.Value);
+            Assert.Equal(import.EntryPoint, attribute.EntryPoint);
+            Assert.True(attribute.ExactSpelling);
+            Assert.True(attribute.SetLastError);
+
+            if (import.ExpectedCharSet is CharSet expectedCharSet)
+            {
+                Assert.Equal(expectedCharSet, attribute.CharSet);
+            }
+
+            if (import.ReturnsBool)
+            {
+                var marshalAs = method.ReturnParameter.GetCustomAttribute<MarshalAsAttribute>();
+                Assert.NotNull(marshalAs);
+                Assert.Equal(UnmanagedType.Bool, marshalAs.Value);
+            }
+
+            var library = NativeLibrary.Load(import.DllName);
+            try
+            {
+                Assert.NotEqual(IntPtr.Zero, NativeLibrary.GetExport(library, import.EntryPoint));
+            }
+            finally
+            {
+                NativeLibrary.Free(library);
+            }
+        }
+
+        var openThreadToken = nativeType.GetMethod("NativeOpenThreadToken", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(openThreadToken);
+        var openAsSelf = openThreadToken.GetParameters().Single(parameter => parameter.Name == "openAsSelf");
+        Assert.Equal(UnmanagedType.Bool, openAsSelf.GetCustomAttribute<MarshalAsAttribute>()?.Value);
+    }
+
     private static CredentialProviderBridgeRequestHandler CreateHandler(MutableClock clock)
     {
         return new CredentialProviderBridgeRequestHandler(
@@ -810,12 +1178,21 @@ public sealed class CredentialProviderBridgeTests
     private sealed class FakePipeInspector : ICredentialProviderCallerPipeInspector
     {
         private readonly int _processId;
-        private readonly string? _clientSid;
+        private readonly CredentialProviderCallerSidResult _sidResult;
 
         public FakePipeInspector(int processId, string? clientSid)
+            : this(
+                processId,
+                clientSid is null
+                    ? CredentialProviderCallerSidResult.Failure(CredentialProviderCallerValidationStages.TokenSid)
+                    : CredentialProviderCallerSidResult.Success(clientSid))
+        {
+        }
+
+        public FakePipeInspector(int processId, CredentialProviderCallerSidResult sidResult)
         {
             _processId = processId;
-            _clientSid = clientSid;
+            _sidResult = sidResult;
         }
 
         public bool IsWindows { get; init; } = true;
@@ -826,9 +1203,9 @@ public sealed class CredentialProviderBridgeTests
             return processId > 0;
         }
 
-        public string? TryGetClientSid(PipeStream pipe)
+        public CredentialProviderCallerSidResult GetClientSid(PipeStream pipe)
         {
-            return _clientSid;
+            return _sidResult;
         }
     }
 
@@ -846,6 +1223,142 @@ public sealed class CredentialProviderBridgeTests
             return _processInfo;
         }
     }
+
+    private sealed class FakePipeNative : IWindowsCredentialProviderCallerPipeNative
+    {
+        private readonly string _sid;
+        private bool _impersonating;
+        private IntPtr _allocatedSidString;
+
+        public FakePipeNative(string sid)
+        {
+            _sid = sid;
+        }
+
+        public bool OpenThreadTokenSucceeds { get; init; } = true;
+
+        public bool ConvertSidToStringSidSucceeds { get; init; } = true;
+
+        public int LastError { get; init; } = 122;
+
+        public uint? OpenThreadTokenDesiredAccess { get; private set; }
+
+        public bool OpenThreadTokenWasInsideImpersonation { get; private set; }
+
+        public bool GetTokenInformationWasInsideImpersonation { get; private set; }
+
+        public bool RevertToSelfCalled { get; private set; }
+
+        public bool ImpersonateNamedPipeClient(Microsoft.Win32.SafeHandles.SafePipeHandle pipe)
+        {
+            _impersonating = true;
+            return true;
+        }
+
+        public bool RevertToSelf()
+        {
+            RevertToSelfCalled = true;
+            _impersonating = false;
+            return true;
+        }
+
+        public IntPtr GetCurrentThread()
+        {
+            return new IntPtr(-2);
+        }
+
+        public bool OpenThreadToken(IntPtr thread, uint desiredAccess, bool openAsSelf, out IntPtr tokenHandle)
+        {
+            OpenThreadTokenDesiredAccess = desiredAccess;
+            OpenThreadTokenWasInsideImpersonation = _impersonating;
+            tokenHandle = OpenThreadTokenSucceeds ? new IntPtr(42) : IntPtr.Zero;
+            return OpenThreadTokenSucceeds;
+        }
+
+        public bool GetTokenInformation(
+            IntPtr tokenHandle,
+            int tokenInformationClass,
+            IntPtr tokenInformation,
+            int tokenInformationLength,
+            out int returnLength)
+        {
+            GetTokenInformationWasInsideImpersonation = _impersonating;
+            returnLength = Marshal.SizeOf<TokenUser>();
+            if (tokenInformation == IntPtr.Zero || tokenInformationLength == 0)
+            {
+                return false;
+            }
+
+            var tokenUser = new TokenUser
+            {
+                User = new SidAndAttributes
+                {
+                    Sid = new IntPtr(84),
+                    Attributes = 0
+                }
+            };
+            Marshal.StructureToPtr(tokenUser, tokenInformation, fDeleteOld: false);
+            return true;
+        }
+
+        public bool ConvertSidToStringSid(IntPtr sid, out IntPtr stringSid)
+        {
+            if (!ConvertSidToStringSidSucceeds)
+            {
+                stringSid = IntPtr.Zero;
+                return false;
+            }
+
+            _allocatedSidString = Marshal.StringToHGlobalUni(_sid);
+            stringSid = _allocatedSidString;
+            return true;
+        }
+
+        public IntPtr LocalFree(IntPtr memory)
+        {
+            if (memory != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(memory);
+            }
+
+            if (memory == _allocatedSidString)
+            {
+                _allocatedSidString = IntPtr.Zero;
+            }
+
+            return IntPtr.Zero;
+        }
+
+        public bool CloseHandle(IntPtr handle)
+        {
+            return true;
+        }
+
+        public int GetLastWin32Error()
+        {
+            return LastError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SidAndAttributes
+        {
+            public IntPtr Sid;
+            public int Attributes;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TokenUser
+        {
+            public SidAndAttributes User;
+        }
+    }
+
+    private sealed record NativeImportExpectation(
+        string ManagedName,
+        string DllName,
+        string EntryPoint,
+        bool ReturnsBool,
+        CharSet? ExpectedCharSet = null);
 
     private sealed class MutableClock : ISystemClock
     {

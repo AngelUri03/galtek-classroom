@@ -2,6 +2,12 @@
 
 ## Estado general
 
+La investigacion fisica PC14 del 2026-09-14 ya cruza el tramo `Credential Provider -> GetSerialization -> Acquire`: `LISTENER_AVAILABILITY_SATISFIED:active_wait`, caller validation real pasada desde LogonUI, fresh presence marcada, identity resuelta y `ACQUIRE_PENDING_CREDENTIAL` binario completado para `PRIMARY`. Windows recibio un intento de autenticacion real y Winlogon/Operational termino a las 17:00:24 con `Resultado 87` / `ERROR_INVALID_PARAMETER`; visualmente LogonUI mostro `ICH-PRIMARIA-14` y `El parametro no es correcto`. La frontera pendiente se movio de availability/caller-token a `GetSerialization -> blob Kerberos -> Winlogon/LSA`. El fix nativo corrige `KERB_INTERACTIVE_UNLOCK_LOGON` empaquetado para usar offsets relativos dentro de `rgbSerialization` y `UNICODE_STRING.MaximumLength == Length`, sin punteros absolutos de heap ni terminadores NUL prometidos pero no copiados. LOGON/SWITCH siguen pendientes de retest fisico con el nuevo package; no hay bypass de listener, Credential Provider Filter, autologon de registry, `LogonUser`, SendKeys ni password desde Master.
+
+La ampliacion 2026-09-14 agrega un bootstrap administrativo offline por archivos para pairing fisico, sin cambiar el nucleo criptografico existente. El Client exporta un descriptor publico con installation/network identity/fingerprint/SPKI; el Master crea un `PairingChallenge` firmado usando `MasterPairingService`; el Client acepta solo con aprobacion explicita usando `ClientPairingService` y genera `PairingResponse`; el Master completa con `MasterPairingService` y deja `paired-clients.json` en `PAIRED`. Los archivos son solo transporte JSON, no contienen private keys ni secretos reutilizables, y no modifican `MasterConnection`.
+
+La ampliacion 2026-09-14 cierra la primera superficie funcional Master/Agent para validar cuentas administradas `PRIMARY`/`SECONDARY` antes de una prueba real de PC14: el Agent agrega `GET_MANAGED_ACCOUNT_STATUS` read-only y capability `MANAGED_ACCOUNT_STATUS_V1`; el Master expone `GET /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts` y `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential`; y Credential Vault expone solo `status`/`initialize`/`unlock`/`lock`. El flujo de password es HTTP octet-stream UTF-8 sin BOM -> Credential Vault `WINDOWS_ACCOUNT(loginIdentifier = windowsAccountName)` -> bridge interno -> gRPC/mTLS `PROVISION_MANAGED_CREDENTIAL` UTF-16LE -> DPAPI LocalSystem en el Client -> refresh de status. No hay BatchOperation/fanout de provisioning, no hay reveal HTTP, no hay SID/password/credentialId/vault token en respuestas y no se valida PC14 real todavia.
+
 Prompt 19I1 integra el Credential Provider nativo al lifecycle normal del Agent sin ejecutar registro real ni prueba de logon en la maquina de desarrollo. El publish productivo compila `GaltekClassroom.CredentialProvider` en `Release|x64`, valida PE x64 y genera `artifacts/windows/credential-provider/` con solo la DLL productiva y `credential-provider.manifest.json` no secreto (`schemaVersion`, producto/componente, CLSID fijo, arquitectura, filename, SHA-256 y packageId deterministico `sha256-<hash-prefix>`). Release x64 del provider y su self-test quedan con CRT estatico `/MT` para no depender de Visual C++ Redistributable manual en LogonUI.
 
 El install productivo del Credential Provider es machine-wide x64 y elevado: valida OS/proceso x64, manifest, hash, PE x64, firma Authenticode (`SIGNED_INVALID` falla cerrado, `NOT_SIGNED` solo queda permitido para deployment controlado/lab), existencia del Agent Service, ACL sin write para usuarios estandar y ausencia de `Credential Provider Filters` Galtek. Instala side-by-side bajo `%ProgramFiles%\Galtek\Classroom\Agent\CredentialProvider\versions\<packageId>\`, registra solo el CLSID Galtek `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}` en HKLM x64 (`SOFTWARE\Classes\CLSID` e `Authentication\Credential Providers`) con `ThreadingModel=Apartment`, verifica read-back y conserva rollback in-memory de las claves Galtek si falla. Upgrades no sobrescriben una DLL posiblemente cargada por LogonUI; solo cambian `InprocServer32` a la nueva ruta inmutable.
@@ -26,7 +32,7 @@ Prompt 19G3 completa `LOGON_MANAGED_ACCOUNT` remoto end-to-end sin enviar passwo
 
 Antes de activar login, el Agent observa la consola fisica con `GET_WINDOWS_SESSION_STATE`: si el target ya esta activo devuelve `SUCCESS` idempotente sin activation ni DPAPI; si hay otro usuario o managed account devuelve `WINDOWS_SESSION_CHANGED`; si el estado es no confiable devuelve `WINDOWS_SESSION_UNKNOWN`; solo `NO_SESSION` continua. Luego valida binding local `PRIMARY`/`SECONDARY`, SID `SidTypeUser` y credencial DPAPI usable ligada al mismo SID, revalida inmediatamente que la consola siga en `NO_SESSION` y crea una activation remota efimera in-memory con `activationId`, `operationId`, `accountId`, TTL, `autoSubmitRequested=true` y SID esperado cuando ya fue resuelto.
 
-El bridge local dedicado `GaltekClassroom.CredentialProvider.v1` conserva caller validation de LogonUI real y suma `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` y `REPORT_LOGON_RESULT(activationId,outcome)`. El Service mantiene un generation counter in-memory que despierta al Credential Provider sin polling sano. El provider, mientras esta en `CPUS_LOGON` y `Advise` activo, bloquea un worker cancellable, unmarshalea `ICredentialProviderEvents` por COM inter-thread y llama `CredentialsChanged` cuando aparece/cambia una activation.
+El bridge local dedicado `GaltekClassroom.CredentialProvider.v1` conserva caller validation de LogonUI real y suma `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` y `REPORT_LOGON_RESULT(activationId,outcome)`. El Service mantiene un generation counter in-memory que despierta al Credential Provider sin polling sano, listener count para long-polls activos y una observacion fresca corta de caller LogonUI autorizado para tolerar lifecycles transitorios de LogonUI; despues de la segunda validacion fisica fallida en PC14, el lifecycle `count=0` ya no se declara causa raiz suficiente. El provider, mientras esta en `CPUS_LOGON` y `Advise` activo, bloquea un worker cancellable, unmarshalea `ICredentialProviderEvents` por COM inter-thread y llama `CredentialsChanged` cuando aparece/cambia una activation.
 
 Con activation remota auto-submit, `GetCredentialCount` devuelve una credential, default `0` y `pbAutoLogonWithDefault=TRUE`; `SetSelected` solo solicita autologon una vez. `GetSerialization` adquiere la password local una sola vez, usa `CredProtectW`, arma `KERB_INTERACTIVE_UNLOCK_LOGON`, entrega a Winlogon/LSA y no restaura activation ante fallo local. `ReportResult(STATUS_SUCCESS)` reporta `SUCCESS`; rechazo de auth reporta `FAILED`; fallo local despues de acquire reporta `LOCAL_SERIALIZATION_FAILED`. El `OperationResult` remoto es `SUCCESS` solo con `ReportResult SUCCESS`; rechazo/local serialization es `WINDOWS_LOGON_FAILED`, timeout es `WINDOWS_LOGON_NOT_CONFIRMED`.
 
@@ -371,6 +377,7 @@ IMPLEMENTADO:
 - Private key del Master cifrada fuera de SQLite/JSON plano en `master-network-identity.key`, con protector separado en `master-network-identity.protector`.
 - `MasterPairingService` crea challenges con intencion explicita, firma con la private key del Master y persiste challenges pendientes.
 - `MasterPairingService` completa pairing validando la respuesta firmada del Client, expiracion y replay.
+- CLI administrativo offline del Master: `--pairing-create-challenge <descriptor.json> --approve-pairing-intent --pairing-challenge-out <challenge.json>` y `--pairing-complete <response.json>`.
 - `paired-clients.json` persiste trust del lado Master, incluyendo estado `PAIRING_PENDING`, `PAIRED` o `REVOKED`.
 - `MasterClientAuthorization` falla cerrado con `MASTER_NOT_PAIRED` cuando el Client no esta emparejado o fue revocado.
 - Pruebas Java para Master Network Identity, challenge/response, expiracion, replay, persistencia, revocacion y multiples Clients.
@@ -522,6 +529,7 @@ IMPLEMENTADO:
 - Falla de forma controlada ante metadata corrupta, llave faltante, fingerprint incompatible o `installationId` distinto.
 - Expone CLI read-only `--network-identity-status`.
 - `ClientPairingService` acepta challenges de pairing solo con aprobacion explicita.
+- CLI administrativo offline del Client: `--pairing-export-descriptor <descriptor.json>` y `--pairing-accept-challenge <challenge.json> --approve-pairing --pairing-response-out <response.json>`.
 - Valida que el challenge apunte al `installationId`, `networkIdentityId`, public key y fingerprint locales del Client.
 - Verifica la firma del Master sobre el challenge y firma la respuesta con la private key del Client.
 - Rechaza challenges expirados, malformados, con fingerprint inconsistente o ya consumidos.
@@ -915,6 +923,7 @@ NO IMPLEMENTADO:
 IMPLEMENTADO:
 
 - Pairing criptografico Master-Client basado en Network Identity de ambos lados.
+- Bootstrap administrativo offline por archivos para ejecutar el challenge/response existente entre maquinas fisicas sin escribir trust stores a mano.
 - El Master crea un `PairingChallenge` con `challengeId`, nonce, timestamps UTC, fingerprints y public keys de Master y Client.
 - El challenge expira a los 5 minutos.
 - El challenge se firma con la private key del Master.
@@ -935,6 +944,7 @@ IMPLEMENTADO:
 NO IMPLEMENTADO:
 
 - Endpoints HTTP/gRPC reales de pairing.
+- Pairing LAN automatico, discovery productivo o UX final de onboarding.
 - CA global o certificados que otorguen confianza automatica.
 - mDNS/discovery real.
 - Comandos remotos.

@@ -2,12 +2,14 @@
 
 #include "BridgeClient.h"
 #include "Credential.h"
+#include "NativeTrace.h"
 
 #include <windows.h>
 #include <objbase.h>
 #include <cstring>
 #include <new>
 #include <mutex>
+#include <string>
 
 extern long g_objectCount;
 
@@ -60,6 +62,14 @@ GaltekCredentialProvider::GaltekCredentialProvider()
     InterlockedIncrement(&g_objectCount);
 }
 
+#ifdef GALTEK_CREDENTIAL_PROVIDER_TESTS
+GaltekCredentialProvider::GaltekCredentialProvider(const std::wstring& bridgePipeName)
+    : GaltekCredentialProvider()
+{
+    _bridgePipeName = bridgePipeName;
+}
+#endif
+
 HRESULT GaltekCredentialProvider::QueryInterface(REFIID riid, void** object)
 {
     if (object == nullptr)
@@ -97,7 +107,7 @@ ULONG GaltekCredentialProvider::Release()
 
 GaltekCredentialProvider::~GaltekCredentialProvider()
 {
-    StopNotificationWorker();
+    StopNotificationWorker(L"destructor");
 }
 
 HRESULT GaltekCredentialProvider::SetUsageScenario(
@@ -132,7 +142,7 @@ HRESULT GaltekCredentialProvider::SetSerialization(
 
 HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT_PTR adviseContext)
 {
-    StopNotificationWorker();
+    StopNotificationWorker(L"readvise");
 
     _adviseContext = adviseContext;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO usageScenario = CPUS_INVALID;
@@ -166,10 +176,10 @@ HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT
         {
             _notificationThread = std::thread(
                 &GaltekCredentialProvider::NotificationWorker,
-                this,
                 eventsStream,
                 adviseContext,
-                stopEvent);
+                stopEvent,
+                _bridgePipeName);
         }
         catch (const std::bad_alloc&)
         {
@@ -194,7 +204,8 @@ HRESULT GaltekCredentialProvider::Advise(ICredentialProviderEvents* events, UINT
 
 HRESULT GaltekCredentialProvider::UnAdvise()
 {
-    StopNotificationWorker();
+    GaltekTraceEvent(L"CP_UNADVISE");
+    StopNotificationWorker(L"unadvise");
     _adviseContext = 0;
     return S_OK;
 }
@@ -261,6 +272,7 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
     *count = 0;
     *defaultCredential = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *autoLogonWithDefault = FALSE;
+    GaltekTraceEvent(L"CP_GET_CREDENTIAL_COUNT_ENTERED");
 
     CREDENTIAL_PROVIDER_USAGE_SCENARIO usageScenario = CPUS_INVALID;
     {
@@ -273,21 +285,28 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
         std::lock_guard<std::mutex> lock(_stateMutex);
         _hasCredential = false;
         _identity = BridgeActivationIdentity{};
+        GaltekTraceEvent(L"CP_GET_CREDENTIAL_COUNT_NO_IDENTITY");
+        GaltekTraceLine(L"CP_GET_CREDENTIAL_COUNT_RETURN count=0 autoLogon=0");
         return S_OK;
     }
 
-    BridgeClient bridge;
+    BridgeClient bridge(_bridgePipeName);
     BridgeActivationIdentity identity;
     bool hasCredential = false;
     if (bridge.GetPendingActivationIdentity(250, &identity))
     {
         hasCredential = true;
         *count = 1;
+        GaltekTraceEvent(L"CP_GET_CREDENTIAL_COUNT_IDENTITY_READY");
         if (identity.autoSubmitRequested)
         {
             *defaultCredential = 0;
             *autoLogonWithDefault = TRUE;
         }
+    }
+    else
+    {
+        GaltekTraceEvent(L"CP_GET_CREDENTIAL_COUNT_NO_IDENTITY");
     }
 
     {
@@ -296,6 +315,18 @@ HRESULT GaltekCredentialProvider::GetCredentialCount(
         _hasCredential = hasCredential;
     }
 
+    if (hasCredential)
+    {
+        GaltekTraceEventWithAccount(L"CP_IDENTITY_SNAPSHOT_COMMITTED", identity.accountId);
+    }
+
+    wchar_t buffer[96]{};
+    swprintf_s(
+        buffer,
+        L"CP_GET_CREDENTIAL_COUNT_RETURN count=%lu autoLogon=%lu",
+        *count,
+        *autoLogonWithDefault ? 1u : 0u);
+    GaltekTraceLine(buffer);
     return S_OK;
 }
 
@@ -338,7 +369,7 @@ HRESULT GaltekCredentialProvider::GetCredentialAt(
     return S_OK;
 }
 
-void GaltekCredentialProvider::StopNotificationWorker()
+void GaltekCredentialProvider::StopNotificationWorker(const wchar_t* reason)
 {
     HANDLE stopEvent = _notificationStopEvent;
     if (stopEvent != nullptr)
@@ -349,6 +380,9 @@ void GaltekCredentialProvider::StopNotificationWorker()
     if (_notificationThread.joinable())
     {
         _notificationThread.join();
+        std::wstring line = L"CP_WORKER_CANCEL reason=";
+        line.append(reason == nullptr ? L"unknown" : reason);
+        GaltekTraceLine(line);
     }
 
     if (stopEvent != nullptr)
@@ -363,7 +397,8 @@ void GaltekCredentialProvider::StopNotificationWorker()
 void GaltekCredentialProvider::NotificationWorker(
     IStream* eventsStream,
     UINT_PTR adviseContext,
-    HANDLE stopEvent)
+    HANDLE stopEvent,
+    std::wstring bridgePipeName)
 {
     HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     ICredentialProviderEvents* events = nullptr;
@@ -383,6 +418,7 @@ void GaltekCredentialProvider::NotificationWorker(
 
     if (events == nullptr)
     {
+        GaltekTraceLine(L"CP_WORKER_CANCEL reason=events_unavailable");
         if (SUCCEEDED(init))
         {
             CoUninitialize();
@@ -391,7 +427,7 @@ void GaltekCredentialProvider::NotificationWorker(
         return;
     }
 
-    BridgeClient bridge;
+    BridgeClient bridge(bridgePipeName);
     long long observedGeneration = 0;
     DWORD reconnectDelay = 250;
     while (WaitForSingleObject(stopEvent, 0) == WAIT_TIMEOUT)
@@ -399,10 +435,48 @@ void GaltekCredentialProvider::NotificationWorker(
         long long generation = observedGeneration;
         if (bridge.WaitForActivationChange(observedGeneration, stopEvent, &generation))
         {
-            observedGeneration = generation;
-            reconnectDelay = 250;
-            events->CredentialsChanged(adviseContext);
+            wchar_t waitBuffer[96]{};
+            swprintf_s(waitBuffer, L"CP_WORKER_WAIT_SUCCESS generation=%lld", generation);
+            GaltekTraceLine(waitBuffer);
+
+            wchar_t callBuffer[96]{};
+            swprintf_s(callBuffer, L"CP_CREDENTIALS_CHANGED_CALL generation=%lld", generation);
+            GaltekTraceLine(callBuffer);
+            const HRESULT changedHr = events->CredentialsChanged(adviseContext);
+            wchar_t resultBuffer[128]{};
+            swprintf_s(
+                resultBuffer,
+                L"CP_CREDENTIALS_CHANGED_RESULT hr=%ld",
+                static_cast<long>(changedHr));
+            GaltekTraceLine(resultBuffer);
+
+            if (SUCCEEDED(changedHr))
+            {
+                observedGeneration = generation;
+                reconnectDelay = 250;
+                wchar_t rearmBuffer[96]{};
+                swprintf_s(rearmBuffer, L"CP_WORKER_REARM generation=%lld", observedGeneration);
+                GaltekTraceLine(rearmBuffer);
+            }
+            else
+            {
+                if (WaitForSingleObject(stopEvent, reconnectDelay) != WAIT_TIMEOUT)
+                {
+                    break;
+                }
+
+                if (reconnectDelay < 1000)
+                {
+                    reconnectDelay *= 2;
+                }
+            }
+
             continue;
+        }
+
+        if (WaitForSingleObject(stopEvent, 0) != WAIT_TIMEOUT)
+        {
+            break;
         }
 
         if (WaitForSingleObject(stopEvent, reconnectDelay) != WAIT_TIMEOUT)

@@ -11,6 +11,8 @@ public enum AgentCommandMode
     BindMasterAccount,
     NetworkIdentityStatus,
     RuntimeDiagnostics,
+    PairingExportDescriptor,
+    PairingAcceptChallenge,
     ApplicationBindList,
     ApplicationBindExe,
     ApplicationBindAppPath,
@@ -27,11 +29,15 @@ public sealed record AgentCommandLine(
     string[] HostArgs,
     string? LicenseFilePath,
     string? MasterAccountName,
+    string? PairingDescriptorOutputPath,
+    string? PairingChallengeInputPath,
+    string? PairingResponseOutputPath,
     string? ApplicationId,
     string? ApplicationTarget,
     string? ManagedAccountId,
     string? ManagedWindowsAccountReference,
     bool ReplaceMasterBinding,
+    bool ApprovePairing,
     bool ReplaceApplicationBinding,
     bool ReplaceManagedAccountBinding,
     string? ErrorMessage)
@@ -49,6 +55,10 @@ public sealed record AgentCommandLine(
         const string replaceMasterBindingArgument = "--replace-master-binding";
         const string networkIdentityStatusArgument = "--network-identity-status";
         const string runtimeDiagnosticsArgument = "--runtime-diagnostics";
+        const string pairingExportDescriptorArgument = "--pairing-export-descriptor";
+        const string pairingAcceptChallengeArgument = "--pairing-accept-challenge";
+        const string pairingResponseOutArgument = "--pairing-response-out";
+        const string approvePairingArgument = "--approve-pairing";
         const string applicationBindListArgument = "--application-bind-list";
         const string applicationBindExeArgument = "--application-bind-exe";
         const string applicationBindAppPathArgument = "--application-bind-app-path";
@@ -65,11 +75,15 @@ public sealed record AgentCommandLine(
         var hostArgs = new List<string>();
         string? licenseFilePath = null;
         string? masterAccountName = null;
+        string? pairingDescriptorOutputPath = null;
+        string? pairingChallengeInputPath = null;
+        string? pairingResponseOutputPath = null;
         string? applicationId = null;
         string? applicationTarget = null;
         string? managedAccountId = null;
         string? managedWindowsAccountReference = null;
         var replaceMasterBinding = false;
+        var approvePairing = false;
         var replaceApplicationBinding = false;
         var replaceManagedAccountBinding = false;
         string? error = null;
@@ -145,6 +159,52 @@ public sealed record AgentCommandLine(
             if (string.Equals(argument, runtimeDiagnosticsArgument, StringComparison.OrdinalIgnoreCase))
             {
                 SetMode(AgentCommandMode.RuntimeDiagnostics, argument, ref mode, ref error);
+                continue;
+            }
+
+            if (string.Equals(argument, pairingExportDescriptorArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.PairingExportDescriptor, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--pairing-export-descriptor requires an output file path.";
+                    continue;
+                }
+
+                pairingDescriptorOutputPath = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, pairingAcceptChallengeArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                SetMode(AgentCommandMode.PairingAcceptChallenge, argument, ref mode, ref error);
+
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--pairing-accept-challenge requires a challenge file path.";
+                    continue;
+                }
+
+                pairingChallengeInputPath = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, pairingResponseOutArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length)
+                {
+                    error ??= "--pairing-response-out requires an output file path.";
+                    continue;
+                }
+
+                pairingResponseOutputPath = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, approvePairingArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                approvePairing = true;
                 continue;
             }
 
@@ -282,6 +342,24 @@ public sealed record AgentCommandLine(
             error ??= "--replace-master-binding can only be used with a Master binding command.";
         }
 
+        if (!string.IsNullOrWhiteSpace(pairingResponseOutputPath)
+            && mode != AgentCommandMode.PairingAcceptChallenge)
+        {
+            error ??= "--pairing-response-out can only be used with --pairing-accept-challenge.";
+        }
+
+        if (approvePairing
+            && mode != AgentCommandMode.PairingAcceptChallenge)
+        {
+            error ??= "--approve-pairing can only be used with --pairing-accept-challenge.";
+        }
+
+        if (mode == AgentCommandMode.PairingAcceptChallenge
+            && string.IsNullOrWhiteSpace(pairingResponseOutputPath))
+        {
+            error ??= "--pairing-accept-challenge requires --pairing-response-out.";
+        }
+
         if (replaceApplicationBinding
             && mode is not AgentCommandMode.ApplicationBindExe and not AgentCommandMode.ApplicationBindAppPath)
         {
@@ -307,11 +385,15 @@ public sealed record AgentCommandLine(
             hostArgs.ToArray(),
             licenseFilePath,
             masterAccountName,
+            pairingDescriptorOutputPath,
+            pairingChallengeInputPath,
+            pairingResponseOutputPath,
             applicationId,
             applicationTarget,
             managedAccountId,
             managedWindowsAccountReference,
             replaceMasterBinding,
+            approvePairing,
             replaceApplicationBinding,
             replaceManagedAccountBinding,
             error);

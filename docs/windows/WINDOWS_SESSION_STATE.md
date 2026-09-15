@@ -78,7 +78,11 @@ Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` usa este estado para decidir
 
 Target ya activo devuelve `SUCCESS` idempotente. `NO_SESSION` reutiliza logon. Opposite managed activo permite el tramo compuesto despues de preflight target y revalidacion source. `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente y devuelve `WINDOWS_SESSION_CHANGED`; `UNKNOWN` devuelve `WINDOWS_SESSION_UNKNOWN`.
 
-Despues de que `WTSLogoffSession` acepta cerrar la source, SWITCH sigue consultando este estado durante una espera local acotada. Solo `NO_SESSION` permite iniciar target logon; si target aparece activo se considera success idempotente; si aparece otra sesion se aborta sin tocarla; si no se confirma `NO_SESSION` a tiempo devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`.
+Despues de que `WTSLogoffSession` acepta cerrar la source, SWITCH sigue consultando este estado durante una espera local acotada. Solo `NO_SESSION` permite iniciar target logon; si target aparece activo se considera success idempotente; si aparece otra sesion real se aborta sin tocarla; `UNKNOWN` durante esta ventana se trata como transitorio de attach/detach y se espera hasta el deadline; si no se confirma `NO_SESSION` a tiempo devuelve `WINDOWS_SWITCH_NOT_CONFIRMED`.
+
+En el retest fisico final de PC14 para `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)`, la secuencia observada durante esa ventana fue `PrimaryActive -> Unknown -> NoSession`: `WINDOWS_SWITCH_WAIT_STATE state=PrimaryActive elapsedMs=0`, `WINDOWS_SWITCH_WAIT_STATE state=Unknown elapsedMs=6505`, `WINDOWS_SWITCH_WAIT_STATE state=NoSession elapsedMs=6886` y `WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs=6886`. Esa evidencia valida que `UNKNOWN` post-logoff se comporte como transitorio durante la espera acotada, no como `NO_SESSION` ni como fallo inmediato.
+
+Despues del logon target, Windows dejo activa la consola como `IHTEC-SECUNDARIA-14` y `query user` confirmo `ihtec-secundaria-14`, `console`, `Activo`. Una PowerShell administrativa elevada bajo `ADMIN-14` mostro `whoami=ich11\admin-14`, pero eso corresponde al proceso elevado y no altera la autoridad WTS/session state de la consola fisica.
 
 ## Relacion Con Credential Provider
 
@@ -100,9 +104,11 @@ Fast User Switching puede dejar sesiones historicas o disconnected. Galtek no en
 
 `LOGON_MANAGED_ACCOUNT` no implementa switch, logoff implicito, unlock de sesion existente, endpoint/batch Master, fanout, planner, UI, configurable timeout desde request, retry automatico, status heartbeat ni reconciliation.
 
-## Validacion Manual Pendiente
+## Validacion Manual
 
-En una PC descartable:
+Validado fisicamente en PC14, Windows 11 Education x64 build 22621: `PRIMARY_ACTIVE`, transicion post-logoff `UNKNOWN`, confirmacion `NO_SESSION`, logon target y `SECONDARY_ACTIVE` de consola fisica despues de `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)`.
+
+Pendiente para futuras rondas en PCs descartables:
 
 1. Sin usuario logueado: `NO_SESSION`.
 2. `PRIMARY` logueado: `PRIMARY_ACTIVE`.

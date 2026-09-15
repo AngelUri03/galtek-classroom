@@ -1,10 +1,12 @@
 #include "Credential.h"
 
 #include "Guid.h"
+#include "NativeTrace.h"
 
 #include <windows.h>
 #include <ntsecapi.h>
 #include <wincred.h>
+#include <cstdio>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -14,6 +16,7 @@ extern long g_objectCount;
 namespace
 {
     constexpr DWORD kAcquireTimeoutMilliseconds = 750;
+    LONG g_nextCredentialInstanceId = 0;
 
     class ScopedSecureWideBuffer
     {
@@ -94,12 +97,80 @@ namespace
         return S_OK;
     }
 
-    void InitUnicodeString(PCWSTR value, UNICODE_STRING* target)
+    void TraceNativeReportResult(const std::string& accountId, NTSTATUS status, NTSTATUS substatus)
     {
-        const size_t byteLength = wcslen(value) * sizeof(wchar_t);
+        wchar_t buffer[160]{};
+        swprintf_s(
+            buffer,
+            L"CP_REPORT_RESULT accountId=%S status=%ld substatus=%ld",
+            accountId.c_str(),
+            static_cast<long>(status),
+            static_cast<long>(substatus));
+        GaltekTraceLine(buffer);
+    }
+
+    void TraceCredentialInstance(const wchar_t* eventName, DWORD instanceId)
+    {
+        if (eventName == nullptr)
+        {
+            return;
+        }
+
+        wchar_t buffer[128]{};
+        swprintf_s(
+            buffer,
+            L"%ls instance=%lu",
+            eventName,
+            instanceId);
+        GaltekTraceLine(buffer);
+    }
+
+    void TraceReportResultEntered(DWORD instanceId, NTSTATUS status, NTSTATUS substatus)
+    {
+        wchar_t buffer[160]{};
+        swprintf_s(
+            buffer,
+            L"CP_REPORT_RESULT_ENTERED instance=%lu status=%ld substatus=%ld",
+            instanceId,
+            static_cast<long>(status),
+            static_cast<long>(substatus));
+        GaltekTraceLine(buffer);
+    }
+
+    void TraceReportResultBridgeSent(DWORD instanceId, const char* outcome)
+    {
+        if (outcome == nullptr)
+        {
+            return;
+        }
+
+        wchar_t buffer[160]{};
+        swprintf_s(
+            buffer,
+            L"CP_REPORT_RESULT_BRIDGE_SENT instance=%lu outcome=%S",
+            instanceId,
+            outcome);
+        GaltekTraceLine(buffer);
+    }
+
+    HRESULT InitUnicodeString(PCWSTR value, UNICODE_STRING* target)
+    {
+        if (value == nullptr || target == nullptr)
+        {
+            return E_INVALIDARG;
+        }
+
+        const size_t charLength = wcslen(value);
+        if (charLength > (USHRT_MAX / sizeof(wchar_t)))
+        {
+            return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+        }
+
+        const size_t byteLength = charLength * sizeof(wchar_t);
         target->Length = static_cast<USHORT>(byteLength);
-        target->MaximumLength = static_cast<USHORT>(byteLength + sizeof(wchar_t));
+        target->MaximumLength = target->Length;
         target->Buffer = const_cast<PWSTR>(value);
+        return S_OK;
     }
 
     HRESULT ProtectPasswordForLogon(SecureWideBuffer& password, ScopedSecureWideBuffer* protectedPassword)
@@ -148,17 +219,85 @@ namespace
         return S_OK;
     }
 
-    void KerbInteractiveUnlockLogonInit(
+    HRESULT KerbInteractiveUnlockLogonInit(
         PCWSTR domain,
         PCWSTR username,
         PCWSTR password,
         KERB_INTERACTIVE_UNLOCK_LOGON* unlockLogon)
     {
+        if (unlockLogon == nullptr)
+        {
+            return E_POINTER;
+        }
+
         ZeroMemory(unlockLogon, sizeof(*unlockLogon));
         unlockLogon->Logon.MessageType = KerbInteractiveLogon;
-        InitUnicodeString(domain, &unlockLogon->Logon.LogonDomainName);
-        InitUnicodeString(username, &unlockLogon->Logon.UserName);
-        InitUnicodeString(password, &unlockLogon->Logon.Password);
+        HRESULT hr = InitUnicodeString(domain, &unlockLogon->Logon.LogonDomainName);
+        if (SUCCEEDED(hr))
+        {
+            hr = InitUnicodeString(username, &unlockLogon->Logon.UserName);
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            hr = InitUnicodeString(password, &unlockLogon->Logon.Password);
+        }
+
+        return hr;
+    }
+
+    HRESULT AddDwordChecked(DWORD left, DWORD right, DWORD* result)
+    {
+        if (result == nullptr)
+        {
+            return E_POINTER;
+        }
+
+        if (MAXDWORD - left < right)
+        {
+            return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+        }
+
+        *result = left + right;
+        return S_OK;
+    }
+
+    HRESULT CopyPackedUnicodeString(
+        const UNICODE_STRING& source,
+        BYTE* base,
+        DWORD total,
+        DWORD* offset,
+        UNICODE_STRING* target)
+    {
+        if (base == nullptr || offset == nullptr || target == nullptr)
+        {
+            return E_POINTER;
+        }
+
+        target->Length = source.Length;
+        target->MaximumLength = source.Length;
+        target->Buffer = nullptr;
+
+        if (source.Length == 0)
+        {
+            return S_OK;
+        }
+
+        if (source.Buffer == nullptr || source.MaximumLength < source.Length)
+        {
+            return E_INVALIDARG;
+        }
+
+        if ((*offset % sizeof(wchar_t)) != 0
+            || total - *offset < source.Length)
+        {
+            return E_INVALIDARG;
+        }
+
+        memcpy(base + *offset, source.Buffer, source.Length);
+        target->Buffer = reinterpret_cast<PWSTR>(static_cast<ULONG_PTR>(*offset));
+        *offset += source.Length;
+        return S_OK;
     }
 
     HRESULT KerbInteractiveUnlockLogonPack(
@@ -177,10 +316,22 @@ namespace
         const DWORD domainBytes = unlockLogon.Logon.LogonDomainName.Length;
         const DWORD usernameBytes = unlockLogon.Logon.UserName.Length;
         const DWORD passwordBytes = unlockLogon.Logon.Password.Length;
-        const DWORD total = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON)
-            + domainBytes
-            + usernameBytes
-            + passwordBytes;
+        DWORD total = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
+        HRESULT hr = AddDwordChecked(total, domainBytes, &total);
+        if (SUCCEEDED(hr))
+        {
+            hr = AddDwordChecked(total, usernameBytes, &total);
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            hr = AddDwordChecked(total, passwordBytes, &total);
+        }
+
+        if (FAILED(hr))
+        {
+            return hr;
+        }
 
         BYTE* packed = static_cast<BYTE*>(CoTaskMemAlloc(total));
         if (packed == nullptr)
@@ -190,27 +341,40 @@ namespace
 
         ZeroMemory(packed, total);
         auto* packedLogon = reinterpret_cast<KERB_INTERACTIVE_UNLOCK_LOGON*>(packed);
-        *packedLogon = unlockLogon;
+        packedLogon->Logon.MessageType = unlockLogon.Logon.MessageType;
 
-        BYTE* cursor = packed + sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
-        if (domainBytes > 0)
+        DWORD offset = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
+        hr = CopyPackedUnicodeString(
+            unlockLogon.Logon.LogonDomainName,
+            packed,
+            total,
+            &offset,
+            &packedLogon->Logon.LogonDomainName);
+        if (SUCCEEDED(hr))
         {
-            memcpy(cursor, unlockLogon.Logon.LogonDomainName.Buffer, domainBytes);
-            packedLogon->Logon.LogonDomainName.Buffer = reinterpret_cast<PWSTR>(cursor);
-            cursor += domainBytes;
+            hr = CopyPackedUnicodeString(
+                unlockLogon.Logon.UserName,
+                packed,
+                total,
+                &offset,
+                &packedLogon->Logon.UserName);
         }
 
-        if (usernameBytes > 0)
+        if (SUCCEEDED(hr))
         {
-            memcpy(cursor, unlockLogon.Logon.UserName.Buffer, usernameBytes);
-            packedLogon->Logon.UserName.Buffer = reinterpret_cast<PWSTR>(cursor);
-            cursor += usernameBytes;
+            hr = CopyPackedUnicodeString(
+                unlockLogon.Logon.Password,
+                packed,
+                total,
+                &offset,
+                &packedLogon->Logon.Password);
         }
 
-        if (passwordBytes > 0)
+        if (FAILED(hr) || offset != total)
         {
-            memcpy(cursor, unlockLogon.Logon.Password.Buffer, passwordBytes);
-            packedLogon->Logon.Password.Buffer = reinterpret_cast<PWSTR>(cursor);
+            SecureZeroMemory(packed, total);
+            CoTaskMemFree(packed);
+            return FAILED(hr) ? hr : E_FAIL;
         }
 
         *buffer = packed;
@@ -246,8 +410,10 @@ namespace
 
 GaltekCredential::GaltekCredential(const BridgeActivationIdentity& identity)
     : _referenceCount(1),
+      _instanceId(static_cast<DWORD>(InterlockedIncrement(&g_nextCredentialInstanceId))),
       _events(nullptr),
       _activationId(identity.activationId),
+      _accountId(identity.accountId),
       _userSid(identity.userSid),
       _domain(identity.domain),
       _username(identity.username),
@@ -257,6 +423,7 @@ GaltekCredential::GaltekCredential(const BridgeActivationIdentity& identity)
       _logonResultReported(false)
 {
     InterlockedIncrement(&g_objectCount);
+    TraceCredentialInstance(L"CP_CREDENTIAL_CREATED", _instanceId);
 }
 
 HRESULT GaltekCredential::QueryInterface(REFIID riid, void** object)
@@ -298,6 +465,7 @@ ULONG GaltekCredential::Release()
 
 GaltekCredential::~GaltekCredential()
 {
+    TraceCredentialInstance(L"CP_CREDENTIAL_DESTROYED", _instanceId);
     if (_events != nullptr)
     {
         _events->Release();
@@ -509,6 +677,7 @@ HRESULT GaltekCredential::GetSerialization(
     ZeroMemory(serialization, sizeof(*serialization));
     *statusText = nullptr;
     *statusIcon = CPSI_NONE;
+    GaltekTraceEventWithAccount(L"CP_GET_SERIALIZATION_ENTERED", _accountId);
 
     if (_acquireAttempted
         || _activationId.empty()
@@ -520,6 +689,7 @@ HRESULT GaltekCredential::GetSerialization(
     }
 
     _acquireAttempted = true;
+    GaltekTraceEventWithAccount(L"CP_IDENTITY_READY", _accountId);
 
     BridgeClient bridge;
     SecureWideBuffer password;
@@ -530,6 +700,7 @@ HRESULT GaltekCredential::GetSerialization(
     {
         return S_OK;
     }
+    GaltekTraceEventWithAccount(L"CP_CREDENTIAL_ACQUIRED", _accountId);
 
     ULONG authPackage = 0;
     HRESULT hr = RetrieveNegotiateAuthPackage(&authPackage);
@@ -538,6 +709,7 @@ HRESULT GaltekCredential::GetSerialization(
         ReportLocalSerializationFailed();
         return S_OK;
     }
+    GaltekTraceEventWithAccount(L"CP_AUTH_PACKAGE_SUCCESS", _accountId);
 
     ScopedSecureWideBuffer protectedPassword;
     hr = ProtectPasswordForLogon(password, &protectedPassword);
@@ -546,13 +718,19 @@ HRESULT GaltekCredential::GetSerialization(
         ReportLocalSerializationFailed();
         return S_OK;
     }
+    GaltekTraceEventWithAccount(L"CP_CREDPROTECT_SUCCESS", _accountId);
 
     KERB_INTERACTIVE_UNLOCK_LOGON unlockLogon{};
-    KerbInteractiveUnlockLogonInit(
+    hr = KerbInteractiveUnlockLogonInit(
         _domain.c_str(),
         _username.c_str(),
         protectedPassword.data(),
         &unlockLogon);
+    if (FAILED(hr))
+    {
+        ReportLocalSerializationFailed();
+        return S_OK;
+    }
 
     BYTE* packed = nullptr;
     DWORD packedSize = 0;
@@ -568,12 +746,15 @@ HRESULT GaltekCredential::GetSerialization(
         ReportLocalSerializationFailed();
         return S_OK;
     }
+    GaltekTraceEventWithAccount(L"CP_PACK_SUCCESS", _accountId);
 
     serialization->ulAuthenticationPackage = authPackage;
     serialization->clsidCredentialProvider = CLSID_GaltekClassroomCredentialProvider;
     serialization->cbSerialization = packedSize;
     serialization->rgbSerialization = packed;
     *response = CPGSR_RETURN_CREDENTIAL_FINISHED;
+    TraceCredentialInstance(L"CP_SERIALIZATION_RETURNED", _instanceId);
+    GaltekTraceEventWithAccount(L"CP_SERIALIZATION_RETURNED", _accountId);
     return S_OK;
 }
 
@@ -583,9 +764,6 @@ HRESULT GaltekCredential::ReportResult(
     PWSTR* statusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* statusIcon)
 {
-    UNREFERENCED_PARAMETER(status);
-    UNREFERENCED_PARAMETER(substatus);
-
     if (statusText == nullptr || statusIcon == nullptr)
     {
         return E_POINTER;
@@ -593,13 +771,17 @@ HRESULT GaltekCredential::ReportResult(
 
     *statusText = nullptr;
     *statusIcon = CPSI_NONE;
+    TraceReportResultEntered(_instanceId, status, substatus);
+    TraceNativeReportResult(_accountId, status, substatus);
     if (!_activationId.empty() && !_logonResultReported)
     {
+        const char* outcome = status == 0 ? "SUCCESS" : "FAILED";
         BridgeClient bridge;
-        bridge.ReportLogonResult(
-            _activationId,
-            status == 0 ? "SUCCESS" : "FAILED",
-            750);
+        if (bridge.ReportLogonResult(_activationId, outcome, 750))
+        {
+            TraceReportResultBridgeSent(_instanceId, outcome);
+        }
+
         _logonResultReported = true;
     }
 
@@ -630,6 +812,44 @@ void GaltekCredential::ReportLocalSerializationFailed()
     }
 
     BridgeClient bridge;
-    bridge.ReportLogonResult(_activationId, "LOCAL_SERIALIZATION_FAILED", 750);
+    if (bridge.ReportLogonResult(_activationId, "LOCAL_SERIALIZATION_FAILED", 750))
+    {
+        TraceReportResultBridgeSent(_instanceId, "LOCAL_SERIALIZATION_FAILED");
+    }
+
     _logonResultReported = true;
 }
+
+#ifdef GALTEK_CREDENTIAL_PROVIDER_TESTS
+HRESULT GaltekTestPackKerbInteractiveUnlockLogon(
+    PCWSTR domain,
+    PCWSTR username,
+    PCWSTR password,
+    BYTE** buffer,
+    DWORD* bufferSize)
+{
+    KERB_INTERACTIVE_UNLOCK_LOGON unlockLogon{};
+    HRESULT hr = KerbInteractiveUnlockLogonInit(domain, username, password, &unlockLogon);
+    if (FAILED(hr))
+    {
+        if (buffer != nullptr)
+        {
+            *buffer = nullptr;
+        }
+
+        if (bufferSize != nullptr)
+        {
+            *bufferSize = 0;
+        }
+
+        return hr;
+    }
+
+    return KerbInteractiveUnlockLogonPack(unlockLogon, buffer, bufferSize);
+}
+
+HRESULT GaltekTestRetrieveNegotiateAuthPackage(ULONG* authPackage)
+{
+    return RetrieveNegotiateAuthPackage(authPackage);
+}
+#endif

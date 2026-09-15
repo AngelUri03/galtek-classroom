@@ -5,6 +5,7 @@ import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.ApplyBrowserDownloadPolicyOperationParameters;
 import com.galtek.classroom.network.v1.ApplyBrowserPolicyOperationParameters;
 import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
+import com.galtek.classroom.network.v1.ManagedAccountStatusResult;
 import com.galtek.classroom.network.v1.LogonManagedAccountOperationParameters;
 import com.galtek.classroom.network.v1.LogoffWindowsSessionOperationParameters;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
@@ -231,6 +232,17 @@ public class MasterRemoteOperationGateway {
         return dispatch(
                 snapshot,
                 OperationType.GET_WINDOWS_SESSION_STATE,
+                operationId,
+                targetDeviceId);
+    }
+
+    public Optional<DispatchHandle> getManagedAccountStatus(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId) {
+        return dispatch(
+                snapshot,
+                OperationType.GET_MANAGED_ACCOUNT_STATUS,
                 operationId,
                 targetDeviceId);
     }
@@ -519,6 +531,19 @@ public class MasterRemoteOperationGateway {
                         result.getWindowsSessionState().getState());
             }
 
+            if (result.getOperationType() == NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS) {
+                if (!result.hasManagedAccountStatus()
+                        || result.getManagedAccountStatus().getAccountsCount() != 2) {
+                    return RemoteOperationOutcome.failed(
+                            ErrorCode.OPERATION_RESULT_UNKNOWN,
+                            "Agent reported invalid managed account status.");
+                }
+
+                return RemoteOperationOutcome.success(
+                        "Agent reported managed account status.",
+                        result.getManagedAccountStatus());
+            }
+
             return RemoteOperationOutcome.success("Agent reported operation success.");
         }
 
@@ -735,6 +760,8 @@ public class MasterRemoteOperationGateway {
             case SWITCH_MANAGED_ACCOUNT -> NetworkOperationType.NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT;
             case PROVISION_MANAGED_CREDENTIAL ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL;
+            case GET_MANAGED_ACCOUNT_STATUS ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->
@@ -773,13 +800,14 @@ public class MasterRemoteOperationGateway {
             TargetExecutionStatus status,
             ErrorCode errorCode,
             String message,
-            WindowsSessionState windowsSessionState) {
+            WindowsSessionState windowsSessionState,
+            ManagedAccountStatusResult managedAccountStatus) {
 
         public RemoteOperationOutcome(
                 TargetExecutionStatus status,
                 ErrorCode errorCode,
                 String message) {
-            this(status, errorCode, message, null);
+            this(status, errorCode, message, null, null);
         }
 
         public static RemoteOperationOutcome success(String message) {
@@ -787,7 +815,18 @@ public class MasterRemoteOperationGateway {
         }
 
         public static RemoteOperationOutcome success(String message, WindowsSessionState windowsSessionState) {
-            return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message, windowsSessionState);
+            return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message, windowsSessionState, null);
+        }
+
+        public static RemoteOperationOutcome success(
+                String message,
+                ManagedAccountStatusResult managedAccountStatus) {
+            return new RemoteOperationOutcome(
+                    TargetExecutionStatus.SUCCESS,
+                    null,
+                    message,
+                    null,
+                    managedAccountStatus);
         }
 
         public static RemoteOperationOutcome failed(ErrorCode errorCode, String message) {

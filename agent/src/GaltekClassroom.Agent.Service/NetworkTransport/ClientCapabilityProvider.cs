@@ -19,7 +19,8 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.WindowsSessionLogonV1,
         NetworkCapability.WindowsSessionLogoffV1,
         NetworkCapability.WindowsSessionSwitchV1,
-        NetworkCapability.ManagedCredentialProvisioningV1
+        NetworkCapability.ManagedCredentialProvisioningV1,
+        NetworkCapability.ManagedAccountStatusV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

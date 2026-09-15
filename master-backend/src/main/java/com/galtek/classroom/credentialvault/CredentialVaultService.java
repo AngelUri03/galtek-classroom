@@ -56,6 +56,10 @@ public class CredentialVaultService {
         }
     }
 
+    public synchronized CredentialVaultStatus status() {
+        return new CredentialVaultStatus(store.exists(), !sessionManager.hasActiveSession());
+    }
+
     public synchronized CredentialVaultSession unlock(String masterPassword) {
         CredentialVaultValidator.validateMasterPassword(masterPassword);
         char[] passwordChars = masterPassword.toCharArray();
@@ -228,5 +232,8 @@ public class CredentialVaultService {
 
     private static CredentialVaultException notFound() {
         return new CredentialVaultException(ErrorCode.CREDENTIAL_NOT_FOUND, "Credential was not found.");
+    }
+
+    public record CredentialVaultStatus(boolean initialized, boolean locked) {
     }
 }

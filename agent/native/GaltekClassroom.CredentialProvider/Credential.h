@@ -56,8 +56,10 @@ private:
     void ReportLocalSerializationFailed();
 
     LONG _referenceCount;
+    DWORD _instanceId;
     ICredentialProviderCredentialEvents* _events;
     std::string _activationId;
+    std::string _accountId;
     std::wstring _userSid;
     std::wstring _domain;
     std::wstring _username;
@@ -66,3 +68,13 @@ private:
     bool _acquireAttempted;
     bool _logonResultReported;
 };
+
+#ifdef GALTEK_CREDENTIAL_PROVIDER_TESTS
+HRESULT GaltekTestPackKerbInteractiveUnlockLogon(
+    PCWSTR domain,
+    PCWSTR username,
+    PCWSTR password,
+    BYTE** buffer,
+    DWORD* bufferSize);
+HRESULT GaltekTestRetrieveNegotiateAuthPackage(ULONG* authPackage);
+#endif

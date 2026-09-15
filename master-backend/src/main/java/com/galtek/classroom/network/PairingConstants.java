@@ -6,6 +6,7 @@ public final class PairingConstants {
 
     public static final int SCHEMA_VERSION = 1;
     public static final String PURPOSE = "GALTEK_CLASSROOM_MASTER_CLIENT_PAIRING_V1";
+    public static final String CLIENT_DESCRIPTOR_PURPOSE = "GALTEK_CLASSROOM_CLIENT_PAIRING_DESCRIPTOR_V1";
     public static final String MASTER_NETWORK_IDENTITY_FILE_NAME = "master-network-identity.json";
     public static final String MASTER_NETWORK_PRIVATE_KEY_FILE_NAME = "master-network-identity.key";
     public static final String MASTER_NETWORK_PROTECTOR_FILE_NAME = "master-network-identity.protector";

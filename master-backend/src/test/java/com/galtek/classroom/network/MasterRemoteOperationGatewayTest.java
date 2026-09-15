@@ -16,6 +16,9 @@ import com.galtek.classroom.network.v1.BrowserPolicyRuleMatchType;
 import com.galtek.classroom.network.v1.BrowserPolicyRuleParameters;
 import com.galtek.classroom.network.v1.LogonManagedAccountOperationParameters;
 import com.galtek.classroom.network.v1.LogoffWindowsSessionOperationParameters;
+import com.galtek.classroom.network.v1.ManagedAccountCredentialStatus;
+import com.galtek.classroom.network.v1.ManagedAccountStatus;
+import com.galtek.classroom.network.v1.ManagedAccountStatusResult;
 import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.network.v1.MasterEnvelope;
 import com.galtek.classroom.network.v1.NetworkOperationErrorCode;
@@ -484,6 +487,28 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void getManagedAccountStatusBuildsTypedReadOnlyOperationRequestWithoutFunctionalPayload() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.getManagedAccountStatus(snapshot, "managed-status-1", "device-1").orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationId()).isEqualTo("managed-status-1");
+        assertThat(request.getTargetDeviceId()).isEqualTo("device-1");
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS);
+        assertThat(request.getOperationParametersCase())
+                .isEqualTo(OperationRequest.OperationParametersCase.OPERATIONPARAMETERS_NOT_SET);
+        assertThat(request.hasSwitchManagedAccount()).isFalse();
+        assertThat(request.hasLogonManagedAccount()).isFalse();
+        assertThat(request.hasLogoffWindowsSession()).isFalse();
+        assertThat(request.hasProvisionManagedCredential()).isFalse();
+    }
+
+    @Test
     void switchManagedAccountMapsPrimaryAndSecondaryOnly() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
@@ -755,6 +780,38 @@ class MasterRemoteOperationGatewayTest {
         assertThat(outcome.errorCode()).isNull();
         assertThat(outcome.windowsSessionState())
                 .isEqualTo(WindowsSessionState.WINDOWS_SESSION_STATE_SECONDARY_ACTIVE);
+    }
+
+    @Test
+    void operationResultPreservesManagedAccountStatusWithoutSecrets() {
+        ManagedAccountStatusResult status = ManagedAccountStatusResult.newBuilder()
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                        .setConfigured(true)
+                        .setCredentialConfigured(true)
+                        .setCredentialStatus(ManagedAccountCredentialStatus.MANAGED_ACCOUNT_CREDENTIAL_STATUS_READY)
+                        .setWindowsAccountName("PC14\\Primaria"))
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .setConfigured(false)
+                        .setCredentialConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
+                .build();
+
+        RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
+                .setOperationId("managed-status")
+                .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS)
+                .setTargetDeviceId("PC01")
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS)
+                .setManagedAccountStatus(status)
+                .build());
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.SUCCESS);
+        assertThat(outcome.errorCode()).isNull();
+        assertThat(outcome.managedAccountStatus()).isEqualTo(status);
+        assertThat(outcome.toString()).doesNotContain("password", "protectedData", "credentialId", "S-1-5");
     }
 
     @Test

@@ -477,6 +477,8 @@ Machine Code does not require an active Commercial License. It exists so a new i
 
 Galtek Classroom does not generate commercial licenses. Licenses are JWTs issued externally by Galtek Hub and signed with RSA / RS256. The Agent Service validates them locally with a configured public key.
 
+The current canonical consumer-side contract is documented in `docs/licensing/COMMERCIAL_LICENSE_CONTRACT.md`.
+
 Required development public key variable:
 
 ```powershell

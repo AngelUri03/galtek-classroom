@@ -15,7 +15,8 @@ public sealed record RemoteOperationHandlerResult(
     OperationExecutionStatus Status,
     NetworkOperationErrorCode ErrorCode,
     string Message,
-    WindowsSessionStateResult? WindowsSessionState = null)
+    WindowsSessionStateResult? WindowsSessionState = null,
+    ManagedAccountStatusResult? ManagedAccountStatus = null)
 {
     public static RemoteOperationHandlerResult Success(string message)
     {
@@ -36,6 +37,19 @@ public sealed record RemoteOperationHandlerResult(
             NetworkOperationErrorCode.Unspecified,
             message,
             windowsSessionState);
+    }
+
+    public static RemoteOperationHandlerResult Success(
+        string message,
+        ManagedAccountStatusResult managedAccountStatus)
+    {
+        ArgumentNullException.ThrowIfNull(managedAccountStatus);
+
+        return new RemoteOperationHandlerResult(
+            OperationExecutionStatus.Success,
+            NetworkOperationErrorCode.Unspecified,
+            message,
+            ManagedAccountStatus: managedAccountStatus);
     }
 
     public static RemoteOperationHandlerResult NotImplemented()

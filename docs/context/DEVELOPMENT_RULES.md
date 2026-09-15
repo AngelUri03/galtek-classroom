@@ -78,6 +78,14 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - La mutation de retry de session switch solo puede ser `SWITCH_MANAGED_ACCOUNT(targetAccountId original)`; nunca encadenar `LOGOFF_WINDOWS_SESSION` + `LOGON_MANAGED_ACCOUNT` desde Master.
 - Tras retry, actualizar solo targets seleccionados y recalcular summary/status del batch completo. Targets no seleccionados conservan su resultado.
 - No agregar scheduler, polling, background retry ni startup auto-retry para targets de session switch que queden `PENDING` por power loss.
+- La consulta HTTP de managed accounts por Device debe usar `GET_MANAGED_ACCOUNT_STATUS` remoto on-demand; no fabricar `configured`, `credentialConfigured` ni `READY` desde SQLite, heartbeat o datos del Master.
+- `GET_MANAGED_ACCOUNT_STATUS` no debe llamar `Acquire`, no debe exponer password, SID, `protectedData`, credentialId, vault token, sessionId, token handle ni profile path, y debe devolver exactamente `PRIMARY` y `SECONDARY`.
+- El provisioning HTTP de credential administrada requiere `MasterAccessGuard`, vault session en `X-Galtek-Vault-Session`, body `application/octet-stream` UTF-8 sin BOM y `accountId` exacto `PRIMARY`/`SECONDARY`; rechazar JSON de password, target lists, force, source, SID, username, credentialId, vault token en JSON, command y payload libre.
+- Antes de escribir o actualizar vault para provisioning, el Master debe consultar status remoto del slot y exigir que el account este configurado con `windowsAccountName`.
+- El upsert de vault para managed Windows account usa `credentialType = WINDOWS_ACCOUNT` y `loginIdentifier = windowsAccountName`; mas de una coincidencia debe fallar cerrado como no provisionable.
+- El flujo de provisioning HTTP solo puede continuar por `ManagedCredentialProvisioningBridge` y `PROVISION_MANAGED_CREDENTIAL`; no enviar password por BatchOperation, SQLite, heartbeat, ClientHello, logs, Local IPC, Session Command ni response JSON.
+- Tras `PROVISION_MANAGED_CREDENTIAL SUCCESS`, refrescar status una vez con `GET_MANAGED_ACCOUNT_STATUS`; ante fallo o `OPERATION_RESULT_UNKNOWN`, no borrar automaticamente la entry de vault ni reintentar.
+- Credential Vault HTTP minimo solo cubre `status`, `initialize`, `unlock` y `lock`; no agregar reveal/list/export/reset/clipboard sin un diseno explicito posterior. La UI no debe persistir vault session token en `localStorage`, `sessionStorage`, archivos, URLs ni logs.
 - Un target lento, offline o fallido no debe cancelar otros targets independientes del mismo batch.
 - `POST /api/classrooms/{classroomId}/input-control/unlock` debe llamar a `MasterUnlockAccessGuard.requireUnlockAuthorized()` antes de leer datos escolares y solo puede despachar `UNLOCK_INPUT` recovery-safe. Esta excepcion no se generaliza a otros "recovery endpoints" ni autoriza acciones distintas.
 - Solo quedan publicos sin `MasterAccessGuard` los endpoints de diagnostico `GET /api/system/health`, `GET /api/device/status`, `GET /api/device/machine-code` y `GET /api/master/authorization`.
@@ -190,7 +198,7 @@ Estas reglas son obligatorias para todos los agentes futuros.
 - Duplicado con mismo `operationId + accountId` es idempotente; mismo `operationId` con distinto accountId conserva conflicto de dedupe.
 - El Credential Provider debe enterarse de activations mediante `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)`, generation counter y `ICredentialProviderEvents::CredentialsChanged`; no polling sano.
 - El worker del Credential Provider debe usar marshaling COM inter-thread para `ICredentialProviderEvents`, inicializar COM en el worker y cancelar/join en `UnAdvise`.
-- El Service debe saber que existe al menos un listener LogonUI validado antes de activation; si no aparece tras espera acotada, devolver `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- El Service debe saber que existe un long-poll activo o una observacion fresca de LogonUI validado antes de activation; si no aparece tras espera acotada, devolver `CREDENTIAL_PROVIDER_UNAVAILABLE`.
 - Credential Provider registration pertenece exclusivamente al installer elevado, nunca a runtime, `DllMain`, `DllGetClassObject`, Agent Service startup, heartbeat ni provider startup.
 - Galtek solo administra su CLSID fijo `{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}` y nunca toca CLSIDs de Password Provider, PIN, Windows Hello, smart card u otros providers.
 - Nunca crear, registrar ni modificar `Credential Provider Filters`; no implementar `ICredentialProviderFilter`.

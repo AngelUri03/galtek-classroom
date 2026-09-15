@@ -64,14 +64,24 @@ El tramo destructivo reutiliza `WindowsSessionLogoffService`: binding SID espera
 
 La espera post-logoff existe solo mientras una operacion SWITCH explicita esta activa. No hay timer permanente, heartbeat, polling idle, WMI ni writes periodicos.
 
-La implementacion usa un retry loop local acotado con `CancellationToken`, intervalo conservador y deadline corto. Durante la espera:
+La implementacion usa un retry loop local acotado con `CancellationToken`, intervalo conservador de 300ms y deadline monotono de 24s. El presupuesto se deriva de evidencia fisica PC14: Windows tardo aproximadamente 15-18s en completar un logout real de `PRIMARY` y dejar LogonUI utilizable en un retest previo; 24s conserva margen para PCs legacy lentas sin acercarse a minutos y sigue cabiendo bajo el timeout Master SWITCH de 75s junto con el logon target interno.
+
+Durante la espera:
 
 - `NO_SESSION`: continuar a `LOGON target`.
 - source sigue activo: seguir esperando hasta el limite.
 - target aparece activo: `SUCCESS` idempotente, sin activation nueva.
 - `OTHER_SESSION_ACTIVE` u otra sesion inesperada: `WINDOWS_SESSION_CHANGED`.
-- estado no confiable: `WINDOWS_SESSION_UNKNOWN`.
+- `UNKNOWN` transitorio: seguir esperando hasta que aparezca `NO_SESSION`, target activo, otra sesion real o deadline.
 - deadline sin confirmar `NO_SESSION`: `WINDOWS_SWITCH_NOT_CONFIRMED`, sin iniciar logon.
+
+La observabilidad no secreta de este tramo usa logs solo por cambio de estado o resultado: `WINDOWS_SWITCH_LOGOFF_ACCEPTED source=<PRIMARY|SECONDARY> target=<PRIMARY|SECONDARY>`, `WINDOWS_SWITCH_WAIT_STATE state=<...> elapsedMs=<n>`, `WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs=<n>` y `WINDOWS_SWITCH_WAIT_TIMEOUT elapsedMs=<n>`. No registra SID, username, domain ni credenciales.
+
+Antecedente cerrado: el fallo fisico PC14 previo del 2026-09-15 registro `WTSLogoffSession` aceptado a las 21:55:30 para `PRIMARY -> SECONDARY`, cierre real de `PRIMARY` unos 15-18s despues, LogonUI/Credential Provider posterior y `WINDOWS_SWITCH_NOT_CONFIRMED` por espera post-logoff insuficiente. Esa evidencia justifico `PostLogoffWait=24s`.
+
+El retest fisico final de PC14 valido E2E `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)` con `operationId=d90e01e9-8cda-401a-b7ad-9df7f8c3d11c`, `targetAccountId=SECONDARY`, target `deviceId=2966678f-0f07-43ad-936f-8fcd8fc308dd`, `summary total=1 noChange=0 success=1 failed=0` y Master `SUCCESS`. La timeline fue `WINDOWS_SWITCH_LOGOFF_ACCEPTED source=PRIMARY target=SECONDARY`, `WINDOWS_SWITCH_WAIT_STATE state=PrimaryActive elapsedMs=0`, `WINDOWS_SWITCH_WAIT_STATE state=Unknown elapsedMs=6505`, `WINDOWS_SWITCH_WAIT_STATE state=NoSession elapsedMs=6886`, `WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs=6886`, `WAIT_LISTENER_ENTERED accountId=SECONDARY timeoutMs=750`, `LISTENER_AVAILABILITY_SATISFIED:active_wait accountId=SECONDARY`, `GET_PENDING_ACTIVATION_IDENTITY SUCCESS`, `ACQUIRE_PENDING_CREDENTIAL payload=binary` y `REPORT_LOGON_RESULT SUCCESS`.
+
+Windows dejo activa la consola como `IHTEC-SECUNDARIA-14`; `query user` confirmo `ihtec-secundaria-14`, `console`, `Activo`. Una PowerShell administrativa elevada bajo `ADMIN-14` puede mostrar `whoami=ich11\admin-14`, pero esa identidad pertenece al proceso elevado y no reemplaza la autoridad WTS/session state de consola.
 
 ## Logon Target
 
@@ -93,6 +103,8 @@ No hay rollback automatico a source, no hay retry automatico y no se crea journa
 
 El Master usa timeout fijo especifico para `SWITCH_MANAGED_ACCOUNT`, separado del timeout global y del timeout de logon. Cubre la espera post-logoff acotada, el TTL de activation/logon y un margen pequeno.
 
-## Pendiente
+## Pendiente Y Limites
 
-19H1 ya integra planner/batch/endpoint para Devices explicitamente seleccionados, con partial success y `NO_CHANGE`. 19H2 ya integra retry administrativo explicito solo de errores realmente retryable. Queda pendiente UI.
+19H1 ya integra planner/batch/endpoint para Devices explicitamente seleccionados, con partial success y `NO_CHANGE`. 19H2 ya integra retry administrativo explicito solo de errores realmente retryable. La validacion E2E real de switch cubre PC14 en Windows 11 Education x64 build 22621.
+
+Quedan fuera de esta validacion: Windows 10, todas las builds de Windows 11, escenarios multi-PC, boot storm, overwrite de installer sobre `appsettings.json` / `MasterConnection`, cold boot SCM 7000/7009, credential out-of-sync por cambio externo de password, UI y Commercial licensing offline Hub final.

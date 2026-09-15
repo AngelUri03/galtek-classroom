@@ -1,5 +1,119 @@
 # Decisiones vigentes
 
+## 2026-09-15 - PC14 Paso 19 / 19I2 real E2E
+
+- Paso 19 / 19I2 queda `REAL E2E VALIDATED ON PC14` para PC14 fisica con Windows 11 Education x64 build 22621.
+- `LOGON_MANAGED_ACCOUNT(PRIMARY)` queda validado E2E real: `NO_SESSION`, activation `PRIMARY`, Credential Provider, `ACQUIRE_PENDING_CREDENTIAL`, serialization Kerberos corregida, Winlogon `Resultado 0`, `CP_REPORT_RESULT status=0`, `REPORT_LOGON_RESULT SUCCESS`, sesion real `ICH11\ICH-PRIMARIA-14` y Master `SUCCESS`.
+- `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)` queda validado E2E real con `operationId=d90e01e9-8cda-401a-b7ad-9df7f8c3d11c`, `targetAccountId=SECONDARY`, target `deviceId=2966678f-0f07-43ad-936f-8fcd8fc308dd`, `summary total=1 noChange=0 success=1 failed=0` y Master `SUCCESS`.
+- La semantica vigente post-logoff queda validada en hardware real: despues de `WINDOWS_SWITCH_LOGOFF_ACCEPTED source=PRIMARY target=SECONDARY`, la secuencia observada fue `PrimaryActive -> Unknown -> NoSession`, con `UNKNOWN` tratado correctamente como transitorio durante la ventana acotada.
+- `PostLogoffWait=24s` queda validado y se conserva. En el retest final `NO_SESSION` llego a aproximadamente 6886ms, pero el presupuesto de 24s sigue justificado por la evidencia fisica previa de logout real de aproximadamente 15-18s en PC14 y por margen para hardware legacy.
+- La autoridad de identidad de consola sigue siendo WTS/session state. Una PowerShell administrativa elevada bajo `ADMIN-14` puede mostrar `whoami=ich11\admin-14`, pero no reemplaza que Windows dejo la consola activa como `IHTEC-SECUNDARIA-14` y `query user` confirmo `ihtec-secundaria-14 console Activo`.
+- Los estados previos `WINDOWS_LOGON_NOT_CONFIRMED`, `WINDOWS_SWITCH_NOT_CONFIRMED`, `ReportResult` pendiente, logon no E2E y switch no E2E quedan cerrados como antecedentes historicos, no como frontera vigente.
+- No se declara validado Windows 10, todas las builds de Windows 11, escenarios multi-PC, boot storm, overwrite de installer sobre `appsettings.json` / `MasterConnection`, cold boot SCM 7000/7009, credential out-of-sync por cambio externo de password, UI ni Commercial licensing offline Hub final.
+- Deuda futura no bloqueante: proteger `install-agent-service.ps1` contra overwrite de configuracion, investigar SCM 7000/7009 en cold boot PC14, disenar cambio administrado de password Windows y deteccion `CREDENTIAL_OUT_OF_SYNC` o equivalente, cerrar flujo comercial offline Hub -> Master -> sublicencias Clients y completar UI.
+
+## 2026-09-14 - PC14 notification callback / reenumeration boundary
+
+- El retest fisico PC14 de las 17:28 para `operationId=7a4abf1b-6972-42df-8ca6-6f764e06a69b` desplazo en ese momento la frontera pendiente a `WAIT_FOR_ACTIVATION_CHANGE SUCCESS -> CredentialsChanged -> reenumeration LogonUI -> GetCredentialCount`; esa frontera quedo cerrada por retests posteriores.
+- En esa prueba el Agent creo activation para `PRIMARY`, hubo `WAIT_LISTENER_ENTERED timeoutMs=750`, disponibilidad `LISTENER_AVAILABILITY_SATISFIED:active_wait`, respuesta `WAIT_FOR_ACTIVATION_CHANGE SUCCESS`, caller validation real de LogonUI `clientPid=5464`, `CALLER_VALIDATION_PASSED` y `FRESH_PRESENCE_MARKED`.
+- En la ventana 17:28:15-17:29:15 no hubo `GET_PENDING_ACTIVATION_IDENTITY`, `ACQUIRE_PENDING_CREDENTIAL` ni `REPORT_LOGON_RESULT`; por tanto el fix de serialization Kerberos no fue ejercitado fisicamente en ese intento.
+- `Pipe is broken` alrededor de respuestas de wait cerradas por peer queda como diagnostico secundario mientras no preceda a la falta de reenumeration.
+- El worker nativo no debe avanzar `observedGeneration` antes de saber el `HRESULT` de `CredentialsChanged(adviseContext)`.
+- Si `CredentialsChanged` falla, la generation nueva sigue no observada; el worker hace backoff acotado y reintenta la misma generation sin polling rapido.
+- Solo `CredentialsChanged` con `HRESULT` exitoso permite `CP_WORKER_REARM generation=<n>` y el siguiente `WAIT_FOR_ACTIVATION_CHANGE` usa la generation nueva.
+- La instrumentacion nativa permitida sigue siendo no secreta y acotada: worker wait success, llamada/result de `CredentialsChanged`, rearm, `UnAdvise`, cancelacion, `GetCredentialCount` y entrada a `GetSerialization`.
+- Para retest PC14, si `OutputDebugStringW` no se captura, se permite activar temporalmente archivo de trace con `HKLM\SOFTWARE\Galtek\Classroom\CredentialProvider\NativeTraceFile`; sin esa clave no hay logging de archivo.
+- No se cambia contrato Agent, caller validation, listener timeout, serialization Kerberos, packer, password, DPAPI, pairing, mTLS, Master Java, installer ni provisioning.
+- Antecedente cerrado por retests posteriores: esta frontera ya no queda pendiente; `LOGON_MANAGED_ACCOUNT(PRIMARY)` y `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)` fueron observados E2E en PC14.
+
+## 2026-09-14 - PC14 serialization Kerberos Result 87
+
+- La evidencia fisica nueva de PC14 desplazo en ese momento la frontera pendiente: listener real, caller validation, token LocalSystem path, activation, identity, `ACQUIRE_PENDING_CREDENTIAL` y bridge secreto binario ya quedaron demostrados para `PRIMARY`; esa frontera quedo cerrada por retests posteriores.
+- `CREDENTIAL_PROVIDER_UNAVAILABLE` ya no es el fallo vigente de PC14 en este tramo; el intento llego a Windows y Winlogon/Operational termino a las 17:00:24 con `Resultado 87` / `ERROR_INVALID_PARAMETER`.
+- La autenticacion posterior de 17:01:51 con `Resultado 0` corresponde al login manual de diagnostico y no se usa como exito Galtek.
+- `ERROR_INVALID_PARAMETER 87` se trata como serialization/estructura invalida hasta prueba contraria, no como password incorrecta.
+- `KERB_INTERACTIVE_UNLOCK_LOGON` empaquetado para `GetSerialization` debe usar `UNICODE_STRING.Buffer` como offset relativo dentro de `rgbSerialization`; no se permiten punteros absolutos de heap/proceso en el blob entregado a Winlogon/LSA.
+- `UNICODE_STRING.Length` y `MaximumLength` se expresan en bytes. En el blob empaquetado vigente `MaximumLength == Length` porque no se copia terminador NUL.
+- `CPUS_LOGON` usa `KerbInteractiveLogon`, `CredProtectW` se mantiene, `Negotiate` se resuelve via `LsaLookupAuthenticationPackage` y `rgbSerialization` se entrega con `CoTaskMemAlloc`.
+- El diagnostico nativo temporal permitido para retest es no secreto: `CP_GET_SERIALIZATION_ENTERED`, `CP_IDENTITY_READY`, `CP_CREDENTIAL_ACQUIRED`, `CP_AUTH_PACKAGE_SUCCESS`, `CP_CREDPROTECT_SUCCESS`, `CP_PACK_SUCCESS`, `CP_SERIALIZATION_RETURNED` y `CP_REPORT_RESULT status=<numeric> substatus=<numeric>`.
+- No se registran password, longitud de password, serialization bytes, SID completo, username, domain, protected password ni credential buffer.
+- Antecedente cerrado por retests posteriores: `ReportResult STATUS_SUCCESS`, `REPORT_LOGON_RESULT SUCCESS`, logon PRIMARY y switch PRIMARY -> SECONDARY ya fueron observados en PC14.
+
+## 2026-09-14 - Binding P/Invoke caller-token Win32
+
+- Los imports Win32 productivos del caller-token path deben declarar el `EntryPoint` real exportado, aunque el metodo managed tenga prefijo `Native`.
+- `ImpersonateNamedPipeClient` se importa desde `advapi32.dll` con `EntryPoint = "ImpersonateNamedPipeClient"` y `ExactSpelling = true`; nunca debe depender del nombre managed `NativeImpersonateNamedPipeClient`.
+- El retest fisico PC14 posterior al caller-token Win32 fix no llego realmente a `ImpersonateNamedPipeClient`: fallo antes por `EntryPointNotFoundException`. Por tanto `ERROR_CANNOT_IMPERSONATE` 1368 no esta demostrado fisicamente en ese path.
+- Antecedente cerrado por retests posteriores: el binding corregido dejo de ser frontera y LOGON/SWITCH reales ya fueron validados en PC14.
+
+## 2026-09-14 - Caller token validation PC14
+
+- La evidencia fisica nueva de PC14 localiza el fallo del tramo `SWITCH_MANAGED_ACCOUNT(PRIMARY)` en caller token validation del Credential Provider bridge: `clientPid=6916` llego repetidamente al pipe desde LogonUI, pero todos los callers fueron rechazados antes de `CALLER_VALIDATION_PASSED` y `FRESH_PRESENCE_MARKED`.
+- El listener timeout observado para `operationId=cc0e0268-e3e7-415d-a992-ff1d05763d49`, `accountId=PRIMARY`, `timeoutMs=750`, fue consecuencia de esos rechazos; no se corrige aumentando 750ms, aumentando fresh presence ni agregando bypass.
+- El caller validation del bridge debe leer primero el frame acotado del pipe y solo despues impersonar; `ImpersonateNamedPipeClient` usa el contexto del ultimo mensaje leido. Esa lectura previa no procesa ni autoriza por payload; PID/proceso/imagen/sesion/token siguen siendo la autorizacion real.
+- El caller validation del bridge no debe usar `WindowsIdentity.GetCurrent()` como caja negra para el token del cliente. La ruta soportada y auditable es `ImpersonateNamedPipeClient` -> `OpenThreadToken(TOKEN_QUERY, OpenAsSelf=true)` -> `GetTokenInformation(TokenUser)` -> `ConvertSidToStringSidW` -> `RevertToSelf`, sin `await` ni trabajo asincrono dentro de impersonation.
+- Para leer `TokenUser` se pide solo `TOKEN_QUERY`; no se exige `TOKEN_DUPLICATE`, `TOKEN_ADJUST_PRIVILEGES` ni otro derecho innecesario.
+- `CALLER_VALIDATION_FAILED:token` queda reemplazado por etapas estructuradas no secretas como `impersonation`, `open_thread_token`, `token_user_length`, `token_user`, `token_sid`, `revert_to_self` o `not_local_system`. Los fallos Win32 registran `clientPid` y codigo numerico `win32`; no registran token handle, SID completo, username, password, credential bytes, private keys ni `protectedData`.
+- La validacion sigue exigiendo `GetNamedPipeClientProcessId`, proceso real, path canonico de `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y SID efectivo `S-1-5-18` obtenido del token del cliente del pipe. No hay fallback a `OpenProcessToken(clientPid)` ni autorizacion solo por PID/path.
+- `Pipe is broken` despues de un rechazo de caller puede reducirse a diagnostico secundario si el peer cerro el pipe tras recibir o esperar el rechazo; no se usa como root cause mientras el rechazo de caller siga precediendolo.
+- Antecedente cerrado por retests posteriores: password aceptada por Windows, logon y switch quedaron validados en PC14; la exigencia de caller validation estricta sigue vigente.
+
+## 2026-09-14 - Segunda investigacion Credential Provider PC14
+
+- La validacion fisica posterior al primer fix del listener fallo en PC14 con `CREDENTIAL_PROVIDER_UNAVAILABLE`; no se declara como hecho probado que LogonUI destruya el provider por `count=0` y que esa sea la causa raiz suficiente.
+- La presencia fresca de LogonUI autorizado se conserva de forma acotada mientras se valida en hardware: expira en memoria, requiere caller validation estricta y no reemplaza un listener real indefinidamente.
+- `WaitForListener` distingue la fuente de disponibilidad: `active_wait`, `fresh_presence` o `unavailable`.
+- `WindowsSessionLogonService` registra `WAIT_LISTENER_ENTERED`, `LISTENER_AVAILABILITY_SATISFIED:<active_wait|fresh_presence>` y `LISTENER_AVAILABILITY_TIMEOUT` para el proximo retest.
+- El bridge registra diagnostico no secreto: `CALLER_VALIDATION_PASSED`, `CALLER_VALIDATION_FAILED:<reason-category>`, `FRESH_PRESENCE_MARKED`, operation recibida y response/write. Los eventos por conexion sana pueden quedar en `Debug`; los rechazos quedan en `Warning`.
+- Caller rejection nunca marca fresh presence.
+- El `ServiceProvider` productivo debe mantener una sola autoridad de activation/presence compartida por bridge, logon y switch; hay regresion de composicion DI que lo comprueba.
+- El cliente nativo de `WAIT_FOR_ACTIVATION_CHANGE` no debe aplicar el timeout corto de RPC a la lectura del long-poll; el self-test mantiene un wait de 2.5 segundos y valida cancelacion acotada por `UnAdvise`.
+- No se agrega bypass de listener, listener falso, disponibilidad indefinida, timeout enorme arbitrario, Credential Provider Filter, Registry autologon, password desde Master, SendKeys, UI Automation, `LogonUser` ni shell para login.
+- Antecedente cerrado por retests posteriores: `LOGON_MANAGED_ACCOUNT` y `SWITCH_MANAGED_ACCOUNT` ya no siguen pendientes en PC14.
+
+## 2026-09-14 - Bootstrap offline de pairing fisico
+
+- El bootstrap de pairing fisico se expone como CLI administrativa offline por archivos, no como discovery ni onboarding LAN productivo.
+- Los comandos vigentes son: Client `--pairing-export-descriptor`, Master `--pairing-create-challenge ... --approve-pairing-intent --pairing-challenge-out`, Client `--pairing-accept-challenge ... --approve-pairing --pairing-response-out` y Master `--pairing-complete`.
+- Los archivos son solo transporte JSON machine-readable: descriptor publico del Client, `PairingChallenge` firmado y `PairingResponse` firmado.
+- El descriptor del Client contiene solo metadata publica necesaria: `installationId`, `networkIdentityId`, fingerprint y public SPKI.
+- La emision de challenge en Master requiere intencion explicita por flag; la aceptacion en Client requiere aprobacion explicita por flag.
+- `MasterPairingService` y `ClientPairingService` siguen siendo las unicas rutas que modifican `paired-clients.json` y `authorized-masters.json`.
+- No se cambia `MasterConnection` durante el bootstrap; la configuracion del canal gRPC queda para despues de verificar ambos trust stores en `PAIRED`.
+- Esta decision no agrega mDNS, discovery, UI, pairing automatico por red, trust implicito, shell/remoting, nuevos protocolos ni cambios de licensing.
+
+## 2026-09-14 - Managed Account status y provisioning explicito
+
+- `GET_MANAGED_ACCOUNT_STATUS` es la autoridad remota read-only para que el Master conozca readiness de `PRIMARY`/`SECONDARY`; el Master no debe inferir esos estados desde SQLite, heartbeat, nombres de usuario ni datos persistidos propios.
+- La capability nueva es `MANAGED_ACCOUNT_STATUS_V1`, separada de `MANAGED_CREDENTIAL_PROVISIONING_V1`, porque consultar readiness y transportar secretos son contratos distintos.
+- El resultado de status devuelve exactamente dos slots, `PRIMARY` y `SECONDARY`, con `configured`, `credentialConfigured`, `credentialStatus` y `windowsAccountName`.
+- `READY` significa binding local configurado, SID resoluble como usuario Windows y credencial DPAPI usable para ese SID/slot; no prueba que Windows aceptara la password en logon real.
+- El status remoto no llama `Acquire` y nunca expone password, SID, `protectedData`, credentialId, vault token, sessionId, token handles ni profile path.
+- Credential Vault HTTP minimo solo incluye `status`, `initialize`, `unlock` y `lock`; no se agregan list/reveal/export/clipboard/reset ni CRUD general humano.
+- `initialize` y `unlock` reciben master password como `application/octet-stream` UTF-8 sin BOM, no JSON; `unlock` devuelve un token opaco solo in-memory.
+- La UI futura no debe persistir el vault session token en `localStorage`, `sessionStorage`, archivos, URLs, SQLite ni logs.
+- `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential` es por Device y slot explicitos; no hay BatchOperation, fanout, allDevices, groupId ni retry automatico.
+- El provisioning HTTP exige `MasterAccessGuard`, vault session vigente, Device del aula, binding vigente, trust `PAIRED`, no `REVOKED`, match de installation/fingerprint, conexion online y capabilities `MANAGED_ACCOUNT_STATUS_V1` y `MANAGED_CREDENTIAL_PROVISIONING_V1`.
+- Antes de escribir en vault, el Master consulta status remoto y exige que el slot este configurado con `windowsAccountName`.
+- El upsert en vault usa `credentialType = WINDOWS_ACCOUNT` y `loginIdentifier = windowsAccountName`; cero coincidencias agrega, una actualiza y mas de una falla cerrado como no provisionable.
+- El unico camino de password hacia el Client sigue siendo `ManagedCredentialProvisioningBridge` -> `PROVISION_MANAGED_CREDENTIAL` UTF-16LE por gRPC/mTLS -> DPAPI LocalSystem en el Agent.
+- Las respuestas HTTP de managed accounts no contienen password, SID, `protectedData`, credentialId ni vault token.
+- Tras provisioning remoto `SUCCESS`, el Master refresca status una vez; si falla o queda `OPERATION_RESULT_UNKNOWN`, no borra automaticamente la entry del vault ni reintenta.
+- Esta unidad no declara validacion real de PC14, logon real, switch real ni correccion final de 19I2.
+
+## 2026-09-13 - Commercial License Hub alignment
+
+- Galtek Hub es la autoridad emisora de Commercial Licenses para Classroom.
+- Classroom no genera Commercial Licenses y no debe contener private key del emisor.
+- El validador real de Classroom conserva JWT firmado con RS256, issuer `galtek-hub`, audience `galtek-classroom`, product `GALTEK_CLASSROOM` y `schemaVersion = 1`.
+- `sub` es el `installationId` y debe coincidir con la Installation Identity local.
+- Los hashes `cpuHash`, `motherboardHash`, `macHash` y `diskHash` son claims planos; la licencia es aceptada cuando al menos 3 de 4 coinciden con hardware actual.
+- `roles` debe ser array; los roles conocidos vigentes son `CLIENT` y `MASTER`; el Agent exige `CLIENT`.
+- `features` es opcional y debe ser objeto cuando aparece; los nombres son extensibles y la aplicacion que consume cada feature decide enforcement.
+- `iat` y `exp` son NumericDate obligatorios, con `iat < exp`; `nbf` no es requerido, pero si aparece en futuro se rechaza por lifetime validation.
+- En desarrollo, `GALTEK_CLASSROOM_LICENSE_PUBLIC_KEY_PATH` apunta a la public key exportada desde Hub; no hay descarga dinamica de keys ni confianza automatica por red.
+- `license.dat` persiste solo el JWT recibido y solo se reemplaza despues de validar completamente el candidato.
+
 ## 2026-09-07 - Estabilizacion post-auditoria de cimientos
 
 - `RemoteOperationDispatcher` debe fallar en construccion si se registran dos `IRemoteOperationHandler` para el mismo `NetworkOperationType`.
@@ -94,7 +208,7 @@
 - Despues del preflight target, el Agent relee `WindowsSessionState` y exige que siga siendo exactamente la source derivada; si cambio, no llama logoff.
 - El tramo logoff reutiliza `WindowsSessionLogoffService` expected-account con binding SID esperado, consola fisica, double-check `sessionId + SID` y `WTSLogoffSession(..., FALSE)`.
 - `WTSLogoffSession SUCCESS` no equivale a source terminada; SWITCH espera localmente y de forma acotada a confirmar `NO_SESSION` antes de iniciar target logon.
-- Durante la espera, source activo sigue esperando, target activo produce `SUCCESS` idempotente, otra sesion produce `WINDOWS_SESSION_CHANGED`, estado no confiable produce `WINDOWS_SESSION_UNKNOWN`.
+- Durante la espera post-logoff, source activo sigue esperando, target activo produce `SUCCESS` idempotente, otra sesion real produce `WINDOWS_SESSION_CHANGED` y `UNKNOWN` se trata como transitorio hasta `NO_SESSION` o deadline.
 - Si no se confirma `NO_SESSION` antes del deadline, el Agent devuelve `WINDOWS_SWITCH_NOT_CONFIRMED` y no inicia target logon.
 - El target logon reutiliza LOGON 19G3, incluida espera real de LogonUI/Credential Provider despues de `NO_SESSION`, revalidacion inmediata de `NO_SESSION`, activation productiva, auto-submit one-shot y `ReportResult` como autoridad de success.
 - SWITCH puede tener efecto parcial despues de WTS logoff aceptado; errores posteriores, incluido `CREDENTIAL_PROVIDER_UNAVAILABLE`, no ocultan que la source pudo cerrarse.
@@ -118,9 +232,9 @@
 - La activation remota es in-memory only, con `activationId`, `operationId`, `accountId`, timestamps, TTL, `autoSubmitRequested=true` y SID esperado cuando aplica.
 - Una activation remota productiva no reemplaza otra activation remota de distinto `operationId`; se devuelve `WINDOWS_LOGON_BUSY`.
 - El bridge local agrega `WAIT_FOR_ACTIVATION_CHANGE(observedGeneration)` y `REPORT_LOGON_RESULT(activationId,outcome)`.
-- El Agent Service mantiene generation counter y listener count solo en memoria; create/consume/complete/timeout/clear despiertan waiters.
+- El Agent Service mantiene generation counter, listener count de long-polls activos y observacion fresca de caller LogonUI autorizado solo en memoria; create/consume/complete/timeout/clear despiertan waiters.
 - El Credential Provider usa un worker cancellable durante `CPUS_LOGON + Advise`, marshaling COM inter-thread para `ICredentialProviderEvents`, y llama `CredentialsChanged` cuando cambia la generation.
-- El Agent exige al menos un listener LogonUI validado antes de crear activation; si no aparece tras espera acotada, devuelve `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- El Agent exige long-poll activo o presencia fresca de LogonUI validado antes de crear activation; si no aparece tras espera acotada, devuelve `CREDENTIAL_PROVIDER_UNAVAILABLE`.
 - Auto-submit ocurre solo para activation remota con `autoSubmitRequested=true`: una credential, default `0`, `pbAutoLogonWithDefault=TRUE` y `SetSelected` una sola vez.
 - `GetSerialization` mantiene acquisition exactly once; fallos locales despues de acquire reportan `LOCAL_SERIALIZATION_FAILED`, consumen la activation y no restauran/reintentan.
 - `REPORT_LOGON_RESULT` acepta solo `SUCCESS`, `FAILED` o `LOCAL_SERIALIZATION_FAILED`; no transporta NTSTATUS textual, mensajes, SID, username, domain, sessionId ni password.
@@ -130,7 +244,7 @@
 
 ## 2026-09-05 - Prompt 19G2
 
-- `LOGON_MANAGED_ACCOUNT` remoto sigue pendiente: 19G2 solo consume una activation existente y completa el tramo local Service -> Credential Provider -> Windows serialization.
+- Antecedente cerrado de 19G2: en ese momento `LOGON_MANAGED_ACCOUNT` remoto seguia pendiente porque 19G2 solo consumia una activation existente y completaba el tramo local Service -> Credential Provider -> Windows serialization.
 - La unica salida productiva de una password Windows administrada desde el Client credential store hacia LogonUI es `ACQUIRE_PENDING_CREDENTIAL` por `GaltekClassroom.CredentialProvider.v1`.
 - `ACQUIRE_PENDING_CREDENTIAL` requiere caller LogonUI validado con PID real del pipe, image path real `%SystemRoot%\System32\LogonUI.exe`, sesion interactiva y token LocalSystem; no se confia en payload.
 - `GET_PENDING_ACTIVATION_IDENTITY` es no secreto y local: devuelve `activationId`, `accountId`, `userSid`, `domain` y `username` solo al provider validado.

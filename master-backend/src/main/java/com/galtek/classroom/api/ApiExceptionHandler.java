@@ -6,6 +6,7 @@ import com.galtek.classroom.master.MasterAccessDeniedException;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.persistence.MasterStorageException;
 import com.galtek.classroom.persistence.PersistenceVersionConflictException;
+import com.galtek.classroom.credentialvault.CredentialVaultException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -51,6 +52,13 @@ public class ApiExceptionHandler {
         return storage(HttpStatus.CONFLICT, exception);
     }
 
+    @ExceptionHandler(CredentialVaultException.class)
+    public ResponseEntity<ApiErrorResponse> credentialVault(CredentialVaultException exception) {
+        return ResponseEntity
+                .status(statusForCredentialVault(exception.errorCode()))
+                .body(ApiErrorResponse.of(exception.errorCode().name(), exception.getMessage()));
+    }
+
     @ExceptionHandler(MasterStorageException.class)
     public ResponseEntity<ApiErrorResponse> storage(MasterStorageException exception) {
         return storage(statusForStorage(exception.errorCode()), exception);
@@ -87,6 +95,18 @@ public class ApiExceptionHandler {
             case MASTER_DATABASE_MIGRATION_FAILED -> "Master storage migration failed.";
             case MASTER_STORAGE_FULL -> "Master storage is full.";
             default -> "Master storage is unavailable.";
+        };
+    }
+
+    private HttpStatus statusForCredentialVault(ErrorCode errorCode) {
+        return switch (errorCode) {
+            case CREDENTIAL_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case CREDENTIAL_VAULT_ALREADY_INITIALIZED, CREDENTIAL_VAULT_NOT_INITIALIZED,
+                    CREDENTIAL_VAULT_INVALID -> HttpStatus.CONFLICT;
+            case CREDENTIAL_VAULT_LOCKED, CREDENTIAL_VAULT_UNLOCK_FAILED -> HttpStatus.FORBIDDEN;
+            case INVALID_REQUEST, CREDENTIAL_NOT_PROVISIONABLE -> HttpStatus.BAD_REQUEST;
+            case MASTER_STORAGE_FULL -> HttpStatus.SERVICE_UNAVAILABLE;
+            default -> HttpStatus.BAD_REQUEST;
         };
     }
 }

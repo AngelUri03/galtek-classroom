@@ -66,6 +66,52 @@ public sealed class AgentCommandLineTests
     }
 
     [Fact]
+    public void Parse_WhenPairingExportDescriptorIsSelected_CapturesOutputPath()
+    {
+        var commandLine = AgentCommandLine.Parse(["--pairing-export-descriptor", "client-pairing.json"]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.PairingExportDescriptor, commandLine.Mode);
+        Assert.Equal("client-pairing.json", commandLine.PairingDescriptorOutputPath);
+    }
+
+    [Fact]
+    public void Parse_WhenPairingAcceptChallengeIsSelected_RequiresExplicitResponsePath()
+    {
+        var commandLine = AgentCommandLine.Parse(["--pairing-accept-challenge", "challenge.json"]);
+
+        Assert.False(commandLine.IsValid);
+        Assert.Contains("--pairing-response-out", commandLine.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_WhenPairingAcceptChallengeWithApprovalIsSelected_CapturesArguments()
+    {
+        var commandLine = AgentCommandLine.Parse([
+            "--pairing-accept-challenge",
+            "challenge.json",
+            "--approve-pairing",
+            "--pairing-response-out",
+            "response.json"
+        ]);
+
+        Assert.True(commandLine.IsValid);
+        Assert.Equal(AgentCommandMode.PairingAcceptChallenge, commandLine.Mode);
+        Assert.Equal("challenge.json", commandLine.PairingChallengeInputPath);
+        Assert.Equal("response.json", commandLine.PairingResponseOutputPath);
+        Assert.True(commandLine.ApprovePairing);
+    }
+
+    [Fact]
+    public void Parse_WhenApprovePairingHasNoPairingCommand_IsInvalid()
+    {
+        var commandLine = AgentCommandLine.Parse(["--approve-pairing"]);
+
+        Assert.False(commandLine.IsValid);
+        Assert.Contains("--approve-pairing", commandLine.ErrorMessage);
+    }
+
+    [Fact]
     public void Parse_WhenApplicationBindListIsSelected_UsesApplicationListMode()
     {
         var commandLine = AgentCommandLine.Parse(["--application-bind-list"]);

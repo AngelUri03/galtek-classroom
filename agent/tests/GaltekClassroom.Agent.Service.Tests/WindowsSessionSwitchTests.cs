@@ -313,6 +313,28 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     }
 
     [Fact]
+    public async Task Service_WhenLogoffRequestIsRejected_ReturnsExistingLogoffErrorWithoutRetry()
+    {
+        await ConfigureReadyAccountsAsync();
+        Task<long> listener = StartListener();
+        var logoff = new RecordingLogoffController { Result = false };
+        WindowsSessionSwitchService service = CreateService(new SequenceResolver([
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4)
+        ]), logoff);
+
+        WindowsSessionSwitchServiceResult result =
+            await service.SwitchAsync("switch-logoff-rejected", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NetworkOperationErrorCode.WindowsLogoffFailed, result.ErrorCode);
+        Assert.Equal(1, logoff.Calls);
+        Assert.False(listener.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public async Task Service_WhenSourceStillActiveAfterAcceptedLogoff_WaitsBeforeLogon()
     {
         await ConfigureReadyAccountsAsync();
@@ -342,34 +364,119 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         Assert.Equal(1, logoff.Calls);
     }
 
-    [Theory]
-    [InlineData(OtherSid, NetworkOperationErrorCode.WindowsSessionChanged)]
-    [InlineData(null, NetworkOperationErrorCode.WindowsSessionUnknown)]
-    public async Task Service_WhenTransitionChangesToOtherOrUnknown_AbortsWithoutLogon(
-        string? activeSid,
-        NetworkOperationErrorCode expectedError)
+    [Fact]
+    public async Task Service_WhenNoSessionIsConfirmedImmediatelyAfterAcceptedLogoff_LogsOnTarget()
     {
         await ConfigureReadyAccountsAsync();
         Task<long> listener = StartListener();
         var logoff = new RecordingLogoffController();
-        ConsoleSessionIdentityObservation transition = activeSid is null
-            ? ConsoleSessionIdentityObservation.Unknown(null, "unknown")
-            : ConsoleSessionIdentityObservation.User(4, activeSid);
+        var delay = new RecordingSwitchDelay();
         WindowsSessionSwitchService service = CreateService(new SequenceResolver([
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
-            transition
+            ConsoleSessionIdentityObservation.NoSession(4),
+            ConsoleSessionIdentityObservation.NoSession(4),
+            ConsoleSessionIdentityObservation.NoSession(4)
+        ]), logoff, delay);
+
+        Task<WindowsSessionSwitchServiceResult> operation =
+            service.SwitchAsync("switch-immediate-no-session", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
+        await listener.WaitAsync(TimeSpan.FromSeconds(2));
+        CompleteCurrentActivation(CredentialProviderLogonCompletionOutcome.Success);
+
+        WindowsSessionSwitchServiceResult result = await operation.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, logoff.Calls);
+        Assert.Equal(0, delay.Calls);
+    }
+
+    [Fact]
+    public async Task Service_WhenTransitionChangesToOtherSession_AbortsWithoutLogon()
+    {
+        await ConfigureReadyAccountsAsync();
+        Task<long> listener = StartListener();
+        var logoff = new RecordingLogoffController();
+        WindowsSessionSwitchService service = CreateService(new SequenceResolver([
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ConsoleSessionIdentityObservation.User(4, OtherSid)
         ]), logoff);
 
         WindowsSessionSwitchServiceResult result =
             await service.SwitchAsync("switch-transition-changed", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Equal(expectedError, result.ErrorCode);
+        Assert.Equal(NetworkOperationErrorCode.WindowsSessionChanged, result.ErrorCode);
         Assert.Equal(1, logoff.Calls);
         Assert.False(listener.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task Service_WhenTransitionIsUnknownThenNoSession_ContinuesToLogon()
+    {
+        await ConfigureReadyAccountsAsync();
+        Task<long> listener = StartListener();
+        var logoff = new RecordingLogoffController();
+        var delay = new RecordingSwitchDelay();
+        WindowsSessionSwitchService service = CreateService(new SequenceResolver([
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+            ConsoleSessionIdentityObservation.Unknown(null, "attach/detach"),
+            ConsoleSessionIdentityObservation.NoSession(4),
+            ConsoleSessionIdentityObservation.NoSession(4),
+            ConsoleSessionIdentityObservation.NoSession(4)
+        ]), logoff, delay);
+
+        Task<WindowsSessionSwitchServiceResult> operation =
+            service.SwitchAsync("switch-unknown-then-no-session", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
+        await listener.WaitAsync(TimeSpan.FromSeconds(2));
+        CompleteCurrentActivation(CredentialProviderLogonCompletionOutcome.Success);
+
+        WindowsSessionSwitchServiceResult result = await operation.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, logoff.Calls);
+        Assert.True(delay.Calls >= 1);
+    }
+
+    [Fact]
+    public async Task Service_WhenLegacyPcLogoutTakesEighteenSeconds_ContinuesWithoutRealSleep()
+    {
+        await ConfigureReadyAccountsAsync();
+        Task<long> listener = StartListener();
+        var logoff = new RecordingLogoffController();
+        var clock = new ManualSwitchClock();
+        var delay = new AdvancingSwitchDelay(clock);
+        WindowsSessionSwitchService service = CreateService(
+            new ElapsedTransitionResolver(
+                clock,
+                TimeSpan.FromSeconds(18),
+                ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4),
+                ConsoleSessionIdentityObservation.NoSession(4)),
+            logoff,
+            delay,
+            clock,
+            options: WindowsSessionSwitchOptions.Default);
+
+        Task<WindowsSessionSwitchServiceResult> operation =
+            service.SwitchAsync("switch-legacy-logout", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
+        await listener.WaitAsync(TimeSpan.FromSeconds(2));
+        CompleteCurrentActivation(CredentialProviderLogonCompletionOutcome.Success);
+
+        WindowsSessionSwitchServiceResult result = await operation.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, logoff.Calls);
+        Assert.Equal(TimeSpan.FromSeconds(18), delay.TotalDelay);
+        Assert.InRange(delay.Calls, 1, 60);
+        Assert.All(delay.Delays, value => Assert.True(value >= TimeSpan.FromMilliseconds(300)));
     }
 
     [Fact]
@@ -576,6 +683,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         IWindowsConsoleSessionResolver sessionResolver,
         RecordingLogoffController logoff,
         IWindowsSessionSwitchDelay? delay = null,
+        IWindowsSessionSwitchClock? clock = null,
         WindowsSessionSwitchOptions? options = null,
         WindowsSessionLogonOptions? logonOptions = null)
     {
@@ -603,6 +711,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
                 NullLogger<WindowsSessionLogoffService>.Instance),
             logonService,
             options ?? new WindowsSessionSwitchOptions(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(1)),
+            clock ?? new WindowsSessionSwitchClock(),
             delay ?? new WindowsSessionSwitchDelay(),
             NullLogger<WindowsSessionSwitchService>.Instance);
     }
@@ -767,10 +876,37 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         }
     }
 
+    private sealed class ElapsedTransitionResolver : IWindowsConsoleSessionResolver
+    {
+        private readonly ManualSwitchClock _clock;
+        private readonly TimeSpan _transitionAt;
+        private readonly ConsoleSessionIdentityObservation _before;
+        private readonly ConsoleSessionIdentityObservation _after;
+
+        public ElapsedTransitionResolver(
+            ManualSwitchClock clock,
+            TimeSpan transitionAt,
+            ConsoleSessionIdentityObservation before,
+            ConsoleSessionIdentityObservation after)
+        {
+            _clock = clock;
+            _transitionAt = transitionAt;
+            _before = before;
+            _after = after;
+        }
+
+        public Task<ConsoleSessionIdentityObservation> ObserveAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(_clock.Elapsed >= _transitionAt ? _after : _before);
+        }
+    }
+
     private sealed class RecordingLogoffController : IWindowsSessionLogoffController
     {
         private readonly TaskCompletionSource _called =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool Result { get; init; } = true;
 
         public int Calls { get; private set; }
         public List<uint> SessionIds { get; } = [];
@@ -780,8 +916,8 @@ public sealed class WindowsSessionSwitchTests : IDisposable
             Calls++;
             SessionIds.Add(sessionId);
             _called.TrySetResult();
-            win32Error = 0;
-            return true;
+            win32Error = Result ? 0 : 5;
+            return Result;
         }
 
         public Task WaitForCallAsync(TimeSpan timeout)
@@ -814,6 +950,51 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         {
             _source.Cancel();
             return Task.FromCanceled(cancellationToken);
+        }
+    }
+
+    private sealed class ManualSwitchClock : IWindowsSessionSwitchClock
+    {
+        public TimeSpan Elapsed { get; private set; }
+
+        public long GetTimestamp()
+        {
+            return 0;
+        }
+
+        public TimeSpan GetElapsedTime(long startingTimestamp)
+        {
+            return Elapsed;
+        }
+
+        public void Advance(TimeSpan elapsed)
+        {
+            Elapsed += elapsed;
+        }
+    }
+
+    private sealed class AdvancingSwitchDelay : IWindowsSessionSwitchDelay
+    {
+        private readonly ManualSwitchClock _clock;
+
+        public AdvancingSwitchDelay(ManualSwitchClock clock)
+        {
+            _clock = clock;
+        }
+
+        public int Calls { get; private set; }
+
+        public TimeSpan TotalDelay { get; private set; }
+
+        public List<TimeSpan> Delays { get; } = [];
+
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            Calls++;
+            Delays.Add(delay);
+            TotalDelay += delay;
+            _clock.Advance(delay);
+            return Task.CompletedTask;
         }
     }
 

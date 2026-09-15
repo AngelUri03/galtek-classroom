@@ -24,6 +24,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.LogonManagedAccount, operations);
         Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
         Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
+        Assert.Contains(ClassroomOperationTypes.GetManagedAccountStatus, operations);
         Assert.Contains(ClassroomOperationTypes.ProvisionManagedCredential, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserDownloadPolicy, operations);
@@ -531,6 +532,60 @@ public sealed class OperationContractsTests
             "MANAGED_CREDENTIAL_PROVISIONING_V1",
             ClassroomCapabilities.ManagedCredentialProvisioningV1);
         Assert.True(Enum.IsDefined(NetworkCapability.ManagedCredentialProvisioningV1));
+    }
+
+    [Fact]
+    public void ManagedAccountStatusRemoteContract_IsReadOnlyAndSecretFree()
+    {
+        var request = new OperationRequest
+        {
+            OperationId = Guid.NewGuid().ToString("D"),
+            OperationType = NetworkOperationType.GetManagedAccountStatus,
+            TargetDeviceId = "device-1",
+            ProtocolVersion = "1"
+        };
+        var result = new OperationResult
+        {
+            OperationId = request.OperationId,
+            OperationType = NetworkOperationType.GetManagedAccountStatus,
+            TargetDeviceId = request.TargetDeviceId,
+            ProtocolVersion = "1",
+            Status = OperationExecutionStatus.Success,
+            ManagedAccountStatus = new ManagedAccountStatusResult
+            {
+                Accounts =
+                {
+                    new ManagedAccountStatus
+                    {
+                        AccountId = ManagedWindowsAccountId.Primary,
+                        Configured = true,
+                        CredentialConfigured = true,
+                        CredentialStatus = ManagedAccountCredentialStatus.Ready,
+                        WindowsAccountName = @"PC14\Primaria"
+                    }
+                }
+            }
+        };
+
+        Assert.Equal(OperationRequest.OperationParametersOneofCase.None, request.OperationParametersCase);
+        Assert.Equal(OperationResult.ResultDetailsOneofCase.ManagedAccountStatus, result.ResultDetailsCase);
+
+        var slotProperties = typeof(ManagedAccountStatus)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("AccountId", slotProperties);
+        Assert.Contains("Configured", slotProperties);
+        Assert.Contains("CredentialConfigured", slotProperties);
+        Assert.Contains("CredentialStatus", slotProperties);
+        Assert.Contains("WindowsAccountName", slotProperties);
+        Assert.DoesNotContain("WindowsSid", slotProperties);
+        Assert.DoesNotContain("Password", slotProperties);
+        Assert.DoesNotContain("ProtectedData", slotProperties);
+        Assert.DoesNotContain("CredentialId", slotProperties);
+        Assert.DoesNotContain("VaultSessionToken", slotProperties);
+        Assert.DoesNotContain("SessionId", slotProperties);
+        Assert.True(Enum.IsDefined(NetworkCapability.ManagedAccountStatusV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

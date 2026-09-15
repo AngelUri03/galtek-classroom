@@ -1,5 +1,403 @@
 # Historial
 
+## 2026-09-15 - Cierre fisico Paso 19 / 19I2 PC14
+
+### Realizado
+
+- Cerrado Paso 19 / 19I2 como `REAL E2E VALIDATED ON PC14` para PC14 fisica con Windows 11 Education x64 build 22621.
+- Registrado que `LOGON_MANAGED_ACCOUNT(PRIMARY)` ya estaba validado E2E real: `NO_SESSION`, activation `PRIMARY`, Credential Provider, `ACQUIRE_PENDING_CREDENTIAL`, serialization Kerberos corregida, Winlogon `Resultado 0`, `CP_REPORT_RESULT status=0`, `REPORT_LOGON_RESULT SUCCESS`, sesion real `ICH11\ICH-PRIMARIA-14` y Master `SUCCESS`.
+- Registrado el retest final de `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)` con `operationId=d90e01e9-8cda-401a-b7ad-9df7f8c3d11c`, `targetAccountId=SECONDARY`, target `deviceId=2966678f-0f07-43ad-936f-8fcd8fc308dd`, `summary total=1 noChange=0 success=1 failed=0` y Master `SUCCESS`.
+- Registrada la timeline real del switch: `WINDOWS_SWITCH_LOGOFF_ACCEPTED source=PRIMARY target=SECONDARY`, `WINDOWS_SWITCH_WAIT_STATE state=PrimaryActive elapsedMs=0`, `WINDOWS_SWITCH_WAIT_STATE state=Unknown elapsedMs=6505`, `WINDOWS_SWITCH_WAIT_STATE state=NoSession elapsedMs=6886`, `WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs=6886`, `WAIT_LISTENER_ENTERED accountId=SECONDARY timeoutMs=750`, `LISTENER_AVAILABILITY_SATISFIED:active_wait accountId=SECONDARY`, `GET_PENDING_ACTIVATION_IDENTITY SUCCESS`, `ACQUIRE_PENDING_CREDENTIAL payload=binary` y `REPORT_LOGON_RESULT SUCCESS`.
+- Registrado que Windows dejo activa la consola como `IHTEC-SECUNDARIA-14` y que `query user` confirmo `ihtec-secundaria-14`, `console`, `Activo`; una PowerShell elevada bajo `ADMIN-14` no cambia la autoridad de consola fisica.
+- Cerrados como antecedentes historicos los estados stale `ReportResult` pendiente, `WINDOWS_LOGON_NOT_CONFIRMED` como frontera vigente, `LOGON_MANAGED_ACCOUNT` no E2E, `SWITCH_MANAGED_ACCOUNT` no E2E y `19I2 REAL_INSTALL_VALIDATION_PENDING`.
+- Confirmado que `PostLogoffWait=24s` queda validado en hardware real; aunque en este retest `NO_SESSION` llego a aproximadamente 6886ms, se conserva 24s por la evidencia previa de logout real de aproximadamente 15-18s en PC14.
+- Actualizada documentacion de estado vigente, decisiones, Windows Session Logon, Windows Session Switch y Windows Session State.
+
+### Cambios descartados
+
+- No se modifico codigo ni comportamiento funcional.
+- No se refactorizo.
+- No se agregaron tests, features ni commits.
+- No se declaro validado Windows 10, todas las builds de Windows 11, escenarios multi-PC, boot storm, overwrite de installer sobre `appsettings.json` / `MasterConnection`, cold boot SCM 7000/7009, cambio externo de password / credential out-of-sync, UI ni Commercial licensing offline Hub final.
+
+### Deuda futura
+
+- `install-agent-service.ps1` puede sobrescribir `appsettings.json` / `MasterConnection`.
+- Agent Service puede sufrir SCM 7009/7000 en cold boot en PC14.
+- Si un usuario cambia password Windows fuera de Galtek, la credencial DPAPI queda desincronizada; queda pendiente cambio administrado desde Galtek y deteccion `CREDENTIAL_OUT_OF_SYNC` o equivalente.
+- Flujo comercial offline Hub -> Master -> sublicencias Clients.
+- UI final.
+
+### Validacion
+
+- `git diff --check`: correcto, sin errores de whitespace; Git solo reporto advertencias locales LF->CRLF del working tree.
+
+## 2026-09-15 - PC14 SWITCH post-logoff timeout
+
+### Realizado
+
+- Registrado el fallo fisico real PC14 de `SWITCH_MANAGED_ACCOUNT(PRIMARY -> SECONDARY)`: `WTSLogoffSession` fue aceptado a las 21:55:30, Windows cerro realmente `PRIMARY` unos 15-18s despues, LogonUI/Credential Provider aparecio despues y `SECONDARY` nunca llego a activation.
+- Auditado `WindowsSessionSwitchService`: el timeout productivo post-logoff era exactamente 12s, con polling de 300ms, deadline basado en `DateTimeOffset.UtcNow` y fallo inmediato ante `UNKNOWN` durante la espera.
+- Corregida la espera local post-logoff a 24s con reloj monotono inyectable, polling conservador de 300ms y `UNKNOWN` transitorio hasta `NO_SESSION`, target activo, otra sesion real o deadline.
+- Agregados logs no secretos para SWITCH: `WINDOWS_SWITCH_LOGOFF_ACCEPTED`, `WINDOWS_SWITCH_WAIT_STATE`, `WINDOWS_SWITCH_NO_SESSION_CONFIRMED` y `WINDOWS_SWITCH_WAIT_TIMEOUT`, emitiendo estado solo cuando cambia y resultado final.
+- Agregadas regresiones de switch para `NO_SESSION` inmediato, source persistente, `UNKNOWN -> NO_SESSION`, logout legacy de 18s simulado con fake clock, timeout, otra sesion real, target activo durante espera, WTS rechazado, no logon antes de `NO_SESSION`, sin retry automatico, sin segundo WTS y sin busy-loop.
+- Actualizada documentacion de estado vigente, decisiones, Windows Session Switch y Windows Session State.
+
+### Cambios descartados
+
+- No se modifico Credential Provider, provisioning, DPAPI, passwords, pairing, mTLS, Master batch, licencia, serialization Kerberos ni `ReportResult`.
+- No se agrego sleep fijo de 20s, retry remoto, polling agresivo, login antes de `NO_SESSION`, inferencia por LogonUI ni autoridad del Session Agent.
+- No se hizo commit.
+
+### Validacion
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch"` en `agent`: correcto, 35 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~WindowsSessionSwitch|FullyQualifiedName~WindowsSessionLogoff|FullyQualifiedName~WindowsSessionState|FullyQualifiedName~WindowsSessionLogon"` en `agent`: correcto, 108 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 658 pruebas Service superadas.
+- `.\installer\windows\publish-agent-service.ps1`: correcto; artifact en `artifacts/windows/agent-service`.
+- SHA-256 de `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.dll`: `CC4C3DD65E72CA1627BF55104431799FF9413583705156CACFD7020CAC848291`.
+- SHA-256 de `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.exe`: `914AD6C7E8C61F9ED918D1C2A7257BADF25E7D79D4D91B53B9D0B0CEEF302A06`; coincide con publicaciones previas documentadas, por lo que el host EXE no cambio.
+
+### Pendiente
+
+- Retest fisico PC14 con Agent Service actualizado; no declarar `SWITCH_MANAGED_ACCOUNT` E2E hasta observar `NO_SESSION`, activation/logon de target y resultado final real.
+
+## 2026-09-15 - PC14 identity snapshot / GetCredentialCount
+
+### Realizado
+
+- Registrada nueva evidencia fisica PC14 con Credential Provider package `sha256-fa1ef3897747b9ae`: `WAIT_FOR_ACTIVATION_CHANGE` devolvio success, `CredentialsChanged` fue llamado, `HRESULT` real fue `S_OK`, LogonUI reenumero y `GetCredentialCount` se ejecuto.
+- La frontera anterior notification/callback queda cerrada; la nueva frontera fisica queda en `GetCredentialCount -> GET_PENDING_ACTIVATION_IDENTITY -> BridgeClient -> identity snapshot`, porque el provider registro `CP_GET_CREDENTIAL_COUNT_NO_IDENTITY` y devolvio `count=0 autoLogon=0`.
+- Auditado el contrato real de `GET_PENDING_ACTIVATION_IDENTITY`: una respuesta con identidad debe ser `SUCCESS`, `activationStatus=PENDING` y `pendingIdentity` con `activationId`, `accountId`, `userSid`, `domain`, `username` y `autoSubmitRequested`.
+- Endurecido el parser nativo de identity para validar `protocolVersion`, `status`, `activationStatus`, objeto `pendingIdentity`, GUID de `activationId`, `accountId` limitado a `PRIMARY|SECONDARY` y campos internos no vacios antes de publicar `_identity/_hasCredential`.
+- Agregado diagnostico nativo opt-in por etapa para identity query: connect, write, read length, read payload, framing, protocol, status, JSON, account e identity validation, sin registrar SID completo, username, domain, activationId completo, password, JSON de respuesta ni credential bytes.
+- Documentado que una nueva generation alrededor de +45 segundos coincide con el TTL default de activation y debe investigarse como probable expiracion/cleanup normal; no debe contarse como segundo intento valido de login sin payload `activationStatus=PENDING`.
+- Ampliado self-test nativo con respuesta `SUCCESS -> pendingIdentity -> snapshot`, respuesta recibida antes del deadline, timeout acotado, `GetCredentialCount` sin mutex durante pipe I/O, malformed response fail-closed, protocol mismatch fail-closed, accountId invalido fail-closed y no identity count=0 fail-open.
+
+### Cambios descartados
+
+- No se modifico Agent Service, caller validation, fresh presence, listener timeout, activation TTL, CredentialsChanged retry, password, DPAPI, CredProtectW, Kerberos packer, Master, pairing/mTLS, licensing, installer ni Service boot.
+- No se agrego `LogonUser`, SendKeys, UI Automation, Registry autologon, polling, sleeps arbitrarios ni extension de TTL.
+- No se hizo commit.
+
+### Validacion
+
+- MSBuild Release x64 Credential Provider: correcto.
+- MSBuild Release x64 self-test: correcto.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `installer/windows/publish-credential-provider.ps1`: correcto; package `sha256-a91790d1061a5f1b`, SHA-256 `a91790d1061a5f1b6a4ed6234a1084a6442aa96489a6e11f3453cc50a58ff3ff`, Authenticode `NOT_SIGNED`.
+- `installer/windows/test-credential-provider-package.ps1`: correcto.
+- `git diff --check`: sin errores.
+
+### Pendiente
+
+- Validar fisicamente `CP_IDENTITY_SNAPSHOT_COMMITTED`, `count=1`, `GetSerialization`, `ACQUIRE_PENDING_CREDENTIAL`, serialization Kerberos corregida, `ReportResult` y logon real.
+
+## 2026-09-14 - PC14 notification callback / reenumeration
+
+### Realizado
+
+- Registrada nueva evidencia fisica PC14 para `operationId=7a4abf1b-6972-42df-8ca6-6f764e06a69b`, `accountId=PRIMARY`: a las 17:28 hubo `WAIT_LISTENER_ENTERED timeoutMs=750`, `LISTENER_AVAILABILITY_SATISFIED:active_wait`, activation creada, `WAIT_FOR_ACTIVATION_CHANGE SUCCESS`, caller validation real desde LogonUI `clientPid=5464`, `CALLER_VALIDATION_PASSED` y `FRESH_PRESENCE_MARKED`.
+- Registrado que entre 17:28:15 y 17:29:15 no aparecieron `GET_PENDING_ACTIVATION_IDENTITY`, `ACQUIRE_PENDING_CREDENTIAL` ni `REPORT_LOGON_RESULT`; por tanto el fix de serialization Kerberos no fue ejercitado en ese intento.
+- Auditado el tramo nativo `Advise -> worker -> COM init -> CoMarshalInterThreadInterfaceInStream/CoGetInterfaceAndReleaseStream -> WAIT_FOR_ACTIVATION_CHANGE -> CredentialsChanged -> rearm -> UnAdvise/cancel`.
+- Encontrada causa raiz de codigo capaz de explicar la perdida: `NotificationWorker` actualizaba `observedGeneration` inmediatamente despues de `WAIT_FOR_ACTIVATION_CHANGE SUCCESS`, antes de conocer el `HRESULT` de `CredentialsChanged(adviseContext)`.
+- Corregido el worker para llamar `CredentialsChanged`, registrar el `HRESULT`, y avanzar `observedGeneration` solo cuando el callback devuelve exito.
+- Si `CredentialsChanged` falla, la generation queda no observada y el worker reintenta la misma generation con backoff acotado; no se agrego polling rapido ni polling de identity.
+- Agregada instrumentacion nativa no secreta: `CP_WORKER_WAIT_SUCCESS`, `CP_CREDENTIALS_CHANGED_CALL`, `CP_CREDENTIALS_CHANGED_RESULT`, `CP_WORKER_REARM`, `CP_UNADVISE`, `CP_WORKER_CANCEL`, `CP_GET_CREDENTIAL_COUNT_ENTERED`, `CP_GET_CREDENTIAL_COUNT_NO_IDENTITY`, `CP_GET_CREDENTIAL_COUNT_IDENTITY_READY`, `CP_GET_CREDENTIAL_COUNT_RETURN` y captura opt-in por archivo con `NativeTraceFile`.
+- Agregado `NativeTrace` compartido para mantener `OutputDebugStringW` y permitir archivo de trace solo cuando `HKLM\SOFTWARE\Galtek\Classroom\CredentialProvider\NativeTraceFile` o `GALTEK_CP_NATIVE_TRACE_FILE` estan configurados.
+- Ampliado el self-test nativo con fake `ICredentialProviderEvents`, bridge scriptable y pruebas de wait success, HRESULT failure, generation preservada, cancelacion por `UnAdvise`, destruccion del provider, snapshot identity tras callback, carrera callback/rearm, ausencia de polling rapido, no reacquire y fail-open de providers estandar.
+- Actualizada documentacion de Credential Provider, Windows Session Logon, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se modificaron Agent Service, caller validation, fresh presence, listener timeout, Agent contracts, serialization Kerberos, `CredProtectW`, packer, password/DPAPI, Master Java, pairing, mTLS, vault, bindings, provisioning, licensing, installer ni boot bug.
+- No se agrego polling de identity, sleep arbitrario para auth, retry automatico de auth, `LogonUser`, SendKeys, UI Automation, Registry autologon ni Credential Provider Filter.
+- No se trato `Pipe is broken` como root cause.
+- No se hizo commit.
+
+### Validaciones
+
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `.\installer\windows\publish-credential-provider.ps1`: correcto; `PackageId=sha256-fa1ef3897747b9ae`, SHA-256 `fa1ef3897747b9aef288246db55fe23e1f006813275c3235259e8ff0c6450c4f`, Authenticode `NOT_SIGNED`.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto.
+- `git diff --check`: correcto; solo warnings CRLF informativos del working tree.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- Frontera pendiente actual: notification callback / reenumeration LogonUI -> `GetCredentialCount` -> identity/acquire -> serialization corregida -> Winlogon/LSA -> `ReportResult`.
+- No declarar `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, password aceptada por Windows ni serialization Kerberos validada fisicamente hasta el siguiente retest en PC14 con el nuevo package.
+
+## 2026-09-14 - PC14 serialization Kerberos Result 87
+
+### Realizado
+
+- Registrada nueva evidencia fisica concluyente de PC14, Windows 11 Education x64 build 22621: `WAIT_LISTENER_ENTERED`, `LISTENER_AVAILABILITY_SATISFIED:active_wait`, activation creada, caller validation pasada desde LogonUI real `clientPid=1708`, fresh presence marcada, `GET_PENDING_ACTIVATION_IDENTITY SUCCESS` y `ACQUIRE_PENDING_CREDENTIAL` binario completado para `PRIMARY`.
+- Registrado que no aparecio `CREDENTIAL_PROVIDER_UNAVAILABLE` en ese retest.
+- Registrado resultado real de Windows: LogonUI mostro `ICH-PRIMARIA-14` y `El parametro no es correcto`; Winlogon/Operational registro a las 17:00:24 autenticacion iniciada y detenida con `Resultado 87` / `ERROR_INVALID_PARAMETER`.
+- Documentado que la autenticacion de 17:01:51 con `Resultado 0` corresponde al login manual posterior de diagnostico y no valida Galtek.
+- Auditado `GetSerialization`, `CredProtectW`, `KERB_INTERACTIVE_UNLOCK_LOGON`, `UNICODE_STRING`, packing, `Negotiate`, `CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION` y `ReportResult`.
+- Encontrada causa raiz nativa: `KerbInteractiveUnlockLogonPack` dejaba `UNICODE_STRING.Buffer` como punteros absolutos dentro de `rgbSerialization`, cuando Winlogon/LSA espera offsets relativos dentro del blob serializado. Ademas `MaximumLength` era `Length + sizeof(wchar_t)` aunque el blob no copiaba terminadores NUL.
+- Corregido el packer para escribir domain/username/password contiguos despues de la estructura, fijar `Buffer` a offsets relativos, usar `MaximumLength == Length`, validar overflow/alignment/rango y conservar `MessageType = KerbInteractiveLogon`.
+- Conservado `CredProtectW`, `LsaLookupAuthenticationPackage("Negotiate")`, `CoTaskMemAlloc` para `rgbSerialization`, one-time acquire, limpieza de buffers propios y fail-open hacia providers estandar.
+- Agregado diagnostico nativo temporal/no secreto por `OutputDebugStringW`: `CP_GET_SERIALIZATION_ENTERED`, `CP_IDENTITY_READY`, `CP_CREDENTIAL_ACQUIRED`, `CP_AUTH_PACKAGE_SUCCESS`, `CP_CREDPROTECT_SUCCESS`, `CP_PACK_SUCCESS`, `CP_SERIALIZATION_RETURNED` y `CP_REPORT_RESULT accountId=<PRIMARY|SECONDARY> status=<numeric> substatus=<numeric>`.
+- Ampliado self-test nativo con parser inverso del blob para comprobar `cbSerialization`, offsets relativos, rangos, alignment, `Length <= MaximumLength`, longitudes en bytes, `MessageType`, ausencia de punteros absolutos en los campos empaquetados, vida del buffer tras retornar el builder, no reacquire y semantica basica de `ReportResult`.
+- Actualizada documentacion de Credential Provider, Windows Session Logon, arquitectura, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se tocaron caller validation, `ImpersonateNamedPipeClient`, fresh presence, `WaitForListener`, timeout del Agent listener, pairing, mTLS, licensing, Credential Vault, bindings managed, DPAPI/provisioning, Master Java, installer ni Service automatic boot.
+- No se elimino `CredProtectW`.
+- No se uso `LogonUser`, Registry autologon, SendKeys, UI Automation ni Credential Provider Filter.
+- No se trato `Result 87` como auth failure normal ni se mapeo a success.
+- No se hizo commit.
+
+### Validaciones
+
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- Observacion local: `LsaLookupAuthenticationPackage("Negotiate")` resolvio correctamente; en esta maquina el package id devuelto fue `0`, por lo que el contrato verificado es resolucion exitosa por LSA, no valor numerico no cero.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- Frontera pendiente actual: serialization corregida -> Winlogon/LSA -> `ReportResult STATUS_SUCCESS`.
+- No declarar `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT`, password aceptada por Windows ni cierre completo de 19I2 hasta retest fisico en PC14 con el nuevo package.
+
+## 2026-09-14 - P/Invoke caller-token Win32 PC14
+
+### Realizado
+
+- Registrada evidencia fisica nueva y concluyente de PC14 posterior al caller-token Win32 fix: el Agent Service nuevo recibio conexiones reales del bridge (`CP_BRIDGE_ACCEPTED`), pero caller validation fallo antes de impersonar por `EntryPointNotFoundException`.
+- La export inexistente buscada fue `NativeImpersonateNamedPipeClient` en `advapi32.dll`; la API Win32 real es `ImpersonateNamedPipeClient`.
+- Una sola operacion `SWITCH_MANAGED_ACCOUNT(PRIMARY)` entro a `WAIT_LISTENER_ENTERED` con `operationId=cbd47e8b-af93-40f5-ba2a-b69efd278921`, `accountId=PRIMARY`, `timeoutMs=750`, y termino en `LISTENER_AVAILABILITY_TIMEOUT`.
+- Documentado que no hubo `CALLER_VALIDATION_PASSED` ni `FRESH_PRESENCE_MARKED` porque el P/Invoke fallo antes. Por tanto `ERROR_CANNOT_IMPERSONATE` 1368 todavia no quedo demostrado fisicamente en el nuevo path Win32.
+- Corregido solo el binding P/Invoke del caller-token path: los imports productivos fijan `EntryPoint` real y `ExactSpelling`.
+- Agregada regresion Windows-only que carga `advapi32.dll`/`kernel32.dll`, resuelve las exports productivas reales y comprueba metadata critica de `DllImport`.
+
+### Cambios descartados
+
+- No se tocaron fresh presence, listener timeout, Credential Provider C++, Master Java, pairing, licensing, vault, provisioning, bindings ni installer/boot.
+- No se declara LOGON/SWITCH validado.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge"` en `agent`: correcto, 55 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 652 pruebas Service superadas.
+- `.\installer\windows\publish-agent-service.ps1`: correcto; artifact en `artifacts/windows/agent-service`.
+- SHA-256 de `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.exe`: `914AD6C7E8C61F9ED918D1C2A7257BADF25E7D79D4D91B53B9D0B0CEEF302A06`.
+- SHA-256 de `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.dll`: `728B0E4C6DEB17F9E8987C6FD03F276A31623B31E748A97F2C518E0EB060908A`.
+- `git diff --check`: correcto, sin errores de whitespace; Git solo reporto advertencias locales LF->CRLF.
+
+## 2026-09-14 - Caller token validation Credential Provider PC14
+
+### Realizado
+
+- Registrada evidencia fisica concluyente de PC14: Agent Service diagnostico nuevo, Credential Provider productivo `sha256-b8c37b518085cc8f`, Client `PAIRED`/`ONLINE`/`REGISTERED`, `PRIMARY READY` y consola en LogonUI/`NO_SESSION`.
+- Una sola operacion `SWITCH_MANAGED_ACCOUNT(PRIMARY)` entro a `WAIT_LISTENER_ENTERED` con `operationId=cc0e0268-e3e7-415d-a992-ff1d05763d49`, `accountId=PRIMARY`, `timeoutMs=750`; durante la ventana y por mas de un minuto `clientPid=6916` llego repetidamente al bridge pero todos los callers fueron rechazados como token.
+- Documentado que no aparecieron `CALLER_VALIDATION_PASSED`, `FRESH_PRESENCE_MARKED`, `LISTENER_AVAILABILITY_SATISFIED:active_wait` ni `LISTENER_AVAILABILITY_SATISFIED:fresh_presence`; por tanto `WaitForListener` y `CREDENTIAL_PROVIDER_UNAVAILABLE` fueron consecuencia del rechazo de caller token validation.
+- Corregida la causa raiz de orden: el Service leia el token del caller antes de leer el primer frame del pipe; `ImpersonateNamedPipeClient` usa el contexto del ultimo mensaje leido, por lo que LogonUI fisico podia llegar por PID 6916 y aun asi fallar en token validation antes de fresh presence.
+- Reemplazada la obtencion opaca del SID del caller (`NamedPipeServerStream.RunAsClient` + `WindowsIdentity.GetCurrent`) por una ruta Win32 explicita y auditable: `ImpersonateNamedPipeClient`, `OpenThreadToken(TOKEN_QUERY, OpenAsSelf=true)`, `GetTokenInformation(TokenUser)`, `ConvertSidToStringSidW`, `LocalFree`, `CloseHandle` y `RevertToSelf`.
+- El tramo de token validation queda sincronico y acotado durante impersonation; no hay `await`, `RunAsClient` con lambda async, consulta en otro thread, `RevertToSelf` antes de `GetTokenInformation`, token del proceso Agent ni fallback por `OpenProcessToken(clientPid)`.
+- `CALLER_VALIDATION_FAILED:token` queda refinado a etapas estructuradas como `impersonation`, `open_thread_token`, `token_user_length`, `token_user`, `token_sid`, `revert_to_self` o `not_local_system`; fallos Win32 registran `win32=<codigo>` y `clientPid` sin token handles, SID completo, username ni secretos.
+- Reducido el ruido de `Pipe is broken` solo para el caso secundario de peer cerrado despues de un rechazo de caller; no cambia seguridad ni protocolo.
+- Agregadas regresiones para stage/error de token validation, access right minimo `TOKEN_QUERY`, lectura de `TokenUser` dentro de impersonation y caller no-LocalSystem rechazado como `not_local_system`.
+
+### Cambios descartados
+
+- No se aumento el timeout de 750ms ni la ventana de fresh presence.
+- No se agrego bypass de listener, autorizacion solo por PID/path, fallback a token de proceso, Credential Provider Filter, Registry autologon, SendKeys, UI Automation, `LogonUser`, `CreateProcessWithLogonW`, `CreateProcessAsUser`, shell/PowerShell ni password desde Master.
+- No se tocaron pairing, mTLS, licensing, vault, provisioning, bindings, Master Java ni los bugs separados de `install-agent-service.ps1`/SCM automatic boot.
+- No se modifico C++ del Credential Provider; CP sigue sin cambios.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge"` en `agent`: correcto, 54 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~WindowsSessionLogon"` en `agent`: correcto, 75 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 651 pruebas Service superadas.
+- `.\installer\windows\publish-agent-service.ps1`: correcto; artifact en `artifacts/windows/agent-service`.
+- SHA-256 nuevo de `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.exe`: `914AD6C7E8C61F9ED918D1C2A7257BADF25E7D79D4D91B53B9D0B0CEEF302A06`.
+- `git diff --check`: correcto, sin errores de whitespace; Git solo reporto advertencias locales LF->CRLF.
+- Credential Provider C++ no cambio en esta correccion y no se genero package CP nuevo; manifest vigente `sha256-b8c37b518085cc8f`, SHA-256 `b8c37b518085cc8f53137b463b009aa6e52707328b761f4464b83b16cfde0211`.
+
+## 2026-09-14 - Segunda investigacion Credential Provider PC14
+
+### Realizado
+
+- Registrada evidencia fisica nueva: PC14 tenia Agent Service nuevo y Credential Provider package `sha256-b8c37b518085cc8f`, estaba `PAIRED`, `ONLINE`, `REGISTERED`, `PRIMARY` READY, pero `SWITCH_MANAGED_ACCOUNT(PRIMARY)` fallo en LogonUI con `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- Corregida la documentacion para no afirmar como hecho probado que LogonUI cancela `Advise` por `count=0` y que esa sea la causa raiz suficiente; el primer fix no cerro la validacion fisica.
+- Auditada composicion DI: `CredentialProviderActivationStore` y `CredentialProviderActivationService` son singleton compartidos por bridge, `WindowsSessionLogonService` y `WindowsSessionSwitchService`; agregada regresion que resuelve el `ServiceProvider` productivo y prueba la misma autoridad de state/presence.
+- `WaitForListener` ahora distingue `active_wait`, `fresh_presence` y `unavailable`; `WindowsSessionLogonService` registra `WAIT_LISTENER_ENTERED`, `LISTENER_AVAILABILITY_SATISFIED:<active_wait|fresh_presence>` o `LISTENER_AVAILABILITY_TIMEOUT`.
+- Agregado tracing no secreto del bridge para caller validation pasada/fallida por categoria, fresh presence marcada, operation recibida y response/write; caller rejection nunca marca fresh presence.
+- Agregados tests de waiter ya bloqueado que despierta con fresh presence posterior, expiracion cerrada, race repetida sin lost wake-up y caller rejection sin fresh presence.
+- Auditado cliente nativo `WAIT_FOR_ACTIVATION_CHANGE`: la lectura long-poll vigente no usa el timeout corto de RPC; el self-test ahora mantiene un wait por 2.5s, comprueba que no aborta alrededor de 1s y valida cancelacion acotada por `UnAdvise`.
+- Fresh presence se conserva como tolerancia acotada bajo retest; no se agrega listener falso, bypass, disponibilidad indefinida ni timeout enorme arbitrario.
+- PC14 sigue `PENDING` para `LOGON_MANAGED_ACCOUNT`/`SWITCH_MANAGED_ACCOUNT` real hasta desplegar el nuevo artifact y observar las nuevas senales.
+
+### Cambios descartados
+
+- No se modificaron los dos bugs separados del dia: `install-agent-service.ps1` pisando `MasterConnection` durante update ni SCM 7009/7000 del Agent Automatic al boot.
+- No se cambiaron pairing, mTLS, licensing, Credential Vault, provisioning, managed bindings ni Master Java.
+- No se agrego Credential Provider Filter, Registry autologon, `DefaultPassword`, SendKeys, UI Automation, `LogonUser`, `CreateProcessWithLogonW`, `CreateProcessAsUser`, shell/PowerShell para login ni password desde Master.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~WindowsSessionLogon"` en `agent`: correcto, 71 pruebas Service superadas.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 647 pruebas Service superadas.
+- `.\installer\windows\publish-credential-provider.ps1`: correcto; la DLL productiva no cambio, `PackageId=sha256-b8c37b518085cc8f`, SHA-256 `b8c37b518085cc8f53137b463b009aa6e52707328b761f4464b83b16cfde0211`, Authenticode `NOT_SIGNED`.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto.
+- `.\installer\windows\publish-agent-service.ps1`: correcto; `artifacts/windows/agent-service/GaltekClassroom.Agent.Service.dll` SHA-256 `64EFD9EC95DEEFFA5143E24F48406048F1F684629B1BD371BB05C61448709E68`.
+- `git diff --check`: correcto, sin errores; solo avisos de conversion LF/CRLF existentes en working copy.
+
+## 2026-09-14 - Fix listener Credential Provider en LogonUI PC14
+
+### Realizado
+
+- Registrado fallo real de PC14 fisica durante validacion E2E de `LOGON_MANAGED_ACCOUNT`/`SWITCH_MANAGED_ACCOUNT`: PC14 en LogonUI, cuentas Windows visibles, Master recibia `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+- La evidencia critica fue Event Log del Agent con conexiones repetidas al pipe `GaltekClassroom.CredentialProvider.v1` y `System.IO.IOException: Pipe is broken` al escribir la respuesta.
+- Hipotesis de causa raiz en ese momento: el Agent solo consideraba disponible un long-poll activo de `WAIT_FOR_ACTIVATION_CHANGE`; en LogonUI real, al enumerar Galtek `count=0` sin activation, Windows puede cancelar `Advise`/destruir el worker rapidamente y repetir el ciclo con el backoff del provider, aproximadamente 1 segundo. La segunda investigacion del mismo dia registro que esta hipotesis no cerro la validacion fisica por si sola.
+- Agregada observacion fresca de listener LogonUI autorizado: tras pasar caller validation estricta del bridge, el Agent marca disponibilidad por 3 segundos aunque el peer cierre antes de que el long-poll llegue a recibir una activation.
+- `WindowsSessionLogonService` conserva la espera previa a activation, pero ahora `WaitForListenerAsync` acepta long-poll activo o presencia fresca autorizada.
+- El `BridgeClient` nativo admite nombre de pipe inyectable solo para tests; el default productivo sigue siendo `\\.\pipe\GaltekClassroom.CredentialProvider.v1`.
+- Agregado self-test nativo con pipe aislado que verifica que `WAIT_FOR_ACTIVATION_CHANGE` mantiene viva la conexion y no retorna antes de leer una respuesta demorada.
+- Agregadas regresiones .NET para presencia fresca, expiracion de presencia, wake posterior por generation y disponibilidad sin long-poll activo.
+- Publicado nuevo Credential Provider package `sha256-b8c37b518085cc8f`, SHA-256 `b8c37b518085cc8f53137b463b009aa6e52707328b761f4464b83b16cfde0211`.
+
+### Cambios descartados
+
+- No se modificaron licensing, pairing, gRPC/mTLS, Credential Vault, provisioning, bindings, DPAPI ni Master Java.
+- No se debilitaron ACLs ni caller validation del bridge: siguen PID real, `LogonUI.exe`, sesion interactiva y `LocalSystem`.
+- No se agrego password a logs/tests, reveal, fallback plaintext, autologon inseguro, comandos arbitrarios ni bypass de pairing/mTLS.
+- No se cambio el criterio de exito: `OperationResult SUCCESS` sigue dependiendo de `REPORT_LOGON_RESULT SUCCESS` despues de autenticacion real de Windows.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CredentialProviderBridge|FullyQualifiedName~WindowsSessionLogon|FullyQualifiedName~WindowsSessionSwitch"` en `agent`: correcto, 99 pruebas Service superadas.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider.Tests/GaltekClassroom.CredentialProvider.Tests.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `agent/native/GaltekClassroom.CredentialProvider.Tests/x64/Release/GaltekClassroom.CredentialProvider.Tests.exe`: correcto, `Credential Provider self-test passed`.
+- MSBuild Release x64 de `agent/native/GaltekClassroom.CredentialProvider/GaltekClassroom.CredentialProvider.vcxproj`: correcto, 0 advertencias, 0 errores.
+- `.\installer\windows\publish-credential-provider.ps1`: correcto; `PackageId=sha256-b8c37b518085cc8f`, SHA-256 `b8c37b518085cc8f53137b463b009aa6e52707328b761f4464b83b16cfde0211`, Authenticode `NOT_SIGNED`.
+- `.\installer\windows\test-credential-provider-package.ps1`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 643 pruebas Service superadas.
+
+### Estado 19I2
+
+- `REAL_INSTALL_VALIDATION_PENDING`.
+- La validacion fisica de `LOGON_MANAGED_ACCOUNT`, `SWITCH_MANAGED_ACCOUNT` y password aceptada/rechazada por Windows sigue pendiente hasta desplegar el nuevo package en PC14 y repetir la prueba.
+
+### Commit sugerido
+
+`fix(credential-provider): tolerate transient logonui listener lifecycle`
+
+## 2026-09-14 - Bootstrap offline por archivos para pairing fisico
+
+### Realizado
+
+- Agregado bootstrap administrativo offline por archivos para ejecutar pairing fisico sin editar trust stores manualmente.
+- Agent Service agrega CLI `--pairing-export-descriptor <descriptor.json>` para generar un descriptor publico con `installationId`, `networkIdentityId`, fingerprint y SPKI publico.
+- Master Backend agrega CLI `--pairing-create-challenge <descriptor.json> --approve-pairing-intent --pairing-challenge-out <challenge.json>` para emitir `PairingChallenge` firmado y persistir estado pendiente mediante `MasterPairingService`.
+- Agent Service agrega CLI `--pairing-accept-challenge <challenge.json> --approve-pairing --pairing-response-out <response.json>` para aceptar con aprobacion explicita, persistir `authorized-masters.json` mediante `ClientPairingService` y emitir `PairingResponse`.
+- Master Backend agrega CLI `--pairing-complete <response.json>` para completar mediante `MasterPairingService` y persistir `paired-clients.json` en estado `PAIRED`.
+- Los archivos de transporte se escriben como JSON machine-readable y no contienen private keys ni secretos reutilizables.
+- Agregadas pruebas dirigidas del bridge/entrypoint para happy path, rechazo sin aprobacion/intencion explicita, challenge expirado, response invalida y ausencia de private key en outputs.
+- Actualizada documentacion de arquitectura, estado e historial.
+
+### Cambios descartados
+
+- No se rediseno ni duplico la logica criptografica de pairing.
+- No se escribieron directamente `authorized-masters.json` ni `paired-clients.json`; los stores los siguen modificando solo via `ClientPairingService` y `MasterPairingService`.
+- No se agrego discovery, mDNS, UI, pairing LAN automatico, trust implicito, shell/remoting, nuevos protocolos, cambios de licensing ni cambios de `MasterConnection`.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~PairingFileBootstrap|FullyQualifiedName~ClientPairingService|FullyQualifiedName~AgentCommandLine"` en `agent`: correcto, 6 pruebas Session y 37 pruebas Service superadas.
+- `mvn -q "-Dtest=PairingFileBootstrapServiceTest,MasterPairingServiceTest" test` en `master-backend`: correcto.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 639 pruebas Service superadas.
+- `mvn -q "-Dtest=PairingFileBootstrapServiceTest,SystemHealthControllerTest,DeviceControllerTest,MasterAuthorizationControllerTest" test` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 350 pruebas superadas, 0 fallas, 0 errores.
+
+### Commit sugerido
+
+`feat(pairing): add offline file bootstrap`
+
+## 2026-09-14 - Managed Account status y provisioning HTTP minimo
+
+### Realizado
+
+- Agregado al protocolo v1 `GET_MANAGED_ACCOUNT_STATUS`, `MANAGED_ACCOUNT_STATUS_V1`, `ManagedAccountStatusResult`, `ManagedAccountStatus` y `ManagedAccountCredentialStatus`.
+- Agregado en el Agent Service un handler read-only que devuelve exactamente `PRIMARY` y `SECONDARY`, valida bindings/SID/credential store y nunca llama `Acquire`.
+- Integrado el resultado tipado en dispatcher/capabilities/contratos del Agent.
+- Agregado en Master Backend el mapping de capability, operation type, priority y `MasterRemoteOperationGateway.getManagedAccountStatus(...)`.
+- Agregado endpoint `GET /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts` con preflight de autorizacion, storage, aula, Device, binding, trust, presencia online y capability.
+- Agregada API HTTP minima de Credential Vault: `status`, `initialize`, `unlock` y `lock`, con `application/octet-stream` UTF-8 sin BOM para master password y token opaco in-memory.
+- Agregado endpoint `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential` para upsert en vault y provisioning remoto de un slot explicito.
+- El flujo de provisioning conserva la ruta segura: password HTTP -> vault `WINDOWS_ACCOUNT(loginIdentifier = windowsAccountName)` -> bridge interno -> gRPC/mTLS `PROVISION_MANAGED_CREDENTIAL` -> DPAPI LocalSystem -> refresh de status.
+- Agregadas pruebas Agent de handler/dispatcher/contratos y pruebas Master de controller vault, service managed account, gateway y capability mapping.
+- Actualizada documentacion de API, vault, managed credentials, provisioning, protocolo, arquitectura, modelo funcional, reglas, estado, decisiones e historial.
+
+### Cambios descartados
+
+- No se agrego UI.
+- No se agrego BatchOperation, fanout, allDevices, groupId ni retry automatico de provisioning.
+- No se agrego reveal/list/export/clipboard/reset de Credential Vault.
+- No se persistio credentialId en SQLite ni se enviaron credentialId/vault token al Client.
+- No se expusieron password, SID, `protectedData`, sessionId ni token handles en respuestas.
+- No se valido password contra Windows con `LogonUserW` ni se cambio la password real.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 631 pruebas Service superadas.
+- `mvn -q -DskipTests compile` en `master-backend`: correcto.
+- `mvn -q test` en `master-backend`: correcto, 345 pruebas superadas, 0 fallas, 0 errores.
+- PC14 real sigue pendiente para `PRIMARY`/`SECONDARY` DPAPI/provisioning/logon/switch.
+
+### Commit sugerido
+
+`feat(classroom): expose managed account credential readiness`
+
+## 2026-09-13 - Commercial License Hub alignment
+
+### Realizado
+
+- Auditado el validador real de Commercial License, Machine Code, Installation Identity y persistencia de `license.dat`.
+- Documentado el contrato consumidor vigente en `docs/licensing/COMMERCIAL_LICENSE_CONTRACT.md`.
+- Agregadas regresiones negativas para issuer, audience, falta de rol `CLIENT`, `nbf` futuro y JWT manipulado.
+- Conservado el contrato: Classroom valida JWT RS256 emitido por Hub con public key configurada; no genera licencias.
+
+### Cambios descartados
+
+- No se agrego private key a Classroom.
+- No se cambio Machine Code.
+- No se cambio `license.dat`.
+- No se tocaron Network Identity, pairing, mTLS, Credential Provider, managed accounts, Session Agent ni UI.
+- No se hizo commit.
+
+### Validaciones
+
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln --filter "FullyQualifiedName~CommercialLicenseTests"` en `agent`: correcto, 21 pruebas Service superadas; Session sin coincidencias.
+- `C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln` en `agent`: correcto, 0 advertencias, 0 errores.
+- `C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln` en `agent`: correcto, 70 pruebas Session y 627 pruebas Service superadas.
+- `git diff --check`: correcto.
+
+### Commit sugerido
+
+`test(agent): protect commercial license hub contract`
+
 ## 2026-09-06 - Prompt 19H1
 
 ### Realizado

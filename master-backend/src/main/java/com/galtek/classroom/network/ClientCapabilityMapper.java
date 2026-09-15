@@ -44,6 +44,7 @@ public final class ClientCapabilityMapper {
             case NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1 -> DeviceCapability.WINDOWS_SESSION_SWITCH_V1;
             case NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 ->
                     DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1;
+            case NETWORK_CAPABILITY_MANAGED_ACCOUNT_STATUS_V1 -> DeviceCapability.MANAGED_ACCOUNT_STATUS_V1;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

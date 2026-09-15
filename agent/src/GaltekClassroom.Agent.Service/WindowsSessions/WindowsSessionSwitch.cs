@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
@@ -10,8 +11,28 @@ public sealed record WindowsSessionSwitchOptions(
     TimeSpan PostLogoffPollInterval)
 {
     public static WindowsSessionSwitchOptions Default { get; } = new(
-        TimeSpan.FromSeconds(12),
+        TimeSpan.FromSeconds(24),
         TimeSpan.FromMilliseconds(300));
+}
+
+public interface IWindowsSessionSwitchClock
+{
+    long GetTimestamp();
+
+    TimeSpan GetElapsedTime(long startingTimestamp);
+}
+
+public sealed class WindowsSessionSwitchClock : IWindowsSessionSwitchClock
+{
+    public long GetTimestamp()
+    {
+        return Stopwatch.GetTimestamp();
+    }
+
+    public TimeSpan GetElapsedTime(long startingTimestamp)
+    {
+        return Stopwatch.GetElapsedTime(startingTimestamp);
+    }
 }
 
 public interface IWindowsSessionSwitchDelay
@@ -51,6 +72,7 @@ public sealed class WindowsSessionSwitchService
     private readonly WindowsSessionLogoffService _logoffService;
     private readonly WindowsSessionLogonService _logonService;
     private readonly WindowsSessionSwitchOptions _options;
+    private readonly IWindowsSessionSwitchClock _clock;
     private readonly IWindowsSessionSwitchDelay _delay;
     private readonly ILogger<WindowsSessionSwitchService> _logger;
 
@@ -59,6 +81,7 @@ public sealed class WindowsSessionSwitchService
         WindowsSessionLogoffService logoffService,
         WindowsSessionLogonService logonService,
         WindowsSessionSwitchOptions options,
+        IWindowsSessionSwitchClock clock,
         IWindowsSessionSwitchDelay delay,
         ILogger<WindowsSessionSwitchService> logger)
     {
@@ -66,6 +89,7 @@ public sealed class WindowsSessionSwitchService
         _logoffService = logoffService;
         _logonService = logonService;
         _options = options;
+        _clock = clock;
         _delay = delay;
         _logger = logger;
     }
@@ -140,7 +164,7 @@ public sealed class WindowsSessionSwitchService
         }
 
         _logger.LogInformation(
-            "Windows accepted source managed session logoff for switch. SourceAccountId: {SourceAccountId}; TargetAccountId: {TargetAccountId}",
+            "WINDOWS_SWITCH_LOGOFF_ACCEPTED source={SourceAccountId} target={TargetAccountId}",
             sourceAccountId,
             targetAccountId);
 
@@ -168,14 +192,16 @@ public sealed class WindowsSessionSwitchService
         string targetAccountId,
         CancellationToken cancellationToken)
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(_options.PostLogoffWait);
+        long startedAt = _clock.GetTimestamp();
         TimeSpan interval = _options.PostLogoffPollInterval <= TimeSpan.Zero
             ? TimeSpan.FromMilliseconds(300)
             : _options.PostLogoffPollInterval;
+        ProtoWindowsSessionState? lastLoggedState = null;
 
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            TimeSpan elapsed = NonNegativeElapsed(startedAt);
 
             WindowsSessionStateServiceResult state =
                 await _sessionStateService.GetStateAsync(cancellationToken).ConfigureAwait(false);
@@ -184,8 +210,20 @@ public sealed class WindowsSessionSwitchService
                 return WindowsSessionSwitchTransitionResult.Failure(state.ErrorCode, state.Message);
             }
 
+            if (lastLoggedState != state.State)
+            {
+                _logger.LogInformation(
+                    "WINDOWS_SWITCH_WAIT_STATE state={State} elapsedMs={ElapsedMilliseconds}",
+                    state.State,
+                    (long)elapsed.TotalMilliseconds);
+                lastLoggedState = state.State;
+            }
+
             if (state.State == ProtoWindowsSessionState.NoSession)
             {
+                _logger.LogInformation(
+                    "WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs={ElapsedMilliseconds}",
+                    (long)elapsed.TotalMilliseconds);
                 return WindowsSessionSwitchTransitionResult.NoSession();
             }
 
@@ -194,20 +232,20 @@ public sealed class WindowsSessionSwitchService
                 return WindowsSessionSwitchTransitionResult.TargetActive();
             }
 
-            if (!StateMatchesAccount(state.State, sourceAccountId))
+            if (state.State != ProtoWindowsSessionState.Unknown
+                && !StateMatchesAccount(state.State, sourceAccountId))
             {
-                return state.State == ProtoWindowsSessionState.Unknown
-                    ? WindowsSessionSwitchTransitionResult.Failure(
-                        NetworkOperationErrorCode.WindowsSessionUnknown,
-                        "Windows console session identity could not be determined during switch.")
-                    : WindowsSessionSwitchTransitionResult.Failure(
-                        NetworkOperationErrorCode.WindowsSessionChanged,
-                        "Windows console session changed during switch.");
+                return WindowsSessionSwitchTransitionResult.Failure(
+                    NetworkOperationErrorCode.WindowsSessionChanged,
+                    "Windows console session changed during switch.");
             }
 
-            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            TimeSpan remaining = _options.PostLogoffWait - elapsed;
             if (remaining <= TimeSpan.Zero)
             {
+                _logger.LogWarning(
+                    "WINDOWS_SWITCH_WAIT_TIMEOUT elapsedMs={ElapsedMilliseconds}",
+                    (long)elapsed.TotalMilliseconds);
                 return WindowsSessionSwitchTransitionResult.Failure(
                     NetworkOperationErrorCode.WindowsSwitchNotConfirmed,
                     "Windows session switch was not confirmed after logoff request.");
@@ -216,6 +254,12 @@ public sealed class WindowsSessionSwitchService
             await _delay.DelayAsync(
                 remaining < interval ? remaining : interval,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        TimeSpan NonNegativeElapsed(long timestamp)
+        {
+            TimeSpan elapsed = _clock.GetElapsedTime(timestamp);
+            return elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
         }
     }
 

@@ -86,14 +86,36 @@ public sealed class WindowsSessionLogonService
             return Failure(accountPreflight.ErrorCode, accountPreflight.Message);
         }
 
-        if (!await _activationService.WaitForListenerAsync(
+        _logger.LogInformation(
+            "WAIT_LISTENER_ENTERED operationId={OperationId} accountId={AccountId} timeoutMs={TimeoutMilliseconds}.",
+            operationId,
+            accountId,
+            (long)_options.ProviderAvailabilityWait.TotalMilliseconds);
+
+        CredentialProviderListenerAvailability listenerAvailability =
+            await _activationService.WaitForListenerAvailabilityAsync(
                 _options.ProviderAvailabilityWait,
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken).ConfigureAwait(false);
+        if (listenerAvailability == CredentialProviderListenerAvailability.Unavailable)
         {
+            _logger.LogWarning(
+                "LISTENER_AVAILABILITY_TIMEOUT operationId={OperationId} accountId={AccountId} timeoutMs={TimeoutMilliseconds}.",
+                operationId,
+                accountId,
+                (long)_options.ProviderAvailabilityWait.TotalMilliseconds);
+
             return Failure(
                 NetworkOperationErrorCode.CredentialProviderUnavailable,
                 "Credential Provider listener is not available.");
         }
+
+        _logger.LogInformation(
+            "LISTENER_AVAILABILITY_SATISFIED:{AvailabilitySource} operationId={OperationId} accountId={AccountId}.",
+            listenerAvailability == CredentialProviderListenerAvailability.ActiveWait
+                ? "active_wait"
+                : "fresh_presence",
+            operationId,
+            accountId);
 
         WindowsSessionStateServiceResult second =
             await _sessionStateService.GetStateAsync(cancellationToken).ConfigureAwait(false);

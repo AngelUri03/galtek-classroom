@@ -107,6 +107,7 @@ public sealed class CredentialProviderBridgeServer : BackgroundService
             try
             {
                 await pipe.WaitForConnectionAsync(stoppingToken).ConfigureAwait(false);
+                _logger.LogDebug("CP_BRIDGE_ACCEPTED.");
                 await ProcessConnectionAsync(pipe, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -136,32 +137,77 @@ public sealed class CredentialProviderBridgeServer : BackgroundService
         PipeStream pipe,
         CancellationToken cancellationToken)
     {
+        // ImpersonateNamedPipeClient uses the security context of the last message read from the pipe.
+        var requestJson = await CredentialProviderBridgeFraming.ReadJsonAsync(pipe, cancellationToken)
+            .ConfigureAwait(false);
+
         var caller = _callerVerifier.Verify(pipe);
         if (!caller.Authorized)
         {
-            await WriteResponseAsync(
-                pipe,
-                CredentialProviderBridgeResponse.Error(
-                    string.Empty,
-                    CredentialProviderBridgeErrorCodes.Unauthorized),
-                cancellationToken).ConfigureAwait(false);
+            LogCallerValidationFailure(caller);
+
+            try
+            {
+                await WriteResponseAsync(
+                    pipe,
+                    CredentialProviderBridgeResponse.Error(
+                        string.Empty,
+                        CredentialProviderBridgeErrorCodes.Unauthorized),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException exception)
+            {
+                _logger.LogDebug(
+                    exception,
+                    "CP_BRIDGE_REJECTION_RESPONSE_PEER_CLOSED stage={FailureStage} clientPid={ClientProcessId}.",
+                    caller.FailureStage ?? CredentialProviderCallerValidationStages.Unknown,
+                    caller.ClientProcessId);
+            }
+
             return;
         }
 
-        var requestJson = await CredentialProviderBridgeFraming.ReadJsonAsync(pipe, cancellationToken)
-            .ConfigureAwait(false);
+        _logger.LogDebug(
+            "CALLER_VALIDATION_PASSED clientPid={ClientProcessId}.",
+            caller.ClientProcessId);
+
+        _requestHandler.MarkListenerObserved();
+        _logger.LogDebug(
+            "FRESH_PRESENCE_MARKED clientPid={ClientProcessId}.",
+            caller.ClientProcessId);
+
+        var operation = TryReadOperation(requestJson);
+        _logger.LogDebug(
+            "CP_BRIDGE_REQUEST operation={Operation}.",
+            operation);
+
         using var response = await _requestHandler.HandleFrameAsync(requestJson, caller, cancellationToken)
             .ConfigureAwait(false);
         if (response.BinaryPayload is not null)
         {
+            _logger.LogDebug(
+                "CP_BRIDGE_RESPONSE operation={Operation} payload=binary.",
+                operation);
             await CredentialProviderBridgeFraming.WritePayloadAsync(
                 pipe,
                 response.BinaryPayload,
                 cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug(
+                "CP_BRIDGE_WRITE_COMPLETED operation={Operation} payload=binary.",
+                operation);
             return;
         }
 
+        _logger.LogDebug(
+            "CP_BRIDGE_RESPONSE operation={Operation} status={Status} errorCode={ErrorCode}.",
+            operation,
+            response.JsonResponse!.Status,
+            response.JsonResponse.ErrorCode);
         await WriteResponseAsync(pipe, response.JsonResponse!, cancellationToken).ConfigureAwait(false);
+        _logger.LogDebug(
+            "CP_BRIDGE_WRITE_COMPLETED operation={Operation} status={Status}.",
+            operation,
+            response.JsonResponse.Status);
     }
 
     private static async Task WriteResponseAsync(
@@ -172,6 +218,46 @@ public sealed class CredentialProviderBridgeServer : BackgroundService
         var responseJson = JsonSerializer.Serialize(response, JsonOptions);
         await CredentialProviderBridgeFraming.WriteJsonAsync(pipe, responseJson, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static string TryReadOperation(string requestJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(requestJson);
+            if (document.RootElement.TryGetProperty("operation", out var operation)
+                && operation.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(operation.GetString()))
+            {
+                return operation.GetString()!;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return "UNKNOWN";
+    }
+
+    private void LogCallerValidationFailure(CredentialProviderCallerValidation caller)
+    {
+        var stage = string.IsNullOrWhiteSpace(caller.FailureStage)
+            ? CredentialProviderCallerValidationStages.Unknown
+            : caller.FailureStage;
+        if (caller.WindowsErrorCode is int windowsErrorCode)
+        {
+            _logger.LogWarning(
+                "CALLER_VALIDATION_FAILED:{FailureStage} clientPid={ClientProcessId} win32={Win32ErrorCode}.",
+                stage,
+                caller.ClientProcessId,
+                windowsErrorCode);
+            return;
+        }
+
+        _logger.LogWarning(
+            "CALLER_VALIDATION_FAILED:{FailureStage} clientPid={ClientProcessId}.",
+            stage,
+            caller.ClientProcessId);
     }
 }
 

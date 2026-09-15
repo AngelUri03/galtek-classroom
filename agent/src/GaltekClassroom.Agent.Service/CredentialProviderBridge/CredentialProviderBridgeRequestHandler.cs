@@ -47,6 +47,11 @@ public sealed class CredentialProviderBridgeRequestHandler
         _activationService = activationService;
     }
 
+    public void MarkListenerObserved()
+    {
+        _activationService.MarkListenerObserved();
+    }
+
     public async Task<CredentialProviderBridgeHandlerResult> HandleFrameAsync(
         string requestJson,
         CredentialProviderCallerValidation caller,

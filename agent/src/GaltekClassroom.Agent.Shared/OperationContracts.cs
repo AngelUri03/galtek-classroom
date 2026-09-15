@@ -18,6 +18,7 @@ public static class ClassroomOperationTypes
     public const string LogonManagedAccount = "LOGON_MANAGED_ACCOUNT";
     public const string LogoffWindowsSession = "LOGOFF_WINDOWS_SESSION";
     public const string SwitchManagedAccount = "SWITCH_MANAGED_ACCOUNT";
+    public const string GetManagedAccountStatus = "GET_MANAGED_ACCOUNT_STATUS";
     public const string ProvisionManagedCredential = "PROVISION_MANAGED_CREDENTIAL";
     public const string ApplyBrowserNavigationPolicy = "APPLY_BROWSER_NAVIGATION_POLICY";
     public const string ApplyBrowserDownloadPolicy = "APPLY_BROWSER_DOWNLOAD_POLICY";
@@ -319,4 +320,5 @@ public static class ClassroomCapabilities
     public const string WindowsSessionLogoffV1 = "WINDOWS_SESSION_LOGOFF_V1";
     public const string WindowsSessionSwitchV1 = "WINDOWS_SESSION_SWITCH_V1";
     public const string ManagedCredentialProvisioningV1 = "MANAGED_CREDENTIAL_PROVISIONING_V1";
+    public const string ManagedAccountStatusV1 = "MANAGED_ACCOUNT_STATUS_V1";
 }

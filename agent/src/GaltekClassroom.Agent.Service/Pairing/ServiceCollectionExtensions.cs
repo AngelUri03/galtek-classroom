@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<ClientTrustStore>();
         services.AddSingleton<ClientPairingService>();
+        services.AddSingleton<PairingFileBootstrapService>();
 
         return services;
     }

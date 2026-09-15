@@ -1,6 +1,6 @@
 # Managed Credential Provisioning
 
-Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL`, una operacion remota tipada y secret-bearing para cargar o reemplazar en el Client la password Windows almacenada por Galtek para `PRIMARY` o `SECONDARY`. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para usar una credencial `WINDOWS_ACCOUNT` ya almacenada, sin endpoint HTTP ni BatchOperation.
+Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL`, una operacion remota tipada y secret-bearing para cargar o reemplazar en el Client la password Windows almacenada por Galtek para `PRIMARY` o `SECONDARY`. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para usar una credencial `WINDOWS_ACCOUNT` ya almacenada, sin BatchOperation. La ampliacion 2026-09-14 agrega endpoint HTTP Master para provisionar un slot de un Device explicito con password recibida como octet-stream y persistida primero en Credential Vault.
 
 ## Contrato
 
@@ -92,14 +92,35 @@ El caller no entrega password, master password, username, SID, domain ni `accoun
 
 La password del Credential Vault sigue existiendo como `String` por el modelo 19A; Java `String` no puede zeroizarse de forma fiable. La garantia de 19E2 es no crear strings adicionales innecesarios, no persistir/loguear/cachear el secreto, mantener corta su vida de uso y limpiar la copia `byte[]` controlada.
 
-## Limites 19E1
+## Endpoint HTTP 2026-09-14
 
-19E1 no agrega Credential Vault bridge. 19E2 agrega solo el bridge interno Master. Sigue sin haber endpoint HTTP Master, BatchOperation, SQLite migration, retry automatico, reconciliation, status query nuevo, Local IPC credential op, Session Agent password handling, login, logoff, switch, Credential Provider, password verification, Windows password change, UI, clipboard ni reveal.
+`PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential` es la superficie administrativa minima para provisioning de un Device explicito. Requiere `MasterAccessGuard`, `X-Galtek-Vault-Session` y cuerpo `application/octet-stream` con password UTF-8 sin BOM. `accountId` debe ser `PRIMARY` o `SECONDARY`.
+
+Secuencia:
+
+```text
+Master HTTP
+  -> preflight aula/device/binding/trust/online/capabilities
+  -> GET_MANAGED_ACCOUNT_STATUS remoto
+  -> upsert Credential Vault WINDOWS_ACCOUNT(loginIdentifier = windowsAccountName)
+  -> ManagedCredentialProvisioningBridge
+  -> MasterRemoteOperationGateway.provisionManagedCredential
+  -> gRPC/mTLS PROVISION_MANAGED_CREDENTIAL
+  -> Agent Service LocalSystem
+  -> DPAPI user scope + managed-windows-credentials.dat
+  -> GET_MANAGED_ACCOUNT_STATUS refresh si SUCCESS
+```
+
+El request HTTP no acepta username, SID, domain, `accountReference`, credentialId, vault token en JSON, force, target lists, groupId, allDevices, command ni payload libre. La respuesta no contiene password, SID, `protectedData`, credentialId ni vault token. Si la operacion remota queda `OPERATION_RESULT_UNKNOWN`, no se infiere exito y no hay retry automatico.
+
+## Limites Vigentes
+
+Existe endpoint HTTP Master para provisioning explicito de un solo Device/slot. Sigue sin haber BatchOperation de provisioning, fanout, SQLite migration para credentialId, retry automatico, reconciliation, Local IPC credential op, Session Agent password handling, password verification, Windows password change, UI, clipboard ni reveal.
 
 Si el Master envia la operacion y no recibe `OperationResult`, el resultado correcto sigue siendo `OPERATION_RESULT_UNKNOWN`; no se infiere exito ni se reintenta automaticamente.
 
 ## Pendiente
 
-- 19F: `LOGOFF_WINDOWS_SESSION`.
-- 19G: `LOGON_MANAGED_ACCOUNT` / `SWITCH_MANAGED_ACCOUNT`.
-- 19H: dispatch batch Master, planner y superficie administrativa.
+- Validacion real del endpoint HTTP contra PC14 para `PRIMARY` y `SECONDARY`.
+- UI para inicializar/desbloquear vault, cargar password y observar `READY`.
+- Batch/fanout de provisioning solo si se disena explicitamente.

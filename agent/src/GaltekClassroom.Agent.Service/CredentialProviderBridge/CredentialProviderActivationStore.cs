@@ -27,6 +27,13 @@ public enum CredentialProviderLogonCompletionOutcome
     TimedOut
 }
 
+public enum CredentialProviderListenerAvailability
+{
+    Unavailable,
+    ActiveWait,
+    FreshPresence
+}
+
 public sealed record CredentialProviderActivation(
     string ActivationId,
     string AccountId,
@@ -114,7 +121,17 @@ public interface ICredentialProviderActivationStore
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken);
 
-    Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken);
+    Task<CredentialProviderListenerAvailability> WaitForListenerAvailabilityAsync(
+        TimeSpan timeout,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    Task<bool> WaitForListenerAsync(
+        TimeSpan timeout,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    void MarkListenerObserved(DateTimeOffset nowUtc, TimeSpan freshness);
 
     bool TrySnapshotIdentity(
         string activationId,
@@ -151,11 +168,13 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
 {
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromSeconds(45);
     public static readonly TimeSpan MaximumTtl = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan ListenerObservationFreshness = TimeSpan.FromSeconds(3);
 
     private readonly object _syncRoot = new();
     private CredentialProviderActivation? _pending;
     private long _generation;
     private int _listenerCount;
+    private DateTimeOffset? _listenerObservedUntilUtc;
     private TaskCompletionSource<long> _generationChanged =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource<bool> _listenerChanged =
@@ -194,7 +213,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             _completion = null;
             _completionOperationId = null;
             _completionActivationId = null;
-            IncrementGenerationLocked();
+            PublishEnumerationChangeLocked();
         }
 
         return CredentialProviderActivationSetResult.Activated(activation);
@@ -252,7 +271,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _completionOperationId = operationId;
             _completionActivationId = activation.ActivationId;
-            IncrementGenerationLocked();
+            PublishEnumerationChangeLocked();
         }
 
         return CredentialProviderActivationSetResult.Activated(activation);
@@ -331,13 +350,16 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
         }
     }
 
-    public async Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task<CredentialProviderListenerAvailability> WaitForListenerAvailabilityAsync(
+        TimeSpan timeout,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
     {
         if (timeout <= TimeSpan.Zero)
         {
             lock (_syncRoot)
             {
-                return _listenerCount > 0;
+                return GetListenerAvailabilityLocked(nowUtc);
             }
         }
 
@@ -348,9 +370,10 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             Task waitTask;
             lock (_syncRoot)
             {
-                if (_listenerCount > 0)
+                var availability = GetListenerAvailabilityLocked(nowUtc);
+                if (availability != CredentialProviderListenerAvailability.Unavailable)
                 {
-                    return true;
+                    return availability;
                 }
 
                 waitTask = _listenerChanged.Task;
@@ -362,8 +385,37 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return false;
+                return CredentialProviderListenerAvailability.Unavailable;
             }
+        }
+    }
+
+    public async Task<bool> WaitForListenerAsync(
+        TimeSpan timeout,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        return await WaitForListenerAvailabilityAsync(timeout, nowUtc, cancellationToken).ConfigureAwait(false)
+            != CredentialProviderListenerAvailability.Unavailable;
+    }
+
+    public void MarkListenerObserved(DateTimeOffset nowUtc, TimeSpan freshness)
+    {
+        if (freshness <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        lock (_syncRoot)
+        {
+            var observedUntilUtc = nowUtc.ToUniversalTime().Add(freshness);
+            if (_listenerObservedUntilUtc is null || _listenerObservedUntilUtc.Value < observedUntilUtc)
+            {
+                _listenerObservedUntilUtc = observedUntilUtc;
+            }
+
+            _listenerChanged.TrySetResult(true);
+            _listenerChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 
@@ -430,7 +482,6 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
 
             _pending = _pending with { State = CredentialProviderActivationState.Consumed };
             activation = _pending;
-            IncrementGenerationLocked();
             return true;
         }
     }
@@ -460,7 +511,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             _pending = _pending with { State = CredentialProviderActivationState.Completed };
             _completion?.TrySetResult(outcome);
             _pending = null;
-            IncrementGenerationLocked();
+            PublishEnumerationChangeLocked();
         }
 
         return true;
@@ -546,7 +597,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             _completion = null;
             _completionOperationId = null;
             _completionActivationId = null;
-            IncrementGenerationLocked();
+            PublishEnumerationChangeLocked();
         }
 
         completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
@@ -563,7 +614,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
             _completion = null;
             _completionOperationId = null;
             _completionActivationId = null;
-            IncrementGenerationLocked();
+            PublishEnumerationChangeLocked();
         }
 
         completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
@@ -586,12 +637,32 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
         _completion = null;
         _completionOperationId = null;
         _completionActivationId = null;
-        IncrementGenerationLocked();
+        PublishEnumerationChangeLocked();
         completion?.TrySetResult(CredentialProviderLogonCompletionOutcome.TimedOut);
         return true;
     }
 
-    private void IncrementGenerationLocked()
+    private CredentialProviderListenerAvailability GetListenerAvailabilityLocked(DateTimeOffset nowUtc)
+    {
+        if (_listenerCount > 0)
+        {
+            return CredentialProviderListenerAvailability.ActiveWait;
+        }
+
+        if (_listenerObservedUntilUtc is not null)
+        {
+            if (nowUtc.ToUniversalTime() <= _listenerObservedUntilUtc.Value)
+            {
+                return CredentialProviderListenerAvailability.FreshPresence;
+            }
+
+            _listenerObservedUntilUtc = null;
+        }
+
+        return CredentialProviderListenerAvailability.Unavailable;
+    }
+
+    private void PublishEnumerationChangeLocked()
     {
         var next = unchecked(++_generation);
         _generationChanged.TrySetResult(next);
@@ -776,7 +847,21 @@ public sealed class CredentialProviderActivationService
 
     public Task<bool> WaitForListenerAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
-        return _activationStore.WaitForListenerAsync(timeout, cancellationToken);
+        return _activationStore.WaitForListenerAsync(timeout, _clock.UtcNow, cancellationToken);
+    }
+
+    public Task<CredentialProviderListenerAvailability> WaitForListenerAvailabilityAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        return _activationStore.WaitForListenerAvailabilityAsync(timeout, _clock.UtcNow, cancellationToken);
+    }
+
+    public void MarkListenerObserved()
+    {
+        _activationStore.MarkListenerObserved(
+            _clock.UtcNow,
+            CredentialProviderActivationStore.ListenerObservationFreshness);
     }
 
     public bool TryCompleteLogon(

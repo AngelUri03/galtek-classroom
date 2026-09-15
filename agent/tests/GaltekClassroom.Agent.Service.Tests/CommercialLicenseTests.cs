@@ -105,6 +105,38 @@ public sealed class CommercialLicenseTests : IDisposable
     }
 
     [Fact]
+    public async Task ValidateAsync_WhenIssuerDoesNotMatch_ReturnsIssuerMismatch()
+    {
+        using var keyPair = new TestLicenseKeyPair();
+        var identity = CreateIdentity();
+        var validator = CreateValidator(keyPair, new MutableClock(FixedNowUtc));
+        var token = CreateToken(
+            keyPair,
+            identity,
+            mutate: payload => payload[JwtRegisteredClaimNames.Iss] = "other-issuer");
+
+        var result = await validator.ValidateAsync(token, identity, CancellationToken.None);
+
+        Assert.Equal(CommercialLicenseStatus.IssuerMismatch, result.State.Status);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenAudienceDoesNotMatch_ReturnsAudienceMismatch()
+    {
+        using var keyPair = new TestLicenseKeyPair();
+        var identity = CreateIdentity();
+        var validator = CreateValidator(keyPair, new MutableClock(FixedNowUtc));
+        var token = CreateToken(
+            keyPair,
+            identity,
+            mutate: payload => payload[JwtRegisteredClaimNames.Aud] = "other-product");
+
+        var result = await validator.ValidateAsync(token, identity, CancellationToken.None);
+
+        Assert.Equal(CommercialLicenseStatus.AudienceMismatch, result.State.Status);
+    }
+
+    [Fact]
     public async Task ValidateAsync_WhenSubjectDoesNotMatchInstallation_ReturnsInstallationMismatch()
     {
         using var keyPair = new TestLicenseKeyPair();
@@ -183,6 +215,60 @@ public sealed class CommercialLicenseTests : IDisposable
         var result = await validator.ValidateAsync(token, identity, CancellationToken.None);
 
         Assert.Equal(CommercialLicenseStatus.LicenseSchemaUnsupported, result.State.Status);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenClientRoleIsMissing_ReturnsRoleNotAllowed()
+    {
+        using var keyPair = new TestLicenseKeyPair();
+        var identity = CreateIdentity();
+        var validator = CreateValidator(keyPair, new MutableClock(FixedNowUtc));
+        var token = CreateToken(
+            keyPair,
+            identity,
+            mutate: payload => payload["roles"] = new[] { CommercialLicenseConstants.MasterRole });
+
+        var result = await validator.ValidateAsync(token, identity, CancellationToken.None);
+
+        Assert.Equal(CommercialLicenseStatus.RoleNotAllowed, result.State.Status);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenNotBeforeIsInFuture_ReturnsLicenseInvalid()
+    {
+        using var keyPair = new TestLicenseKeyPair();
+        var identity = CreateIdentity();
+        var validator = CreateValidator(keyPair, new MutableClock(FixedNowUtc));
+        var token = CreateToken(
+            keyPair,
+            identity,
+            mutate: payload => payload[JwtRegisteredClaimNames.Nbf] = FixedNowUtc.AddMinutes(1).ToUnixTimeSeconds());
+
+        var result = await validator.ValidateAsync(token, identity, CancellationToken.None);
+
+        Assert.Equal(CommercialLicenseStatus.LicenseInvalid, result.State.Status);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenJwtPayloadIsManipulated_ReturnsTampered()
+    {
+        using var keyPair = new TestLicenseKeyPair();
+        var identity = CreateIdentity();
+        var validator = CreateValidator(keyPair, new MutableClock(FixedNowUtc));
+        var token = CreateToken(keyPair, identity);
+        var parts = token.Split('.');
+        Assert.Equal(3, parts.Length);
+
+        parts[1] = Base64UrlEncoder.Encode("{\"iss\":\"galtek-hub\",\"aud\":\"galtek-classroom\",\"sub\":\""
+            + identity.InstallationId.ToString("D")
+            + "\",\"jti\":\"license-1\",\"product\":\"GALTEK_CLASSROOM\",\"schemaVersion\":1,\"cpuHash\":\""
+            + DifferentHash("cpu")
+            + "\"}");
+        var manipulatedToken = string.Join('.', parts);
+
+        var result = await validator.ValidateAsync(manipulatedToken, identity, CancellationToken.None);
+
+        Assert.Equal(CommercialLicenseStatus.LicenseTampered, result.State.Status);
     }
 
     [Fact]

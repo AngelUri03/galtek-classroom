@@ -289,6 +289,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
             NetworkOperationType.LogonManagedAccount,
             NetworkOperationType.LogoffWindowsSession,
             NetworkOperationType.SwitchManagedAccount,
+            NetworkOperationType.GetManagedAccountStatus,
             NetworkOperationType.ProvisionManagedCredential
         ];
         var services = new ServiceCollection();
@@ -307,6 +308,7 @@ public sealed class MasterNetworkTransportTests : IDisposable
             [typeof(LogonManagedAccountOperationHandler)] = NetworkOperationType.LogonManagedAccount,
             [typeof(LogoffWindowsSessionOperationHandler)] = NetworkOperationType.LogoffWindowsSession,
             [typeof(SwitchManagedAccountOperationHandler)] = NetworkOperationType.SwitchManagedAccount,
+            [typeof(GetManagedAccountStatusOperationHandler)] = NetworkOperationType.GetManagedAccountStatus,
             [typeof(ProvisionManagedCredentialOperationHandler)] = NetworkOperationType.ProvisionManagedCredential
         };
         ServiceDescriptor[] descriptors = services

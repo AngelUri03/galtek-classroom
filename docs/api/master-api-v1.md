@@ -1,8 +1,8 @@
 # Master API v1
 
-Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`; ampliado en Prompt 19H2 con retry administrativo explicito y selectivo de `SWITCH_MANAGED_ACCOUNT`.
+Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`; ampliado en Prompt 19H2 con retry administrativo explicito y selectivo de `SWITCH_MANAGED_ACCOUNT`; ampliado en 2026-09-14 con HTTP minimo de Credential Vault y administracion de estado/provisioning de managed accounts para un Device explicito.
 
-Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Prompt 19H2 permite reintentar selectivamente targets fallidos retryable del mismo batch `SWITCH_MANAGED_ACCOUNT`, con snapshot fresco y operationIds remotos nuevos. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
+Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Prompt 19H2 permite reintentar selectivamente targets fallidos retryable del mismo batch `SWITCH_MANAGED_ACCOUNT`, con snapshot fresco y operationIds remotos nuevos. La ampliacion 2026-09-14 permite inicializar/desbloquear/bloquear el Credential Vault local y consultar/provisionar credenciales Windows administradas `PRIMARY`/`SECONDARY` en un Device explicito sin devolver password, SID, credentialId ni vault token. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
 
 ## Proteccion
 
@@ -1121,9 +1121,114 @@ Los endpoints `GET` solo listan catalogo existente y aplicaciones autorizadas po
 ## Managed Accounts
 
 - `POST /api/classrooms/{id}/managed-accounts/switch`
+- `GET /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts`
+- `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential`
 - `POST /api/operations/{id}/retry`
 
 El endpoint de switch ejecuta batch remoto `SWITCH_MANAGED_ACCOUNT` sobre Devices explicitos, con snapshot previo, `NO_CHANGE` durable y sin secretos en request, Protobuf ni payload persistido. El retry administrativo actua solo sobre operaciones `SWITCH_MANAGED_ACCOUNT` existentes y solo sobre targets `FAILED` retryable solicitados explicitamente.
+
+`GET /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts`
+
+Endpoint protegido por `MasterAccessGuard`. Consulta el estado actual de `PRIMARY` y `SECONDARY` con una operacion remota read-only `GET_MANAGED_ACCOUNT_STATUS` contra el Agent del Device indicado. No usa polling, heartbeat, SQLite snapshot ni inferencias desde el Master.
+
+Preflight:
+
+- El Device debe pertenecer al aula solicitada.
+- Debe existir binding vigente `Device -> Network Identity`.
+- El trust debe estar `PAIRED`, no `REVOKED`, y coincidir en `installationId` y fingerprint.
+- Debe existir conexion gRPC/mTLS autenticada `ONLINE`.
+- El Client debe anunciar `MANAGED_ACCOUNT_STATUS_V1`.
+
+Respuesta:
+
+```json
+{
+  "accounts": [
+    {
+      "accountId": "PRIMARY",
+      "configured": true,
+      "credentialConfigured": true,
+      "credentialStatus": "READY",
+      "windowsAccountName": "ICH11\\ICH-PRIMARIA-14"
+    },
+    {
+      "accountId": "SECONDARY",
+      "configured": true,
+      "credentialConfigured": false,
+      "credentialStatus": "CREDENTIAL_NOT_CONFIGURED",
+      "windowsAccountName": "ICH11\\IHTEC-SECUNDARIA-14"
+    }
+  ]
+}
+```
+
+`credentialStatus` puede ser `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED`, `ACCOUNT_NOT_FOUND` o `READY`. La respuesta nunca contiene password, SID, `protectedData`, `credentialId`, vault token, sessionId, token handle ni profile path. `READY` significa binding local + SID resoluble + credencial DPAPI usable; no significa que la password ya haya sido validada mediante un logon real.
+
+`PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential`
+
+Endpoint protegido por `MasterAccessGuard`. Provisiona o rota la credencial Windows administrada de un slot `PRIMARY` o `SECONDARY` para un Device explicito. El cuerpo debe ser `application/octet-stream` con password UTF-8 sin BOM y con tamano maximo de 32 KiB. La sesion de vault se entrega en el header:
+
+```text
+X-Galtek-Vault-Session: <token>
+```
+
+Flujo:
+
+1. El Master verifica autorizacion, storage, aula/Device, binding, trust, conexion online y capabilities `MANAGED_ACCOUNT_STATUS_V1` y `MANAGED_CREDENTIAL_PROVISIONING_V1`.
+2. Consulta `GET_MANAGED_ACCOUNT_STATUS` antes de tocar el vault y exige que el slot exista localmente y tenga `windowsAccountName`.
+3. Busca en Credential Vault una entry `WINDOWS_ACCOUNT` con `loginIdentifier = windowsAccountName`.
+4. Si no existe, agrega una entry; si existe exactamente una, la actualiza; si hay mas de una, falla como `CREDENTIAL_NOT_PROVISIONABLE`.
+5. Invoca internamente `ManagedCredentialProvisioningBridge`, que lee la password desde el vault desbloqueado, la codifica temporalmente como UTF-16LE sin BOM/NUL y envia `PROVISION_MANAGED_CREDENTIAL(accountId, passwordUtf16Le)` por gRPC/mTLS.
+6. Si provisioning remoto devuelve `SUCCESS`, el Master refresca una vez el status con `GET_MANAGED_ACCOUNT_STATUS` y devuelve la observacion resultante.
+
+Respuesta:
+
+```json
+{
+  "accountId": "PRIMARY",
+  "provisioningStatus": "SUCCESS",
+  "operationId": "uuid",
+  "errorCode": null,
+  "message": "Credential provisioned.",
+  "account": {
+    "accountId": "PRIMARY",
+    "configured": true,
+    "credentialConfigured": true,
+    "credentialStatus": "READY",
+    "windowsAccountName": "ICH11\\ICH-PRIMARIA-14"
+  }
+}
+```
+
+En fallo remoto la respuesta conserva `operationId`, `errorCode`, `message` y la cuenta observada antes del provisioning. `OPERATION_RESULT_UNKNOWN` se devuelve como estado incierto y no se reintenta automaticamente. El endpoint no borra automaticamente la entry de vault si el provisioning remoto falla despues del upsert.
+
+## Credential Vault
+
+- `GET /api/credential-vault/status`
+- `POST /api/credential-vault/initialize`
+- `POST /api/credential-vault/unlock`
+- `POST /api/credential-vault/lock`
+
+Todos estos endpoints llaman primero a `MasterAccessGuard`; no usan `MasterUnlockAccessGuard`. `initialize` y `unlock` consumen `application/octet-stream` con master password UTF-8 sin BOM, no JSON. `unlock` devuelve un `vaultSessionToken` in-memory. `lock` recibe `X-Galtek-Vault-Session`.
+
+Status:
+
+```json
+{
+  "initialized": true,
+  "locked": false
+}
+```
+
+Unlock:
+
+```json
+{
+  "vaultSessionToken": "opaque-random-token"
+}
+```
+
+La API HTTP minima de vault no implementa list, reveal, export, clipboard, reset destructivo, recovery ni CRUD general humano. Las respuestas JSON no contienen passwords. El vault token es opaco, vive solo en memoria backend y la UI no debe guardarlo en `localStorage`, `sessionStorage`, archivos, logs ni URL.
 
 ## Operations
 

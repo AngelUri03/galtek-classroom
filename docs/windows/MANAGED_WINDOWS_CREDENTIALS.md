@@ -1,6 +1,6 @@
 # Managed Windows Credentials
 
-Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password. Prompt 19G3 usa ese camino para `LOGON_MANAGED_ACCOUNT` remoto individual sin enviar password desde el Master.
+Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password. Prompt 19G3 usa ese camino para `LOGON_MANAGED_ACCOUNT` remoto individual sin enviar password desde el Master. La ampliacion 2026-09-14 agrega `GET_MANAGED_ACCOUNT_STATUS` y endpoints HTTP Master para consultar/provisionar un Device explicito, sin exponer password, SID, `protectedData`, credentialId ni vault token.
 
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:
 
@@ -140,6 +140,24 @@ binding configurado
 
 Si falta credencial: `CREDENTIAL_NOT_CONFIGURED`. Si la cuenta desaparecio: `ACCOUNT_NOT_FOUND`.
 
+## Status Remoto
+
+`GET_MANAGED_ACCOUNT_STATUS` es una operacion remota read-only del Agent Service bajo LocalSystem. No tiene payload funcional y devuelve exactamente los slots `PRIMARY` y `SECONDARY`.
+
+Por slot devuelve:
+
+```text
+accountId
+configured
+credentialConfigured
+credentialStatus
+windowsAccountName
+```
+
+`credentialStatus` usa `NOT_CONFIGURED`, `CREDENTIAL_NOT_CONFIGURED`, `ACCOUNT_NOT_FOUND` o `READY`. Para bindings ausentes, `configured=false` y `credentialConfigured=false`. Para bindings cuyo SID ya no resuelve como `SidTypeUser`, `credentialStatus=ACCOUNT_NOT_FOUND`. Para bindings validos, el handler llama `GetStatus` del credential store; nunca llama `Acquire` y no revela password. El resultado no contiene SID, `protectedData`, accountReference crudo, token handle, sessionId, credentialId, vault token ni profile path.
+
+El Master expone este status mediante `GET /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts`, protegido por `MasterAccessGuard` y preflight de aula, binding, trust, presencia online y capability `MANAGED_ACCOUNT_STATUS_V1`. Es una consulta on-demand; no agrega heartbeat fields, polling ni snapshot SQLite.
+
 ## Provisioning Remoto 19E1
 
 `PROVISION_MANAGED_CREDENTIAL` significa:
@@ -155,6 +173,8 @@ El password entra al Agent como bytes UTF-16LE sin BOM ni NUL, se copia a un buf
 El resultado `SUCCESS` solo confirma DPAPI protect, escritura durable y verificacion del store. Si no llega `OperationResult`, el Master reporta `OPERATION_RESULT_UNKNOWN` y no reintenta automaticamente.
 
 Desde Prompt 19E2, el Master Backend puede invocar `ManagedCredentialProvisioningBridge` con `vaultSessionToken`, `credentialId`, `deviceId`, `operationId` y `accountId` `PRIMARY`/`SECONDARY`. El bridge usa `MasterAccessGuard`, requiere sesion de vault vigente, permite solo `WINDOWS_ACCOUNT`, rechaza `GOOGLE_ACCOUNT`, no devuelve password al caller, no envia `credentialId` ni vault token al Client, codifica el password como UTF-16LE temporal sin BOM/NUL y limpia el `byte[]` controlado despues del gateway.
+
+Desde 2026-09-14, `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential` es la superficie HTTP productiva minima para cargar o rotar una password en `PRIMARY`/`SECONDARY` de un Device explicito. El endpoint recibe password UTF-8 sin BOM como `application/octet-stream`, header `X-Galtek-Vault-Session`, consulta status remoto antes de tocar vault, usa `windowsAccountName` como `loginIdentifier`, agrega o actualiza una entry `WINDOWS_ACCOUNT` del Credential Vault y luego llama el bridge. Si el provisioning remoto termina en `SUCCESS`, el Master refresca status una vez y devuelve la observacion. Si falla o queda incierto, no borra automaticamente la entry del vault y no reintenta.
 
 ## CLI, IPC Y Red
 
@@ -196,14 +216,14 @@ Si el logon target falla despues del logoff, no hay rollback automatico a la sou
 
 ## Limites Vigentes
 
-Sigue sin existir API HTTP Master, BatchOperation, Local IPC de credenciales, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, registry autologon, cambio de password ni validacion de password contra Windows fuera del flujo normal Winlogon/LSA iniciado por Credential Provider.
+Existe API HTTP Master minima para status y provisioning de un Device explicito. Sigue sin existir BatchOperation de credenciales, fanout, Local IPC de credenciales, reveal desde Client, `LogonUserW`, `CreateProcessAsUser`, `LsaLogonUser`, registry autologon, cambio de password ni validacion de password contra Windows fuera del flujo normal Winlogon/LSA iniciado por Credential Provider.
 
 No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni account scans. DPAPI solo se usa bajo operaciones explicitas: provisioning remoto, status explicito y acquire one-time para Credential Provider.
 
 ## Validacion Manual Pendiente
 
 1. Confirmar que el Service corre como LocalSystem.
-2. Provisionar `PRIMARY` mediante el bridge interno 19E2 o una superficie administrativa segura posterior.
+2. Inicializar/desbloquear Credential Vault por HTTP y provisionar `PRIMARY` mediante `PUT /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/PRIMARY/credential`.
 3. Verificar que `managed-windows-credentials.dat` no contiene password ni SID en plaintext.
 4. Reiniciar el Service y confirmar que la credencial sigue usable.
 5. Copiar el credential store a otra instalacion y confirmar fail closed.
@@ -215,4 +235,6 @@ No agrega timers, polling, reads/writes periodicos, threads, heartbeat fields ni
 
 ## Pendiente
 
-- 19H: dispatch/planner/API/UI Master para operaciones de sesion administrada.
+- Validacion real en PC14 del flujo HTTP Master -> Credential Vault -> gRPC -> DPAPI -> `READY` para `PRIMARY` y `SECONDARY`.
+- UI Tauri/React para status y provisioning.
+- Batch/fanout administrativo de provisioning, si se decide producto.

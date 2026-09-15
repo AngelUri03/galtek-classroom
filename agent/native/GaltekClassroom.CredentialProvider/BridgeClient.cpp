@@ -1,4 +1,5 @@
 #include "BridgeClient.h"
+#include "NativeTrace.h"
 
 #include <objbase.h>
 #include <cstring>
@@ -7,10 +8,19 @@
 
 namespace
 {
-    constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\GaltekClassroom.CredentialProvider.v1";
+    constexpr wchar_t kDefaultPipeName[] = L"\\\\.\\pipe\\GaltekClassroom.CredentialProvider.v1";
     constexpr DWORD kMaxMessageBytes = 8u * 1024u;
     constexpr BYTE kSecretMagic[] = { 'G', 'C', 'P', 'A', 'S' };
     constexpr DWORD kMaxPasswordBytes = 1024u * 2u;
+
+    struct BridgeRequestDiagnostics
+    {
+        const wchar_t* stage = L"transport";
+        const wchar_t* rejectReason = L"transport";
+        DWORD win32 = ERROR_SUCCESS;
+        bool timeout = false;
+        bool traceIdentity = false;
+    };
 
     void WriteBigEndianLength(BYTE* target, DWORD length)
     {
@@ -54,6 +64,48 @@ namespace
 
         const ULONGLONG remaining = deadline - now;
         return remaining > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining);
+    }
+
+    DWORD ElapsedMilliseconds(ULONGLONG started)
+    {
+        const ULONGLONG elapsed = GetTickCount64() - started;
+        return elapsed > MAXDWORD ? MAXDWORD : static_cast<DWORD>(elapsed);
+    }
+
+    void TraceIdentityTimeout(const BridgeRequestDiagnostics& diagnostics)
+    {
+        wchar_t buffer[128]{};
+        swprintf_s(
+            buffer,
+            L"CP_IDENTITY_QUERY_TIMEOUT stage=%ls win32=%lu",
+            diagnostics.stage,
+            diagnostics.win32);
+        GaltekTraceLine(buffer);
+    }
+
+    void TraceIdentityReject(const wchar_t* reason)
+    {
+        std::wstring line = L"CP_IDENTITY_QUERY_REJECT reason=";
+        line.append(reason == nullptr ? L"unknown" : reason);
+        GaltekTraceLine(line);
+    }
+
+    void TraceIdentityReject(const BridgeRequestDiagnostics& diagnostics)
+    {
+        if (diagnostics.timeout)
+        {
+            TraceIdentityTimeout(diagnostics);
+            return;
+        }
+
+        wchar_t buffer[128]{};
+        swprintf_s(
+            buffer,
+            L"CP_IDENTITY_QUERY_REJECT reason=%ls stage=%ls win32=%lu",
+            diagnostics.rejectReason,
+            diagnostics.stage,
+            diagnostics.win32);
+        GaltekTraceLine(buffer);
     }
 
     bool WaitForIo(
@@ -418,16 +470,26 @@ namespace
         return true;
     }
 
-    bool OpenBridgePipe(DWORD timeoutMilliseconds, bool overlapped, HANDLE* pipe)
+    bool OpenBridgePipe(
+        PCWSTR pipeName,
+        DWORD timeoutMilliseconds,
+        bool overlapped,
+        HANDLE* pipe,
+        DWORD* windowsError = nullptr)
     {
         *pipe = INVALID_HANDLE_VALUE;
-        if (!WaitNamedPipeW(kPipeName, timeoutMilliseconds))
+        if (pipeName == nullptr || !WaitNamedPipeW(pipeName, timeoutMilliseconds))
         {
+            if (windowsError != nullptr)
+            {
+                *windowsError = pipeName == nullptr ? ERROR_INVALID_PARAMETER : GetLastError();
+            }
+
             return false;
         }
 
         *pipe = CreateFileW(
-            kPipeName,
+            pipeName,
             GENERIC_READ | GENERIC_WRITE,
             0,
             nullptr,
@@ -435,12 +497,27 @@ namespace
             overlapped ? FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED : FILE_ATTRIBUTE_NORMAL,
             nullptr);
 
-        return *pipe != INVALID_HANDLE_VALUE;
+        if (*pipe == INVALID_HANDLE_VALUE)
+        {
+            if (windowsError != nullptr)
+            {
+                *windowsError = GetLastError();
+            }
+
+            return false;
+        }
+
+        if (windowsError != nullptr)
+        {
+            *windowsError = ERROR_SUCCESS;
+        }
+
+        return true;
     }
 
-    bool OpenBridgePipe(DWORD timeoutMilliseconds, HANDLE* pipe)
+    bool OpenBridgePipe(PCWSTR pipeName, DWORD timeoutMilliseconds, HANDLE* pipe)
     {
-        return OpenBridgePipe(timeoutMilliseconds, false, pipe);
+        return OpenBridgePipe(pipeName, timeoutMilliseconds, false, pipe);
     }
 
     bool ReadAllCancelable(
@@ -457,23 +534,55 @@ namespace
         HANDLE pipe,
         HANDLE cancelEvent,
         ULONGLONG deadline,
-        std::vector<BYTE>* payload)
+        std::vector<BYTE>* payload,
+        BridgeRequestDiagnostics* diagnostics = nullptr)
     {
+        if (diagnostics != nullptr)
+        {
+            diagnostics->stage = L"read_length";
+            diagnostics->rejectReason = L"transport";
+        }
+
         BYTE lengthBuffer[sizeof(DWORD)]{};
         if (!ReadAllCancelable(pipe, lengthBuffer, sizeof(lengthBuffer), cancelEvent, deadline))
         {
+            if (diagnostics != nullptr)
+            {
+                diagnostics->win32 = GetLastError();
+                diagnostics->timeout = RemainingTimeout(deadline) == 0;
+            }
+
             return false;
         }
 
         DWORD length = 0;
         if (!ReadBigEndianLength(lengthBuffer, &length))
         {
+            if (diagnostics != nullptr)
+            {
+                diagnostics->stage = L"framing";
+                diagnostics->rejectReason = L"framing";
+                diagnostics->win32 = ERROR_INVALID_DATA;
+            }
+
             return false;
         }
 
         payload->assign(length, 0);
+        if (diagnostics != nullptr)
+        {
+            diagnostics->stage = L"read_payload";
+            diagnostics->rejectReason = L"transport";
+        }
+
         if (!ReadAllCancelable(pipe, payload->data(), length, cancelEvent, deadline))
         {
+            if (diagnostics != nullptr)
+            {
+                diagnostics->win32 = GetLastError();
+                diagnostics->timeout = RemainingTimeout(deadline) == 0;
+            }
+
             return false;
         }
 
@@ -498,27 +607,81 @@ namespace
     }
 
     bool SendRequestReadBytes(
+        PCWSTR pipeName,
         const std::string& request,
         DWORD timeoutMilliseconds,
-        SecureByteBuffer* response)
+        SecureByteBuffer* response,
+        BridgeRequestDiagnostics* diagnostics = nullptr)
     {
         const ULONGLONG deadline = TimeoutDeadline(timeoutMilliseconds);
+        const ULONGLONG started = GetTickCount64();
 
         HANDLE pipe = INVALID_HANDLE_VALUE;
-        if (!OpenBridgePipe(RemainingTimeout(deadline), true, &pipe))
+        DWORD openError = ERROR_SUCCESS;
+        if (diagnostics != nullptr)
         {
+            diagnostics->stage = L"connect";
+            diagnostics->rejectReason = L"transport";
+        }
+
+        if (!OpenBridgePipe(pipeName, RemainingTimeout(deadline), true, &pipe, &openError))
+        {
+            if (diagnostics != nullptr)
+            {
+                diagnostics->win32 = openError;
+                diagnostics->timeout = openError == ERROR_SEM_TIMEOUT || RemainingTimeout(deadline) == 0;
+            }
+
             return false;
+        }
+
+        if (diagnostics != nullptr && diagnostics->traceIdentity)
+        {
+            wchar_t buffer[96]{};
+            swprintf_s(
+                buffer,
+                L"CP_IDENTITY_QUERY_PIPE_CONNECTED elapsedMs=%lu",
+                ElapsedMilliseconds(started));
+            GaltekTraceLine(buffer);
         }
 
         const std::vector<BYTE> frame = FrameJson(request);
         std::vector<BYTE> payload;
-        const bool ok = WriteAllCancelable(
+        if (diagnostics != nullptr)
+        {
+            diagnostics->stage = L"write";
+            diagnostics->rejectReason = L"transport";
+        }
+
+        const bool wrote = WriteAllCancelable(
                 pipe,
                 frame.data(),
                 static_cast<DWORD>(frame.size()),
                 nullptr,
-                deadline)
-            && ReadFrameBytesCancelable(pipe, nullptr, deadline, &payload);
+                deadline);
+        if (!wrote)
+        {
+            if (diagnostics != nullptr)
+            {
+                diagnostics->win32 = GetLastError();
+                diagnostics->timeout = RemainingTimeout(deadline) == 0;
+            }
+
+            CloseHandle(pipe);
+            return false;
+        }
+
+        if (diagnostics != nullptr && diagnostics->traceIdentity)
+        {
+            wchar_t buffer[96]{};
+            swprintf_s(
+                buffer,
+                L"CP_IDENTITY_QUERY_REQUEST_SENT elapsedMs=%lu",
+                ElapsedMilliseconds(started));
+            GaltekTraceLine(buffer);
+        }
+
+        const bool ok = ReadFrameBytesCancelable(pipe, nullptr, deadline, &payload, diagnostics);
         CloseHandle(pipe);
 
         if (!ok)
@@ -526,23 +689,156 @@ namespace
             return false;
         }
 
+        if (diagnostics != nullptr && diagnostics->traceIdentity)
+        {
+            wchar_t buffer[96]{};
+            swprintf_s(
+                buffer,
+                L"CP_IDENTITY_QUERY_RESPONSE_RECEIVED elapsedMs=%lu",
+                ElapsedMilliseconds(started));
+            GaltekTraceLine(buffer);
+        }
+
         *response = SecureByteBuffer(std::move(payload));
         return true;
     }
 
     bool SendRequestReadJson(
+        PCWSTR pipeName,
         const std::string& request,
         DWORD timeoutMilliseconds,
-        std::string* response)
+        std::string* response,
+        BridgeRequestDiagnostics* diagnostics = nullptr)
     {
         SecureByteBuffer payload;
-        if (!SendRequestReadBytes(request, timeoutMilliseconds, &payload))
+        if (!SendRequestReadBytes(pipeName, request, timeoutMilliseconds, &payload, diagnostics))
         {
             return false;
         }
 
         response->assign(reinterpret_cast<const char*>(payload.data()), payload.size());
         return true;
+    }
+
+    bool ExtractJsonObject(
+        const std::string& json,
+        const char* key,
+        std::string* objectJson)
+    {
+        if (key == nullptr || objectJson == nullptr)
+        {
+            return false;
+        }
+
+        const std::string prefix = std::string("\"") + key + "\":";
+        size_t index = json.find(prefix);
+        if (index == std::string::npos)
+        {
+            return false;
+        }
+
+        index += prefix.size();
+        while (index < json.size()
+            && (json[index] == ' ' || json[index] == '\t' || json[index] == '\r' || json[index] == '\n'))
+        {
+            index++;
+        }
+
+        if (index >= json.size() || json[index] != '{')
+        {
+            return false;
+        }
+
+        const size_t objectStart = index;
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        for (; index < json.size(); index++)
+        {
+            const char current = json[index];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (current == '\\')
+                {
+                    escaped = true;
+                }
+                else if (current == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (current == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (current == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    objectJson->assign(json.data() + objectStart, index - objectStart + 1u);
+                    return true;
+                }
+
+                if (depth < 0)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    bool IsValidGuidText(const std::string& value)
+    {
+        if (value.size() != 36
+            || value[8] != '-'
+            || value[13] != '-'
+            || value[18] != '-'
+            || value[23] != '-')
+        {
+            return false;
+        }
+
+        for (size_t index = 0; index < value.size(); index++)
+        {
+            if (index == 8 || index == 13 || index == 18 || index == 23)
+            {
+                continue;
+            }
+
+            const char ch = value[index];
+            const bool hex = (ch >= '0' && ch <= '9')
+                || (ch >= 'a' && ch <= 'f')
+                || (ch >= 'A' && ch <= 'F');
+            if (!hex)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool IsValidAccountId(const std::string& value)
+    {
+        return value == "PRIMARY" || value == "SECONDARY";
     }
 
     bool ReadUInt16(const SecureByteBuffer& payload, DWORD* offset, WORD* value)
@@ -573,6 +869,16 @@ namespace
         *offset += sizeof(DWORD);
         return true;
     }
+}
+
+BridgeClient::BridgeClient()
+    : _pipeName(kDefaultPipeName)
+{
+}
+
+BridgeClient::BridgeClient(const std::wstring& pipeName)
+    : _pipeName(pipeName.empty() ? kDefaultPipeName : pipeName)
+{
 }
 
 SecureByteBuffer::SecureByteBuffer(std::vector<BYTE>&& value)
@@ -710,7 +1016,7 @@ BridgeActivationStatus BridgeClient::GetPendingActivationMetadata(DWORD timeoutM
         + "\",\"operation\":\"GET_PENDING_ACTIVATION_METADATA\"}";
 
     std::string response;
-    if (SendRequestReadJson(request, timeoutMilliseconds, &response))
+    if (SendRequestReadJson(_pipeName.c_str(), request, timeoutMilliseconds, &response))
     {
         if (response.find("\"status\":\"SUCCESS\"") != std::string::npos
             && response.find("\"activationStatus\":\"PENDING\"") != std::string::npos)
@@ -742,26 +1048,90 @@ bool BridgeClient::GetPendingActivationIdentity(
         + "\",\"operation\":\"GET_PENDING_ACTIVATION_IDENTITY\"}";
 
     std::string response;
-    if (!SendRequestReadJson(request, timeoutMilliseconds, &response))
+    BridgeRequestDiagnostics diagnostics;
+    diagnostics.traceIdentity = true;
+    GaltekTraceLine(L"CP_IDENTITY_QUERY_ENTER");
+    if (!SendRequestReadJson(_pipeName.c_str(), request, timeoutMilliseconds, &response, &diagnostics))
     {
+        TraceIdentityReject(diagnostics);
         return false;
     }
 
-    if (response.find("\"status\":\"SUCCESS\"") == std::string::npos
-        || response.find("\"activationStatus\":\"PENDING\"") == std::string::npos)
+    long long protocolVersion = 0;
+    if (!FindJsonNumber(response, "protocolVersion", &protocolVersion)
+        || protocolVersion != 1)
     {
+        TraceIdentityReject(L"protocol");
         return false;
     }
 
-    return FindJsonStringNarrow(response, "activationId", &identity->activationId)
-        && FindJsonStringNarrow(response, "accountId", &identity->accountId)
-        && FindJsonStringWide(response, "userSid", &identity->userSid)
-        && FindJsonStringWide(response, "domain", &identity->domain)
-        && FindJsonStringWide(response, "username", &identity->username)
-        && FindJsonBool(response, "autoSubmitRequested", &identity->autoSubmitRequested)
-        && !identity->userSid.empty()
-        && !identity->domain.empty()
-        && !identity->username.empty();
+    std::string status;
+    if (!FindJsonStringNarrow(response, "status", &status))
+    {
+        TraceIdentityReject(L"json");
+        return false;
+    }
+
+    std::wstring statusLine = L"CP_IDENTITY_QUERY_RESPONSE_STATUS status=";
+    statusLine.append(status.begin(), status.end());
+    GaltekTraceLine(statusLine);
+    if (status != "SUCCESS")
+    {
+        TraceIdentityReject(L"status");
+        return false;
+    }
+
+    std::string activationStatus;
+    if (!FindJsonStringNarrow(response, "activationStatus", &activationStatus)
+        || activationStatus != "PENDING")
+    {
+        TraceIdentityReject(L"status");
+        return false;
+    }
+
+    std::string identityJson;
+    if (!ExtractJsonObject(response, "pendingIdentity", &identityJson))
+    {
+        TraceIdentityReject(L"json");
+        return false;
+    }
+
+    BridgeActivationIdentity parsed;
+    if (!FindJsonStringNarrow(identityJson, "activationId", &parsed.activationId)
+        || !FindJsonStringNarrow(identityJson, "accountId", &parsed.accountId)
+        || !FindJsonStringWide(identityJson, "userSid", &parsed.userSid)
+        || !FindJsonStringWide(identityJson, "domain", &parsed.domain)
+        || !FindJsonStringWide(identityJson, "username", &parsed.username)
+        || !FindJsonBool(identityJson, "autoSubmitRequested", &parsed.autoSubmitRequested))
+    {
+        TraceIdentityReject(L"json");
+        return false;
+    }
+
+    GaltekTraceLine(L"CP_IDENTITY_QUERY_PARSE_OK");
+
+    if (!IsValidGuidText(parsed.activationId))
+    {
+        TraceIdentityReject(L"identity_validation");
+        return false;
+    }
+
+    if (!IsValidAccountId(parsed.accountId))
+    {
+        TraceIdentityReject(L"account");
+        return false;
+    }
+
+    if (parsed.userSid.empty()
+        || parsed.domain.empty()
+        || parsed.username.empty())
+    {
+        TraceIdentityReject(L"identity_validation");
+        return false;
+    }
+
+    *identity = parsed;
+    return true;
 }
 
 BridgeAcquireStatus BridgeClient::AcquirePendingCredential(
@@ -783,7 +1153,7 @@ BridgeAcquireStatus BridgeClient::AcquirePendingCredential(
         + "\"}";
 
     SecureByteBuffer response;
-    if (!SendRequestReadBytes(request, timeoutMilliseconds, &response))
+    if (!SendRequestReadBytes(_pipeName.c_str(), request, timeoutMilliseconds, &response))
     {
         return BridgeAcquireStatus::ServiceUnavailable;
     }
@@ -863,7 +1233,7 @@ bool BridgeClient::WaitForActivationChange(
         + "}";
 
     HANDLE pipe = INVALID_HANDLE_VALUE;
-    if (!OpenBridgePipe(250, true, &pipe))
+    if (!OpenBridgePipe(_pipeName.c_str(), 250, true, &pipe))
     {
         return false;
     }
@@ -908,6 +1278,6 @@ bool BridgeClient::ReportLogonResult(
         + "\"}";
 
     std::string response;
-    return SendRequestReadJson(request, timeoutMilliseconds, &response)
+    return SendRequestReadJson(_pipeName.c_str(), request, timeoutMilliseconds, &response)
         && response.find("\"status\":\"SUCCESS\"") != std::string::npos;
 }
