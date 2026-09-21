@@ -51,6 +51,7 @@ export function App() {
     header: loadingHeader,
     activeClassrooms: []
   });
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(() => new Set());
   const refreshAbortRef = useRef<AbortController | null>(null);
 
   const loadDashboard = useCallback(async (signal?: AbortSignal) => {
@@ -96,6 +97,7 @@ export function App() {
         data,
         isRefreshing: false
       });
+      setSelectedDeviceIds(new Set());
     } catch (error) {
       if (signal?.aborted) {
         return;
@@ -154,6 +156,10 @@ export function App() {
             }
           : current
       );
+      setSelectedDeviceIds((current) => {
+        const availableIds = new Set(data.devices.map((device) => device.id));
+        return new Set([...current].filter((deviceId) => availableIds.has(deviceId)));
+      });
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -182,6 +188,7 @@ export function App() {
       }
 
       refreshAbortRef.current?.abort();
+      setSelectedDeviceIds(new Set());
       const controller = new AbortController();
       refreshAbortRef.current = controller;
       const header = {
@@ -237,6 +244,20 @@ export function App() {
           data={dashboardState.data}
           isRefreshing={dashboardState.isRefreshing}
           refreshError={dashboardState.refreshError}
+          selectedDeviceIds={selectedDeviceIds}
+          onToggleDevice={(deviceId) =>
+            setSelectedDeviceIds((current) => {
+              const next = new Set(current);
+              if (next.has(deviceId)) {
+                next.delete(deviceId);
+              } else {
+                next.add(deviceId);
+              }
+              return next;
+            })
+          }
+          onSelectAll={() => setSelectedDeviceIds(new Set(dashboardState.data.devices.map((device) => device.id)))}
+          onClearSelection={() => setSelectedDeviceIds(new Set())}
           onRetry={() => void loadDashboard()}
           onRefresh={() => void refreshSnapshot()}
         />
@@ -274,7 +295,7 @@ export function App() {
         onRefresh={() => void refreshSnapshot()}
       />
     );
-  }, [dashboardState, loadDashboard, refreshSnapshot]);
+  }, [dashboardState, loadDashboard, refreshSnapshot, selectedDeviceIds]);
 
   return (
     <AppShell

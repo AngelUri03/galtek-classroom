@@ -12,25 +12,43 @@ const statusIcon: Record<DeviceCardStatus, typeof MonitorCheck> = {
 
 type DeviceCardProps = {
   device: ClassroomDeviceCardData;
+  selected: boolean;
+  onToggle: () => void;
 };
 
-export function DeviceCard({ device }: DeviceCardProps) {
+export function DeviceCard({ device, selected, onToggle }: DeviceCardProps) {
   const Icon = statusIcon[device.status];
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      onToggle();
+    }
+  };
 
   return (
     <article
-      className={`device-card device-card--${device.status}`}
+      className={`device-card device-card--${device.status}${selected ? " device-card--selected" : ""}`}
       tabIndex={0}
+      role="checkbox"
+      aria-checked={selected}
       aria-label={`${device.label}, ${device.studentName}, ${device.statusLabel}, ${device.secondaryStatus}`}
+      onClick={onToggle}
+      onKeyDown={handleKeyDown}
     >
       <div className="device-card__topline">
         <div className="device-card__identity">
           <h3>{device.label}</h3>
           <p>{device.studentName}</p>
         </div>
-        <span className="device-card__icon" aria-hidden="true">
-          <Icon size={19} strokeWidth={2} />
-        </span>
+        <div className="device-card__controls">
+          <span className="device-card__selection-control" aria-hidden="true">
+            {selected ? "✓" : ""}
+          </span>
+          <span className="device-card__icon" aria-hidden="true">
+            <Icon size={19} strokeWidth={2} />
+          </span>
+        </div>
       </div>
       <div className="device-card__footer">
         <span className="device-card__status">

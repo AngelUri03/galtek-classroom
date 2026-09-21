@@ -13,6 +13,10 @@ type ClassroomDashboardProps = {
   errorDescription?: string;
   refreshError?: string;
   isRefreshing?: boolean;
+  selectedDeviceIds?: Set<string>;
+  onToggleDevice?: (deviceId: string) => void;
+  onSelectAll?: () => void;
+  onClearSelection?: () => void;
   onRetry: () => void;
   onRefresh: () => void;
 };
@@ -27,6 +31,10 @@ export function ClassroomDashboard({
   errorDescription = "Revisa que el Master Backend local este disponible y vuelve a intentar.",
   refreshError,
   isRefreshing = false,
+  selectedDeviceIds = new Set(),
+  onToggleDevice,
+  onSelectAll,
+  onClearSelection,
   onRetry,
   onRefresh
 }: ClassroomDashboardProps) {
@@ -73,12 +81,32 @@ export function ClassroomDashboard({
         </p>
       ) : null}
 
-      {status === "ready" && data ? <ClassroomContent data={data} /> : null}
+      {status === "ready" && data ? (
+        <ClassroomContent
+          data={data}
+          selectedDeviceIds={selectedDeviceIds}
+          onToggleDevice={onToggleDevice}
+          onSelectAll={onSelectAll}
+          onClearSelection={onClearSelection}
+        />
+      ) : null}
     </section>
   );
 }
 
-function ClassroomContent({ data }: { data: ClassroomDashboardData }) {
+function ClassroomContent({
+  data,
+  selectedDeviceIds,
+  onToggleDevice,
+  onSelectAll,
+  onClearSelection
+}: {
+  data: ClassroomDashboardData;
+  selectedDeviceIds: Set<string>;
+  onToggleDevice?: (deviceId: string) => void;
+  onSelectAll?: () => void;
+  onClearSelection?: () => void;
+}) {
   if (data.devices.length === 0) {
     return (
       <>
@@ -95,6 +123,10 @@ function ClassroomContent({ data }: { data: ClassroomDashboardData }) {
     );
   }
 
+  const selectedCount = selectedDeviceIds.size;
+  const allSelected = data.devices.length > 0 && data.devices.every((device) => selectedDeviceIds.has(device.id));
+  const selectionLabel = `${selectedCount} ${selectedCount === 1 ? "equipo seleccionado" : "equipos seleccionados"}`;
+
   return (
     <>
       <div className="summary-grid" aria-label="Resumen del aula">
@@ -108,10 +140,30 @@ function ClassroomContent({ data }: { data: ClassroomDashboardData }) {
             <h2 id="device-overview-title">Equipos del aula</h2>
             <p>{data.devices.length} equipos registrados</p>
           </div>
+          <button
+            className="selection-action"
+            type="button"
+            onClick={allSelected ? onClearSelection : onSelectAll}
+          >
+            {allSelected ? "Deseleccionar todos" : "Seleccionar todos"}
+          </button>
         </div>
+        {selectedCount > 0 ? (
+          <div className="selection-summary" aria-live="polite">
+            <span>{selectionLabel}</span>
+            <button className="selection-action selection-action--clear" type="button" onClick={onClearSelection}>
+              Limpiar selección
+            </button>
+          </div>
+        ) : null}
         <div className="device-grid">
           {data.devices.map((device) => (
-            <DeviceCard key={device.id} device={device} />
+            <DeviceCard
+              key={device.id}
+              device={device}
+              selected={selectedDeviceIds.has(device.id)}
+              onToggle={() => onToggleDevice?.(device.id)}
+            />
           ))}
         </div>
       </section>

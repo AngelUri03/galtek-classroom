@@ -662,6 +662,44 @@ h2 {
   padding-top: 4px;
 }
 
+.selection-action {
+  min-height: 34px;
+  border: 1px solid var(--classroom-200);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--classroom-800);
+  padding: 0 12px;
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.selection-action:hover {
+  border-color: var(--classroom-300);
+  background: var(--classroom-50);
+}
+
+.selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  border: 1px solid var(--classroom-300);
+  border-radius: var(--radius-md);
+  background: var(--classroom-50);
+  padding: 8px 10px 8px 14px;
+  color: var(--classroom-800);
+  font-family: var(--font-brand);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.selection-action--clear {
+  border-color: transparent;
+  background: transparent;
+}
+
 .device-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 320px));
@@ -688,6 +726,18 @@ h2 {
   border-color: var(--classroom-300);
   box-shadow: var(--shadow-md), inset 0 1px rgba(255, 255, 255, 0.76);
   transform: translateY(-1px);
+}
+
+.device-card--selected {
+  border-color: var(--classroom-300);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(235, 240, 255, 0.92)),
+    var(--classroom-50);
+  box-shadow: 0 8px 18px rgba(69, 111, 232, 0.12), inset 0 1px rgba(255, 255, 255, 0.76);
+}
+
+.device-card--selected::before {
+  background: var(--classroom-600);
 }
 
 .device-card:active {
@@ -731,6 +781,33 @@ h2 {
   border-radius: var(--radius-md);
   background: var(--classroom-50);
   color: var(--classroom-700);
+}
+
+.device-card__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-card__selection-control {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  border: 1.5px solid var(--classroom-300);
+  border-radius: 6px;
+  background: var(--surface);
+  color: white;
+  font-family: var(--font-brand);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.device-card--selected .device-card__selection-control {
+  border-color: var(--classroom-600);
+  background: var(--classroom-600);
 }
 
 .device-card__footer {

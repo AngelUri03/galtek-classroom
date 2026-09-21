@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-21 - Paso 20B.1R selector de aula real validado.
+2026-09-21 - Paso 20C foundation de selección de Devices.
 
 ## Estado del proyecto
+
+Paso 20C agrega selección efímera de Devices en el Master UI. `selectedDeviceIds` vive en `App.tsx` como `Set<string>` y usa exclusivamente `snapshot.devices[].deviceId` (mapeado como `device.id`). La selección es propia del aula visible: cambiar `selectedClassroomId` la limpia inmediatamente; el refresh de la misma aula conserva únicamente la intersección con IDs presentes en el snapshot nuevo. Devices `OFFLINE` siguen siendo seleccionables. Hay selección individual/múltiple, seleccionar o deseleccionar todos, contador con gramática singular/plural y limpiar selección. No hay acciones remotas ni cambios de backend, Agent, Protobuf o contratos.
 
 Paso 20B.1R cierra el selector real de aula del Master UI sobre datos reales read-only del Master Backend existente. La foundation visual de 20A/20A.2 permanece congelada: no se redisenan sidebar, header, summary cards ni device cards fuera del selector y del ajuste de layout de cards de Devices.
 

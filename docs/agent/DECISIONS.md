@@ -1,5 +1,11 @@
 # Decisiones vigentes
 
+## 2026-09-21 - Paso 20C selección de Devices
+
+- `selectedDeviceIds` es un `Set<string>` efímero en `App.tsx`; la única identidad de selección es `deviceId` del snapshot actual.
+- La selección pertenece al aula visible: un cambio de aula la vacía antes de cargar el snapshot nuevo. Un refresh de la misma aula conserva solo IDs aún presentes; no selecciona Devices nuevos.
+- Cards `ONLINE` y `OFFLINE` pueden seleccionarse por igual. La UI ofrece toggle por click, `Space` y `Enter`, seleccionar/deseleccionar todos y limpiar, sin operaciones remotas ni persistencia.
+
 ## 2026-09-21 - Paso 20B.1R selector de aula real
 
 - El selector de aula del Master UI vive en el header, en la posicion del nombre de aula bajo `Galtek Classroom`; no se duplica informacion en otra zona.

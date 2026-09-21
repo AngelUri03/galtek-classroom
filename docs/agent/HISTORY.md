@@ -1,5 +1,12 @@
 # Historial
 
+## 2026-09-21 - Paso 20C selección individual, múltiple y total de Devices
+
+- Se agregó la base de selección de targets del dashboard sin API nueva: `Set<string>` en `App.tsx`, identificado exclusivamente por `deviceId`.
+- La selección se vacía de inmediato al cambiar aula y el refresh conserva solo IDs aún presentes en el snapshot. `OFFLINE` no bloquea seleccionar.
+- Las cards alternan selección por click, `Space` o `Enter`; el encabezado de Devices ofrece seleccionar/deseleccionar todos y la barra compacta muestra contador y limpiar selección.
+- No se implementó 20D, ninguna operación remota ni persistencia de selección. No se hizo commit.
+
 ## 2026-09-21 - Paso 20B.1R selector de aula real
 
 ### Realizado
