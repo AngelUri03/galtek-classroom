@@ -1,5 +1,11 @@
 # Decisiones vigentes
 
+## 2026-09-21 - Paso 20C.1 classroom selector duplicate-name disambiguation
+
+- Las aulas activas con nombres duplicados siguen siendo entidades independientes; no se fusionan ni se renombran.
+- El selector conserva `classroomId` completo para selección y carga de snapshot. Los primeros ocho caracteres son solo una referencia visual en el dropdown, junto con `counts.deviceCount` del bootstrap.
+- El nombre real se mantiene en header y título. No existen todavía acciones remotas en la UI.
+
 ## 2026-09-21 - Paso 20C selección de Devices
 
 - `selectedDeviceIds` es un `Set<string>` efímero en `App.tsx`; la única identidad de selección es `deviceId` del snapshot actual.

@@ -27,4 +27,5 @@ export type ClassroomDashboardData = {
 export type ClassroomOption = {
   classroomId: string;
   displayName: string;
+  deviceCount?: number;
 };

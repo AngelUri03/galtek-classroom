@@ -2,9 +2,11 @@
 
 ## Ultima actualizacion
 
-2026-09-21 - Paso 20C foundation de selección de Devices.
+2026-09-21 - Paso 20C.1 desambiguación de aulas con nombre duplicado.
 
 ## Estado del proyecto
+
+Paso 20C.1 distingue en el dropdown las aulas activas con nombres equivalentes tras trim y comparación sin mayúsculas. Conserva todas las entidades y el `classroomId` completo como identidad; muestra solo en esas opciones el conteo de equipos del bootstrap y una referencia visual de ocho caracteres. El header y el título conservan el nombre real. Aún no existen acciones remotas en la UI.
 
 Paso 20C agrega selección efímera de Devices en el Master UI. `selectedDeviceIds` vive en `App.tsx` como `Set<string>` y usa exclusivamente `snapshot.devices[].deviceId` (mapeado como `device.id`). La selección es propia del aula visible: cambiar `selectedClassroomId` la limpia inmediatamente; el refresh de la misma aula conserva únicamente la intersección con IDs presentes en el snapshot nuevo. Devices `OFFLINE` siguen siendo seleccionables. Hay selección individual/múltiple, seleccionar o deseleccionar todos, contador con gramática singular/plural y limpiar selección. No hay acciones remotas ni cambios de backend, Agent, Protobuf o contratos.
 

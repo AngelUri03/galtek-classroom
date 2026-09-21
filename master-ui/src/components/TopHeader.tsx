@@ -39,6 +39,11 @@ export function TopHeader({
   const [isClassroomMenuOpen, setIsClassroomMenuOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const nameCounts = new Map<string, number>();
+  classrooms.forEach((classroom) => {
+    const name = classroom.displayName.trim().toLocaleLowerCase();
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  });
   const selectedIndex = Math.max(
     0,
     classrooms.findIndex((classroom) => classroom.classroomId === selectedClassroomId)
@@ -116,6 +121,11 @@ export function TopHeader({
               <div className="classroom-selector__menu" role="listbox" aria-label="Aulas activas">
                 {classrooms.map((classroom, index) => {
                   const isSelected = classroom.classroomId === selectedClassroomId;
+                  const isDuplicate = (nameCounts.get(classroom.displayName.trim().toLocaleLowerCase()) ?? 0) > 1;
+                  const reference = classroom.classroomId.slice(0, 8);
+                  const deviceLabel = classroom.deviceCount === undefined
+                    ? undefined
+                    : `${classroom.deviceCount} ${classroom.deviceCount === 1 ? "equipo" : "equipos"}`;
 
                   return (
                     <button
@@ -127,6 +137,9 @@ export function TopHeader({
                       type="button"
                       role="option"
                       aria-selected={isSelected}
+                      aria-label={isDuplicate
+                        ? `${classroom.displayName}, ${deviceLabel ? `${deviceLabel}, ` : ""}referencia ${reference}`
+                        : classroom.displayName}
                       tabIndex={isSelected ? 0 : -1}
                       onClick={() => selectClassroom(classroom.classroomId)}
                       onKeyDown={(event) => {
@@ -144,7 +157,14 @@ export function TopHeader({
                         }
                       }}
                     >
-                      <span>{classroom.displayName}</span>
+                      <span className="classroom-selector__option-text">
+                        <span>{classroom.displayName}</span>
+                        {isDuplicate ? (
+                          <span className="classroom-selector__option-detail">
+                            {deviceLabel ? `${deviceLabel} · ` : ""}Ref. {reference}
+                          </span>
+                        ) : null}
+                      </span>
                       {isSelected ? <Check size={16} aria-hidden="true" /> : null}
                     </button>
                   );

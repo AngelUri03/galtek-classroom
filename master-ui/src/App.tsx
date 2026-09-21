@@ -63,7 +63,8 @@ export function App() {
         .filter((classroom) => classroom.active)
         .map((classroom) => ({
           classroomId: classroom.classroomId,
-          displayName: classroom.displayName
+          displayName: classroom.displayName,
+          deviceCount: classroom.counts?.deviceCount
         }));
       const headerBase = headerFromAuthorization(bootstrap.authorization);
 

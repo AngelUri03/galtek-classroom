@@ -1,5 +1,11 @@
 # Historial
 
+## 2026-09-21 - Paso 20C.1 classroom selector duplicate-name disambiguation
+
+- Las opciones con nombre duplicado muestran un segundo renglón con equipos y referencia corta, derivados del bootstrap, sin fusionar aulas ni cambiar nombres reales.
+- `classroomId` completo sigue identificando selección y snapshot; la referencia corta es solo presentación.
+- No se implementó 20D ni acciones remotas en la UI. No se hizo commit.
+
 ## 2026-09-21 - Paso 20C selección individual, múltiple y total de Devices
 
 - Se agregó la base de selección de targets del dashboard sin API nueva: `Set<string>` en `App.tsx`, identificado exclusivamente por `deviceId`.
