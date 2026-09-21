@@ -19,4 +19,5 @@ npm run build
 npm start
 ```
 
-Los datos visibles del dashboard Aula viven en `src/mock/mockClassroomDashboard.ts` y son placeholders locales para 20A. No hay conexion a APIs reales en este paso.
+El dashboard Aula consume datos reales del Master Backend mediante requests relativos a `/api`.
+En desarrollo, Webpack dev server proxya `/api` a `http://127.0.0.1:8080`.

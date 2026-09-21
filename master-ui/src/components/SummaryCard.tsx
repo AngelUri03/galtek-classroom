@@ -1,4 +1,4 @@
-import { Activity, Monitor, MousePointer2, TriangleAlert, Wifi } from "lucide-react";
+import { Activity, Monitor, MonitorUp, UserCheck, Wifi } from "lucide-react";
 import type { DashboardMetric } from "../types/classroom";
 
 type SummaryCardProps = {
@@ -8,8 +8,8 @@ type SummaryCardProps = {
 const metricIcon = {
   devices: Monitor,
   online: Wifi,
-  inUse: MousePointer2,
-  attention: TriangleAlert
+  assigned: UserCheck,
+  free: MonitorUp
 };
 
 export function SummaryCard({ metric }: SummaryCardProps) {

@@ -2,9 +2,27 @@
 
 ## Ultima actualizacion
 
-2026-09-15 - Paso 20A.2 visual foundation frozen.
+2026-09-21 - Paso 20B.1R selector de aula real validado.
 
 ## Estado del proyecto
+
+Paso 20B.1R cierra el selector real de aula del Master UI sobre datos reales read-only del Master Backend existente. La foundation visual de 20A/20A.2 permanece congelada: no se redisenan sidebar, header, summary cards ni device cards fuera del selector y del ajuste de layout de cards de Devices.
+
+El runtime del dashboard ya no usa `master-ui/src/mock/mockClassroomDashboard.ts`; ese mock fue eliminado. La carga inicial usa `GET /api/master/bootstrap`, toma las aulas activas reales en el orden entregado por el backend y selecciona inicialmente la primera aula activa. Si no hay aulas activas, muestra empty state real. Despues carga `GET /api/classrooms/{classroomId}/snapshot` como read model del dashboard. No se usa `GET /api/network/clients` en 20B porque el snapshot vigente ya incluye Devices registrados, assignments actuales y presencia viva superpuesta desde `ClientConnectionRegistry`.
+
+El header muestra un selector de aula real en la posicion del texto de aula, debajo de `Galtek Classroom`. El selector se alimenta exclusivamente de `bootstrap.classrooms` filtradas por `active === true`, marca el aula actual, abre con click, cierra con seleccion, Escape o click fuera, y permite seleccion por teclado. Al seleccionar otra aula no recarga bootstrap: cambia `selectedClassroomId`, solicita `GET /api/classrooms/{selectedClassroomId}/snapshot` y actualiza titulo, metricas, Devices y assignments visibles desde el snapshot nuevo. Durante el cambio conserva el shell y reemplaza el contenido por loading discreto para no presentar datos del aula anterior como si fueran del aula nueva.
+
+Validacion real 20B.1R en `http://127.0.0.1:3000`: bootstrap `AUTHORIZED`, storage `READY`, selector visible con aulas activas reales, incluidas varias entradas `Aula Primaria` y `Laboratorio de Computo`. `Aula Primaria` mostro `PC01` `ONLINE`, hostname `pc01`, `lastSeenUtc=2026-08-26T10:00:00Z` renderizado como hora local `26/08/26, 4:00 a.m.`. `Laboratorio de Computo` mostro `PC14`, hostname `ICH11`, status `OFFLINE` porque ese es el valor actual del snapshot real, y `lastSeenUtc=2026-09-15T04:50:19.5046582Z` renderizado como hora local `14/09/26, 10:50 p.m.`. Volver a `Aula Primaria` recargo snapshot y reaparecio `PC01`.
+
+El nombre visible del aula sale de `snapshot.classroom.displayName`; durante el cambio se usa temporalmente el `displayName` real del bootstrap para el shell/loading. El header deja de mostrar `Aula Primaria - placeholder`, `Master listo` y profesora ficticia; ahora muestra estado derivado de `bootstrap.authorization` y, cuando existe, `currentAccountDisplayName` real. No se persiste classroomId en localStorage.
+
+Las metricas reales vigentes son `Equipos` desde `snapshot.summary.deviceCount`, `En linea` contado desde `devices[].status === "ONLINE"`, `Asignados` desde `snapshot.summary.assignedDeviceCount` y `Libres` desde `snapshot.summary.freeDeviceCount`. No se muestran `En uso` ni `Con atencion` porque el contrato actual no expone semantica suficiente para calcularlas sin inventar datos.
+
+Cada card de Device se alimenta de `snapshot.devices[]`: nombre desde `displayName` o fallback visual derivado del `deviceId` acortado, alumno desde `assignedStudentDisplayName` o `Sin alumno asignado`, presencia desde `status`, ultima senal desde `lastSeenUtc`, y hostname/ID corto como dato secundario. No se muestra UUID completo. Existen estados loading con skeletons, error con `No pudimos cargar el aula` y boton `Reintentar`, empty sin aulas y empty de aula sin Devices. El refresh manual recarga solo el snapshot, conserva contenido actual mientras actualiza y no agrega polling.
+
+Webpack dev server proxya `/api` hacia `http://127.0.0.1:8080`, que es el puerto vigente del Master Backend en `application.yml`. La UI mantiene requests relativos `/api/...` para same-origin futuro.
+
+Paso 20B.1R no avanza 20C: no implementa seleccion individual/multiple, acciones remotas, polling agresivo, Credential Vault, provisioning, Tauri, backend funcional, Agent, Credential Provider, Session Agent, Protobuf, gRPC contracts, installers ni pairing UI. No se hizo commit.
 
 Paso 20A inicia el Master UI real en `master-ui/` con React 18, TypeScript y Webpack 5 explicito, sin Vite, sin Tauri y sin Electron. Antes de esta unidad no existia frontend, `package.json`, lockfile ni tooling UI en el repositorio.
 
@@ -14,11 +32,7 @@ El Master UI empaqueta localmente `Kodchasan` mediante `@fontsource/kodchasan` y
 
 La UI queda refinada con tokens centralizados de color, neutrales frios, radios, sombras, motion, foco y tipografia. La cantidad de color en superficies queda reducida: Classroom Blue y blancos/neutrales dominan la interfaz; los estados semanticos `success`, `warning`, `danger` y `offline` quedan reservados para indicadores pequenos como punto, icono o detalle corto. Summary cards y device cards comparten una misma superficie Galtek Classroom, sin tintes ni bordes semanticos dominantes; selected usa Classroom Blue como estado de interaccion del producto. Sidebar y top header conservan composicion, hover, focus-visible, selected y pressed sin implementar seleccion real.
 
-Paso 20A.2 no avanza 20B: no conecta `/api/network/clients`, `/api/master/bootstrap`, `/api/classrooms` ni datos reales; no agrega APIs fake, no implementa operaciones, seleccion real, auth, settings, Tauri ni packaging; no toca backend, Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, licensing ni installer.
-
-El shell desktop ya incluye sidebar fija/colapsable, header superior, navegacion visual para Aula, Alumnos, Aplicaciones, Archivos, Navegacion, Actividad y Configuracion, y dashboard Aula con resumen y tarjetas dummy de equipos. Solo `Aula` queda funcional como vista activa del shell.
-
-Los datos visibles del dashboard son placeholders locales encapsulados en `master-ui/src/mock/mockClassroomDashboard.ts`. No se conecto `/api/network/clients`, no se agrego backend fake, no se implementaron operaciones reales del aula ni se toco Agent Service, Credential Provider, Session Agent, Protobuf, pairing, mTLS, managed accounts, Windows session state, Credential Vault backend, licensing o installer.
+El shell desktop ya incluye sidebar fija/colapsable, header superior, navegacion visual para Aula, Alumnos, Aplicaciones, Archivos, Navegacion, Actividad y Configuracion. Solo `Aula` queda funcional como vista activa del shell.
 
 Validacion 20A.2: `npm run typecheck` correcto, `npm run build` correcto y `git diff --check` correcto. `rg "Inter|fontsource/inter" master-ui/src master-ui/package.json master-ui/package-lock.json -n` quedo sin coincidencias; el comando amplio `rg "Inter|fontsource/inter" master-ui -n` solo encuentra `esModuleInterop` en `tsconfig.json`, que no es una referencia funcional a la fuente Inter. `npm uninstall @fontsource/inter` mantuvo las 3 vulnerabilidades moderadas transitivas ya existentes; no se ejecuto `npm audit fix --force` para no ampliar alcance.
 

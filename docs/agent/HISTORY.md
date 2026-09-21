@@ -1,5 +1,74 @@
 # Historial
 
+## 2026-09-21 - Paso 20B.1R selector de aula real
+
+### Realizado
+
+- Corregido el header del Master UI para reemplazar el texto estatico de aula por un selector real en la posicion bajo `Galtek Classroom`.
+- El selector consume `bootstrap.classrooms` filtradas por `active === true`, marca el aula actual, abre con click y permite seleccion/cierre sin agregar librerias de dropdown.
+- Al seleccionar aula se actualiza `selectedClassroomId` y se solicita `GET /api/classrooms/{selectedClassroomId}/snapshot`, sin recargar bootstrap.
+- Durante el cambio de aula se conserva el shell y el contenido pasa a loading discreto con el nombre real del destino, evitando mostrar Devices/metricas del aula anterior bajo el titulo nuevo.
+- El snapshot nuevo actualiza titulo, metricas y Devices visibles desde el contrato real.
+- Ajustado el grid de Devices para usar columnas compactas y evitar que una unica card ocupe todo el ancho disponible.
+- Revisada la semantica de `lastSeenUtc`: la UI sigue renderizando el valor real del snapshot con conversion local, sin fabricar fecha actual.
+- Actualizados `docs/agent/CURRENT_STATE.md`, `docs/agent/DECISIONS.md` y este historial.
+
+### Cambios descartados
+
+- No se avanzo 20C.
+- No se implemento seleccion individual/multiple ni acciones remotas.
+- No se modifico backend, API contracts, Agent, Credential Provider, Session Agent, Protobuf, gRPC, installers ni pairing.
+- No se hardcodearon `Laboratorio de Computo`, `PC14`, hostname ni status en el runtime.
+- No se hizo commit.
+
+### Validacion
+
+- `npm run typecheck` en `master-ui`: correcto.
+- `npm run build` en `master-ui`: correcto.
+- `git diff --check`: correcto; solo warnings locales LF->CRLF del working tree.
+- Backend real local: `GET /api/master/bootstrap` devolvio `AUTHORIZED`, storage `READY` y aulas activas reales, incluidas varias `Aula Primaria` y `Laboratorio de Computo`.
+- Snapshot real `Aula Primaria` (`b189bb56-98d7-4059-a469-315a50f62088`): `PC01`, hostname `pc01`, status `ONLINE`, `lastSeenUtc=2026-08-26T10:00:00Z`.
+- Snapshot real `Laboratorio de Computo` (`1968a9e5-73db-49dc-a5e4-d7d07fb951c2`): `PC14`, hostname `ICH11`, status `OFFLINE`, `lastSeenUtc=2026-09-15T04:50:19.5046582Z`.
+- Validacion visual headless sobre `http://127.0.0.1:3000`: selector visible, menu con aulas reales, seleccion de `Laboratorio de Computo` mostro `PC14`, `Sin conexion`, `Host ICH11` y ultima senal local `14/09/26, 10:50 p.m.`; volver a `Aula Primaria` mostro `PC01`, `En linea`, `Host pc01`.
+- Con un solo Device, la card midio 300px en la validacion y no se estiro a toda la fila.
+
+## 2026-09-15 - Paso 20B real classroom dashboard data
+
+### Realizado
+
+- Leidos `master-ui/README.md`, `master-ui/src`, `master-ui/package.json`, `master-ui/webpack.config.js`, `docs/agent/CURRENT_STATE.md`, `docs/agent/DECISIONS.md`, `docs/api/master-api-v1.md`, y contratos/tests backend directamente relacionados con `GET /api/master/bootstrap`, `GET /api/classrooms/{id}/snapshot` y `GET /api/network/clients`.
+- Confirmado en `AdminDtos.java`, `MasterAdminController.java`, `MasterAdminService.java` y `MasterAdminControllerTest.java` que bootstrap devuelve authorization/storage/aulas activas con conteos, y snapshot devuelve classroom, devices, assignments actuales, summary y presencia viva superpuesta para Devices registrados.
+- Confirmado en `NetworkDtos.java`, `NetworkClientController.java`, `NetworkClientAdminService.java` y `NetworkClientControllerTest.java` que `/api/network/clients` expone clients paired/registered, pero no hace falta para el dashboard 20B porque snapshot ya contiene Devices registrados y presencia.
+- Creada capa minima `master-ui/src/api/` con `apiClient.ts`, `masterApi.ts` y mapper `classroomDashboardMapper.ts`, usando `fetch` nativo, requests relativos, `AbortSignal` y error HTTP controlado.
+- Conectado `App` a bootstrap + snapshot reales; el aula activa temporal se elige como la primera aula activa real en orden backend.
+- Eliminado `master-ui/src/mock/mockClassroomDashboard.ts` del runtime.
+- Header actualizado para mostrar nombre real del aula desde snapshot y estado/cuenta desde bootstrap authorization, sin `Master listo`, profesora ficticia ni placeholder visible.
+- Dashboard actualizado con metricas reales: `Equipos`, `En linea`, `Asignados` y `Libres`; se retiraron `En uso` y `Con atencion` porque la API actual no expone semantica suficiente.
+- Device cards actualizadas para representar `snapshot.devices[]` con displayName, presencia real, alumno asignado real o `Sin alumno asignado`, ultima senal y hostname/ID corto sin UUID completo.
+- Implementados loading skeleton, error state con `No pudimos cargar el aula` + `Reintentar`, empty sin aulas activas, empty de aula sin Devices y refresh manual de snapshot.
+- Agregado proxy Webpack dev server para `/api` hacia `http://127.0.0.1:8080`.
+
+### Cambios descartados
+
+- No se uso fallback a mocks ante fallo de API.
+- No se implemento selector de aulas, seleccion individual/multiple, seleccionar todos, acciones remotas, Credential Vault, provisioning, policies, pairing UI, Tauri ni polling.
+- No se modifico backend funcional, Agent, Credential Provider, Session Agent, Protobuf, gRPC contracts ni installers.
+- No se hizo commit.
+
+### Validacion
+
+- `npm run typecheck` en `master-ui`: correcto.
+- `npm run build` en `master-ui`: correcto.
+- `git diff --check`: correcto; solo warnings locales LF->CRLF del working tree.
+- `mvn -q "-Dtest=MasterAdminControllerTest,NetworkClientControllerTest" test` en `master-backend`: correcto.
+- `rg "mockClassroomDashboard|Datos temporales locales|placeholder|Master listo|teacherName|MockClassroom|MockDevice" master-ui/src master-ui/README.md -n`: sin coincidencias.
+- Master Backend real local ya estaba corriendo en `127.0.0.1:8080`; `GET /api/master/bootstrap` respondio `AUTHORIZED`, storage `READY` y varias aulas activas.
+- Webpack dev server levantado en `http://127.0.0.1:3002/`; `GET http://127.0.0.1:3002/api/master/bootstrap` valido el proxy `/api` hacia `127.0.0.1:8080`.
+- Aula seleccionada por la regla temporal de 20B: primera aula activa del bootstrap, `b189bb56-98d7-4059-a469-315a50f62088`, `Aula Primaria`.
+- Snapshot del aula seleccionada: nombre real `Aula Primaria`, `deviceCount=1`, `assignedDeviceCount=0`, `freeDeviceCount=1`, `onlineCount=1`, Device `PC01` `ONLINE`.
+- PC14 existe realmente en snapshot de backend, pero no en el aula seleccionada temporalmente: aula `Laboratorio de Computo` (`1968a9e5-73db-49dc-a5e4-d7d07fb951c2`), `deviceId=2966678f-0f07-43ad-936f-8fcd8fc308dd`, `displayName=PC14`, `hostname=ICH11`, `status=ONLINE`, sin alumno asignado, `lastSeenUtc=2026-09-15T06:17:37.5013533Z`.
+- `/api/network/clients` se consulto solo como diagnostico PC14 y confirmo `PC14` `REGISTERED`/`ONLINE`; no se usa en el runtime 20B.
+
 ## 2026-09-15 - Paso 20A.2 visual foundation frozen
 
 ### Realizado

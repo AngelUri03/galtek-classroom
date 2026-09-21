@@ -1,5 +1,34 @@
 # Decisiones vigentes
 
+## 2026-09-21 - Paso 20B.1R selector de aula real
+
+- El selector de aula del Master UI vive en el header, en la posicion del nombre de aula bajo `Galtek Classroom`; no se duplica informacion en otra zona.
+- Las opciones del selector salen solo de `bootstrap.classrooms.filter(active === true)`; no se hardcodean nombres ni ids de aulas.
+- La carga inicial sigue eligiendo la primera aula activa en el orden del backend.
+- Cambiar de aula actualiza `selectedClassroomId` y carga solo `GET /api/classrooms/{selectedClassroomId}/snapshot`; no se recarga bootstrap en cada seleccion.
+- Durante el cambio de snapshot se conserva el shell y se muestra loading del contenido con el nombre real de destino, sin mantener metricas ni Devices del aula anterior bajo el titulo nuevo.
+- El selector debe cerrar con seleccion, Escape y click fuera; Enter/Space seleccionan y el foco queda navegable de forma razonable.
+- El grid de Devices debe usar columnas compactas para que una sola card no se estire a todo el ancho del dashboard.
+- `lastSeenUtc` se muestra desde el valor real del snapshot convertido a hora local. Si el backend devuelve una fecha antigua o un status distinto a lo esperado, la UI lo refleja sin fabricar actualidad.
+- 20B.1R no avanza 20C, no agrega operaciones remotas, no toca backend/API contracts/Agent/Protobuf y no requiere commit.
+
+## 2026-09-15 - Paso 20B real classroom dashboard data
+
+- La foundation visual de 20A/20A.2 permanece congelada; 20B solo reemplaza datos mock del dashboard `Aula` por datos reales read-only.
+- La entrada inicial de datos del Master UI es `GET /api/master/bootstrap`.
+- El aula activa temporal se determina filtrando aulas activas reales y tomando la primera en el orden entregado por el backend; no se guarda `classroomId` en `localStorage` y no se hardcodea ningun aula.
+- El read model del dashboard es `GET /api/classrooms/{classroomId}/snapshot`.
+- `GET /api/network/clients` no se consume en 20B porque el snapshot vigente ya expone Devices registrados, assignments actuales y presencia real suficiente para esta pantalla.
+- La capa frontend de API vive bajo `master-ui/src/api/`, usa `fetch` nativo, requests relativos `/api/...`, `AbortSignal`, manejo tipado minimo de JSON y error HTTP uniforme.
+- En desarrollo, Webpack dev server proxya solo `/api` a `http://127.0.0.1:8080`, puerto vigente del Master Backend local.
+- Las metricas visibles reales son `Equipos`, `En linea`, `Asignados` y `Libres`.
+- `En uso` y `Con atencion` quedan ocultas en 20B porque el contrato actual no expone semantica suficiente para calcularlas sin inventar datos.
+- Device cards se construyen desde `snapshot.devices[]`, usando `displayName`, `assignedStudentDisplayName`, `status`, `lastSeenUtc`, `hostname` y `deviceId` acortado cuando hace falta.
+- No se muestra UUID completo de Device en UI normal.
+- El header usa `snapshot.classroom.displayName` para el aula y `bootstrap.authorization` para estado/cuenta actual; se eliminan `Aula Primaria - placeholder`, `Master listo`, profesora ficticia y `Datos temporales locales`.
+- Refresh en 20B es manual y recarga solo snapshot, conservando contenido actual; no se agrega polling para mantener alcance pequeno y evitar timers innecesarios.
+- No se avanzo 20C, no se implemento seleccion ni acciones remotas, y no se toco backend funcional, Agent, Credential Provider, Session Agent, Protobuf, gRPC contracts, installers ni pairing UI.
+
 ## 2026-09-15 - Paso 20A.2 visual foundation frozen
 
 - Galtek Classroom usa `Kodchasan` como tipografia principal de toda la UI mediante `@fontsource/kodchasan`, empaquetada localmente.

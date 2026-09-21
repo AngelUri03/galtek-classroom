@@ -41,6 +41,13 @@ module.exports = {
       directory: path.resolve(__dirname, "public")
     },
     historyApiFallback: true,
+    proxy: [
+      {
+        context: ["/api"],
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true
+      }
+    ],
     client: {
       overlay: true
     }

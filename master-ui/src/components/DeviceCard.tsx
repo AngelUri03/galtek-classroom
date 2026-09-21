@@ -1,24 +1,17 @@
-import { MonitorCheck, MonitorDot, MonitorOff, TriangleAlert, WifiOff } from "lucide-react";
-import type { MockClassroomDevice, MockDeviceStatus } from "../types/classroom";
+import { LoaderCircle, MonitorCheck, MonitorOff, TriangleAlert, WifiOff } from "lucide-react";
+import type { ClassroomDeviceCardData, DeviceCardStatus } from "../types/classroom";
 
-const statusLabel: Record<MockDeviceStatus, string> = {
-  online: "En linea",
-  offline: "Sin conexion",
-  inUse: "En uso",
-  attention: "Con atencion",
-  degraded: "Degradado"
-};
-
-const statusIcon: Record<MockDeviceStatus, typeof MonitorCheck> = {
+const statusIcon: Record<DeviceCardStatus, typeof MonitorCheck> = {
   online: MonitorCheck,
   offline: MonitorOff,
-  inUse: MonitorDot,
-  attention: TriangleAlert,
-  degraded: WifiOff
+  connecting: LoaderCircle,
+  unavailable: WifiOff,
+  busy: WifiOff,
+  error: TriangleAlert
 };
 
 type DeviceCardProps = {
-  device: MockClassroomDevice;
+  device: ClassroomDeviceCardData;
 };
 
 export function DeviceCard({ device }: DeviceCardProps) {
@@ -26,9 +19,9 @@ export function DeviceCard({ device }: DeviceCardProps) {
 
   return (
     <article
-      className={`device-card device-card--${device.status}${device.selected ? " device-card--selected" : ""}`}
+      className={`device-card device-card--${device.status}`}
       tabIndex={0}
-      aria-label={`${device.label}, ${device.studentName}, ${statusLabel[device.status]}, ${device.secondaryStatus}`}
+      aria-label={`${device.label}, ${device.studentName}, ${device.statusLabel}, ${device.secondaryStatus}`}
     >
       <div className="device-card__topline">
         <div className="device-card__identity">
@@ -42,7 +35,7 @@ export function DeviceCard({ device }: DeviceCardProps) {
       <div className="device-card__footer">
         <span className="device-card__status">
           <span className="device-card__status-dot" aria-hidden="true" />
-          {statusLabel[device.status]}
+          {device.statusLabel}
         </span>
         <small>{device.secondaryStatus}</small>
         <small>{device.note}</small>
