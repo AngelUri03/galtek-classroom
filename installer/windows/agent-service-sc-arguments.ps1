@@ -22,7 +22,7 @@ function New-AgentServiceCreateScArguments {
         'DisplayName=',
         $ServiceDisplayName,
         'start=',
-        'auto',
+        'delayed-auto',
         'obj=',
         'LocalSystem'
     )
@@ -43,7 +43,7 @@ function New-AgentServiceConfigScArguments {
         'DisplayName=',
         $ServiceDisplayName,
         'start=',
-        'auto',
+        'delayed-auto',
         'obj=',
         'LocalSystem'
     )

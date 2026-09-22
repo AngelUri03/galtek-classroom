@@ -2,8 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Network;
+using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Runtime;
 using GaltekClassroom.Agent.Shared;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GaltekClassroom.Agent.Service.Tests;
 
@@ -16,6 +18,41 @@ public sealed class AgentPowerLossRecoveryTests : IDisposable
         Path.GetTempPath(),
         "GaltekClassroom.Agent.PowerLoss.Tests",
         Guid.NewGuid().ToString("N"));
+
+    [Fact]
+    public async Task WorkerStartAsyncDoesNotWaitForSlowLocalIdentityRecovery()
+    {
+        var hardware = new SlowHardwareFingerprintProvider();
+        var clock = new FakeClock(FixedNowUtc);
+        var state = new AgentRuntimeState();
+        var worker = new Worker(
+            NullLogger<Worker>.Instance,
+            CreateRunMarker(),
+            new InstallationIdentityResolver(
+                new InstallationIdentityStore(new InstallationIdentityStoreOptions(_dataDirectory)),
+                hardware,
+                clock),
+            null!, // Resolution is held at the hardware gate until shutdown.
+            state);
+
+        await worker.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await hardware.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(AgentStartupPhase.Starting, state.Snapshot.StartupPhase);
+        await worker.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task MasterConnectionStartAsyncDoesNotWaitForIdentityOrNetwork()
+    {
+        var service = new MasterConnectionHostedService(
+            NullLogger<MasterConnectionHostedService>.Instance,
+            new MasterConnectionOptions { Enabled = true },
+            new AgentRuntimeState(),
+            null!); // The client cannot be reached until both local identities become ready.
+
+        await service.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await service.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    }
 
     [Fact]
     public async Task RunMarker_WhenStoppedCleanly_NextStartupReportsClean()
@@ -197,6 +234,19 @@ public sealed class AgentPowerLossRecoveryTests : IDisposable
         }
 
         public DateTimeOffset UtcNow { get; }
+    }
+
+    private sealed class SlowHardwareFingerprintProvider : IHardwareFingerprintProvider
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<HardwareFingerprint> GetCurrentAsync(CancellationToken cancellationToken)
+        {
+            Entered.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The hardware gate should only end by cancellation.");
+        }
     }
 
     private sealed class FakeNetworkIdentityKeyStore : INetworkIdentityKeyStore

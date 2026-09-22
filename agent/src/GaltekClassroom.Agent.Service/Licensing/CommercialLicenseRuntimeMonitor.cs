@@ -53,8 +53,9 @@ public sealed class CommercialLicenseRuntimeMonitor : BackgroundService
     {
         try
         {
+            var installationIdentity = await _runtimeState.WaitForInstallationIdentityAsync(cancellationToken);
             var licenseState = await _licenseManager.ResolveAsync(
-                _runtimeState.GetInstallationIdentity(),
+                installationIdentity,
                 cancellationToken);
 
             if (licenseState.Active)

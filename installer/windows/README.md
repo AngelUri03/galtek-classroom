@@ -54,7 +54,7 @@ install-credential-provider.ps1
 test-credential-provider-installation.ps1
 ```
 
-Order: Agent Service, Session Agent, Credential Provider, then read-only Credential Provider verification. The Service installer manages `%ProgramFiles%\Galtek\Classroom\Agent\` and preserves the `Session\` and `CredentialProvider\` subdirectories. The Session installer manages `%ProgramFiles%\Galtek\Classroom\Agent\Session\` and preserves ProgramData. If Credential Provider install fails after Service/Session succeeded, the orchestrator fails and reports a partial Agent install instead of declaring success.
+Order: Agent Service, Session Agent, Credential Provider, then read-only Credential Provider verification. The Service installer manages `%ProgramFiles%\Galtek\Classroom\Agent\`, preserves the `Session\` and `CredentialProvider\` subdirectories, and preserves an existing `appsettings.json` (including `MasterConnection`) during upgrades. The Session installer manages `%ProgramFiles%\Galtek\Classroom\Agent\Session\` and preserves ProgramData. If Credential Provider install fails after Service/Session succeeded, the orchestrator fails and reports a partial Agent install instead of declaring success.
 
 ## Full Agent Uninstall
 
@@ -103,9 +103,10 @@ The script:
 - copies Service binaries to `%ProgramFiles%\Galtek\Classroom\Agent\`;
 - preserves `%ProgramFiles%\Galtek\Classroom\Agent\Session\` if it exists;
 - creates or reconfigures service `GaltekClassroomAgent`;
-- sets startup type to `Automatic`;
+- sets startup type to `Automatic (Delayed Start)` for both new installs and upgrades;
 - runs as `LocalSystem`;
 - configures service recovery restart delays of 5, 15 and 60 seconds;
+- verifies Automatic + `DelayedAutostart=1`, LocalSystem, exact ImagePath, recovery reset/actions and `failureflag=1`;
 - starts the service and verifies `Running`.
 
 ProgramData is created or verified at `%ProgramData%\Galtek\Classroom\`, but existing `installation.json`, `license.dat` and `master-binding.json` are not deleted.
@@ -116,6 +117,9 @@ Verify:
 Get-Service GaltekClassroomAgent
 Get-CimInstance Win32_Service -Filter "Name='GaltekClassroomAgent'" |
     Select-Object Name, State, StartMode, StartName, PathName
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\GaltekClassroomAgent' |
+    Select-Object DelayedAutostart, FailureActionsOnNonCrashFailures
+.\installer\windows\test-agent-service-installation.ps1
 ```
 
 Uninstall only the Service:
@@ -263,6 +267,8 @@ The registration script points by default to:
 It refuses DLL paths outside Program Files and does not register a Credential Provider Filter. Standard Windows providers such as password, PIN and Windows Hello must remain visible.
 
 ## Diagnostics
+
+Bootstrap startup file diagnostics are off by default. For a deliberate diagnostic run only, set the per-process or per-service environment variable `GALTEK_BOOTSTRAP_STARTUP_DIAGNOSTICS=1`; the normal startup path does not create or flush the bootstrap file.
 
 From development builds:
 

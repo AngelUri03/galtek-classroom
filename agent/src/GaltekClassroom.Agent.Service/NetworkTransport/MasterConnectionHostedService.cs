@@ -23,6 +23,8 @@ public sealed class MasterConnectionHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // A ready local identity or zero startup jitter must never put gRPC work on SCM's startup path.
+        await Task.Yield();
         if (!_options.Enabled)
         {
             return;

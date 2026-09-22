@@ -27,11 +27,13 @@ public sealed class Worker : BackgroundService
         _runtimeState = runtimeState;
     }
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("{ServiceName} starting.", ProductInfo.ServiceDisplayName);
+        // Keep filesystem and identity recovery outside IHostedService.StartAsync/SCM startup.
+        await Task.Yield();
+        _logger.LogInformation("AGENT_SERVICE_STARTING ServiceName={ServiceName}", ProductInfo.ServiceDisplayName);
 
-        var marker = await _runMarker.MarkStartedAsync(cancellationToken);
+        var marker = await _runMarker.MarkStartedAsync(stoppingToken);
         _runtimeState.ObservePreviousShutdown(marker.PreviousShutdownWasUnclean);
 
         if (marker.PreviousShutdownWasUnclean)
@@ -48,7 +50,7 @@ public sealed class Worker : BackgroundService
                 marker.ErrorMessage);
         }
 
-        var resolution = await _installationIdentityResolver.ResolveAsync(cancellationToken);
+        var resolution = await _installationIdentityResolver.ResolveAsync(stoppingToken);
 
         if (resolution.Status != InstallationIdentityResolutionStatus.Ready)
         {
@@ -67,13 +69,7 @@ public sealed class Worker : BackgroundService
 
         _runtimeState.SetInstallationIdentity(resolution.Identity);
 
-        await base.StartAsync(cancellationToken);
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("{ServiceName} is active.", ProductInfo.ServiceDisplayName);
-
+        _logger.LogInformation("AGENT_SERVICE_READY ServiceName={ServiceName} State=LOCAL_READY", ProductInfo.ServiceDisplayName);
         try
         {
             await ResolveNetworkIdentityAsync(stoppingToken);

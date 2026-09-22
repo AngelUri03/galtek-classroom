@@ -12,6 +12,13 @@ TestResults/
 *.nupkg
 *.snupkg
 artifacts/
+!artifacts/
+artifacts/*
+!artifacts/windows/
+artifacts/windows/*
+!artifacts/windows/validation/
+artifacts/windows/validation/*
+!artifacts/windows/validation/20E.0B2/
 
 # Native Windows builds
 agent/native/**/Win32/

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Galtek" Copyright="Galtek" Company="Galtek">
+  <Profiles>
+    <SystemCollector Id="GaltekEarlyBootSystemCollector" Name="NT Kernel Logger" Realtime="false">
+      <BufferSize Value="128" />
+      <Buffers Value="128" />
+    </SystemCollector>
+    <EventCollector Id="GaltekEarlyBootEventCollector" Name="Galtek Early Boot Event Collector" Realtime="false">
+      <BufferSize Value="64" />
+      <Buffers Value="64" />
+    </EventCollector>
+    <SystemProvider Id="GaltekEarlyBootSystemProvider">
+      <Keywords>
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="DiskIO" />
+        <Keyword Value="DiskIOInit" />
+        <Keyword Value="FileIO" />
+        <Keyword Value="FileIOInit" />
+      </Keywords>
+    </SystemProvider>
+    <EventProvider Id="MicrosoftWindowsServices" Name="0063715b-eeda-4007-9429-ad526f62696e" Level="5" />
+    <Profile Id="GaltekEarlyBoot.Verbose.File"
+             Name="GaltekEarlyBoot"
+             Description="Galtek Agent external early-boot process, image, disk, file and service diagnostics"
+             LoggingMode="File"
+             DetailLevel="Verbose">
+      <Collectors>
+        <SystemCollectorId Value="GaltekEarlyBootSystemCollector">
+          <SystemProviderId Value="GaltekEarlyBootSystemProvider" />
+        </SystemCollectorId>
+        <EventCollectorId Value="GaltekEarlyBootEventCollector">
+          <EventProviders>
+            <EventProviderId Value="MicrosoftWindowsServices" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

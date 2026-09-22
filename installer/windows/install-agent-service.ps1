@@ -13,10 +13,12 @@ $ServiceDisplayName = 'Galtek Classroom Agent Service'
 $ServiceDescription = 'Servicio local de Galtek Classroom para identidad, licencia y administracion segura del equipo.'
 $ServiceExecutableName = 'GaltekClassroom.Agent.Service.exe'
 $PreservedInstallSubdirectories = @('Session', 'CredentialProvider')
+$PreservedInstallFiles = @('appsettings.json')
 $RecoveryResetSeconds = 86400
 $RecoveryActions = 'restart/5000/restart/15000/restart/60000'
 
 . (Join-Path $PSScriptRoot 'agent-service-sc-arguments.ps1')
+. (Join-Path $PSScriptRoot 'agent-service-install-files.ps1')
 
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -115,26 +117,6 @@ function Stop-ServiceIfPresent {
     return $true
 }
 
-function Clear-AgentServiceInstallDirectory {
-    param(
-        [Parameter(Mandatory = $true)][string] $InstallDirectory,
-        [Parameter(Mandatory = $true)][string[]] $PreservedSubdirectories
-    )
-
-    if (-not (Test-Path -LiteralPath $InstallDirectory)) {
-        New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
-        return
-    }
-
-    foreach ($item in Get-ChildItem -LiteralPath $InstallDirectory -Force) {
-        if ($item.PSIsContainer -and ($PreservedSubdirectories | Where-Object { [string]::Equals($item.Name, $_, [System.StringComparison]::OrdinalIgnoreCase) })) {
-            continue
-        }
-
-        Remove-Item -LiteralPath $item.FullName -Recurse -Force
-    }
-}
-
 if (-not (Test-IsElevated)) {
     Write-Error 'This installer must be run from an elevated PowerShell session. Open PowerShell as Administrator and run the script again.'
     exit 1
@@ -175,8 +157,11 @@ Stop-ServiceIfPresent -Name $ServiceName | Out-Null
 
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
 
-Clear-AgentServiceInstallDirectory -InstallDirectory $installDirectory -PreservedSubdirectories $PreservedInstallSubdirectories
-Copy-Item -Path (Join-Path $artifactDirectory '*') -Destination $installDirectory -Recurse -Force
+Install-AgentServiceArtifactFiles `
+    -ArtifactDirectory $artifactDirectory `
+    -InstallDirectory $installDirectory `
+    -PreservedSubdirectories $PreservedInstallSubdirectories `
+    -PreservedFileNames $PreservedInstallFiles
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -eq $service) {
@@ -191,6 +176,8 @@ else {
 Invoke-ScExe -Arguments @('description', $ServiceName, $ServiceDescription)
 Invoke-ScExe -Arguments (New-AgentServiceFailureScArguments -ServiceName $ServiceName -RecoveryResetSeconds $RecoveryResetSeconds -RecoveryActions $RecoveryActions)
 Invoke-ScExe -Arguments @('failureflag', $ServiceName, '1')
+
+& (Join-Path $PSScriptRoot 'test-agent-service-installation.ps1') -ExpectedExecutablePath $serviceExecutablePath
 
 Write-Host "Starting service $ServiceName..."
 Start-Service -Name $ServiceName -ErrorAction Stop

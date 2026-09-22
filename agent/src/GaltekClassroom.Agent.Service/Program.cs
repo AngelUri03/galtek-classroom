@@ -1,6 +1,7 @@
 using GaltekClassroom.Agent.Service;
 using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.CredentialProviderBridge;
+using GaltekClassroom.Agent.Service.Diagnostics;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
@@ -13,6 +14,17 @@ using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Shared;
 using System.Text.Json;
 
+var bootstrap = BootstrapStartupDiagnostics.CreateDefault();
+var bootstrapStage = BootstrapStartupStages.ProcessEnter;
+bootstrap.Write("BOOTSTRAP_PROCESS_ENTER");
+AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+{
+    if (eventArgs.ExceptionObject is Exception exception)
+    {
+        bootstrap.WriteFatal(bootstrapStage, exception);
+    }
+};
+
 var commandLine = AgentCommandLine.Parse(args);
 
 if (!commandLine.IsValid)
@@ -22,7 +34,13 @@ if (!commandLine.IsValid)
     return;
 }
 
+bootstrapStage = BootstrapStartupStages.CreateBuilder;
+bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_BEGIN");
 var builder = Host.CreateApplicationBuilder(commandLine.HostArgs);
+bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_OK");
+
+bootstrapStage = BootstrapStartupStages.Configuration;
+bootstrap.Write("BOOTSTRAP_CONFIG_BEGIN");
 builder.Services.AddInstallationIdentityServices();
 builder.Services.AddCommercialLicenseServices();
 builder.Services.AddMasterAuthorizationServices();
@@ -101,18 +119,18 @@ if (commandLine.Mode is AgentCommandMode.PairingExportDescriptor or AgentCommand
     builder.Logging.ClearProviders();
 
     await using var serviceProvider = builder.Services.BuildServiceProvider();
-    var bootstrap = serviceProvider.GetRequiredService<PairingFileBootstrapService>();
+    var pairingBootstrap = serviceProvider.GetRequiredService<PairingFileBootstrapService>();
     var result = commandLine.Mode == AgentCommandMode.PairingExportDescriptor
-        ? await bootstrap.ExportClientDescriptorAsync(
+        ? await pairingBootstrap.ExportClientDescriptorAsync(
             commandLine.PairingDescriptorOutputPath ?? string.Empty,
             CancellationToken.None)
-        : await bootstrap.AcceptChallengeAsync(
+        : await pairingBootstrap.AcceptChallengeAsync(
             commandLine.PairingChallengeInputPath ?? string.Empty,
             commandLine.PairingResponseOutputPath ?? string.Empty,
             commandLine.ApprovePairing,
             CancellationToken.None);
 
-    Console.WriteLine(bootstrap.SerializeResult(result));
+    Console.WriteLine(pairingBootstrap.SerializeResult(result));
 
     if (!result.Succeeded)
     {
@@ -265,8 +283,15 @@ builder.Services.AddSingleton<IHostedService>(provider => OperatingSystem.IsWind
     : provider.GetRequiredService<NoOpCredentialProviderBridgeServer>());
 builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
 builder.Services.AddHostedService<MasterConnectionHostedService>();
+bootstrap.Write("BOOTSTRAP_CONFIG_OK");
 
+bootstrapStage = BootstrapStartupStages.DiBuild;
+bootstrap.Write("BOOTSTRAP_DI_BUILD_BEGIN");
 var host = builder.Build();
+bootstrap.Write("BOOTSTRAP_DI_BUILD_OK");
+
+bootstrapStage = BootstrapStartupStages.HostRun;
+bootstrap.Write("BOOTSTRAP_HOST_RUN_BEGIN");
 await host.RunAsync();
 
 static async Task<LicenseState?> ResolveLicenseStateAsync(

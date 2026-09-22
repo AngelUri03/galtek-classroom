@@ -180,6 +180,55 @@ public sealed class MasterNetworkTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task ReconnectCreatesFreshClientHelloForSameNetworkIdentity()
+    {
+        var clientIdentity = CreateClientIdentity();
+        var factory = new ClientHelloFactory(
+            _keys,
+            new FixedHostNameProvider("PC14"),
+            new ClientCapabilityProvider(),
+            new AgentVersionProvider(),
+            new MutableClock(FixedNow));
+        var options = new MasterConnectionOptions
+        {
+            Enabled = true,
+            InitialConnectJitterMax = TimeSpan.Zero,
+            ReconnectJitterMax = TimeSpan.Zero,
+            MasterNetworkIdentityId = MasterNetworkIdentityId
+        };
+        var state = new MasterConnectionStateTracker();
+        var hellos = new List<ClientHello>();
+        using var stop = new CancellationTokenSource();
+        var loop = new MasterConnectionRetryLoop(
+            options,
+            new ScriptedReconnectJitter(TimeSpan.Zero),
+            state,
+            new MutableClock(FixedNow),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            (_, _) => Task.CompletedTask);
+
+        await loop.RunAsync(_ =>
+        {
+            var hello = factory.Create(clientIdentity, options);
+            Assert.True(hello.Created);
+            hellos.Add(hello.Hello!);
+            state.SetOnline(MasterNetworkIdentityId, FixedNow);
+            if (hellos.Count == 1) throw new IOException("stream lost");
+            stop.Cancel();
+            return Task.CompletedTask;
+        }, stop.Token);
+
+        Assert.Equal(2, hellos.Count);
+        Assert.NotSame(hellos[0], hellos[1]);
+        Assert.All(hellos, hello =>
+        {
+            Assert.Equal(ClientNetworkIdentityId.ToString("D"), hello.ClientNetworkIdentityId);
+            Assert.Equal(InstallationId.ToString("D"), hello.ClientInstallationId);
+            Assert.Equal("PC14", hello.Hostname);
+        });
+    }
+
+    [Fact]
     public async Task UnknownOperationReturnsNotImplementedAndDoesNotExecuteWindowsAction()
     {
         var dispatcher = new RemoteOperationDispatcher(

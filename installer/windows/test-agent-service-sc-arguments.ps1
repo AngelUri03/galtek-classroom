@@ -87,13 +87,13 @@ Assert-SequenceEqual -Expected @(
     'DisplayName=',
     $displayName,
     'start=',
-    'auto',
+    'delayed-auto',
     'obj=',
     'LocalSystem'
 ) -Actual $createArguments -Message 'create arguments must use native sc.exe tokenization.'
 Assert-ScOptionValue -Arguments $createArguments -Option 'binPath=' -Value $binaryPathName
 Assert-ScOptionValue -Arguments $createArguments -Option 'DisplayName=' -Value $displayName
-Assert-ScOptionValue -Arguments $createArguments -Option 'start=' -Value 'auto'
+Assert-ScOptionValue -Arguments $createArguments -Option 'start=' -Value 'delayed-auto'
 Assert-ScOptionValue -Arguments $createArguments -Option 'obj=' -Value 'LocalSystem'
 
 $configArguments = @(New-AgentServiceConfigScArguments -ServiceName $serviceName -BinaryPathName $binaryPathName -ServiceDisplayName $displayName)
@@ -105,12 +105,13 @@ Assert-SequenceEqual -Expected @(
     'DisplayName=',
     $displayName,
     'start=',
-    'auto',
+    'delayed-auto',
     'obj=',
     'LocalSystem'
 ) -Actual $configArguments -Message 'config arguments must use native sc.exe tokenization.'
 Assert-ScOptionValue -Arguments $configArguments -Option 'binPath=' -Value $binaryPathName
 Assert-ScOptionValue -Arguments $configArguments -Option 'DisplayName=' -Value $displayName
+Assert-ScOptionValue -Arguments $configArguments -Option 'start=' -Value 'delayed-auto'
 
 $failureArguments = @(New-AgentServiceFailureScArguments -ServiceName $serviceName -RecoveryResetSeconds 86400 -RecoveryActions $recoveryActions)
 Assert-SequenceEqual -Expected @(
@@ -127,7 +128,7 @@ Assert-ScOptionValue -Arguments $failureArguments -Option 'actions=' -Value $rec
 $allArguments = @($createArguments + $configArguments + $failureArguments)
 Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken "binPath= $binaryPathName" -Message 'sc.exe option/value tokens must not be merged.'
 Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken "DisplayName= $displayName" -Message 'sc.exe option/value tokens must not be merged.'
-Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken 'start= auto' -Message 'sc.exe option/value tokens must not be merged.'
+Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken 'start= delayed-auto' -Message 'sc.exe option/value tokens must not be merged.'
 Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken 'obj= LocalSystem' -Message 'sc.exe option/value tokens must not be merged.'
 Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken 'reset= 86400' -Message 'sc.exe option/value tokens must not be merged.'
 Assert-DoesNotContainToken -Arguments $allArguments -ForbiddenToken "actions= $recoveryActions" -Message 'sc.exe option/value tokens must not be merged.'

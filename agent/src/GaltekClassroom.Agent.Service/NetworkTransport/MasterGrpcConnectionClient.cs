@@ -67,59 +67,10 @@ public sealed class MasterGrpcConnectionClient
             return;
         }
 
-        var backoff = new MasterConnectionBackoff(
-            _options.ReconnectDelays,
-            _jitter,
-            _options.ReconnectJitterMax);
-        var failureStreak = 0;
-        var initialDelay = backoff.InitialDelay(_options.InitialConnectJitterMax);
-        if (initialDelay > TimeSpan.Zero)
-        {
-            await Task.Delay(initialDelay, stoppingToken);
-        }
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var masterNetworkIdentityId = _options.MasterNetworkIdentityId;
-            try
-            {
-                await ConnectUntilDisconnectedAsync(
-                    installationIdentity,
-                    clientNetworkIdentity,
-                    stoppingToken);
-                backoff.Reset();
-                failureStreak = 0;
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or RpcException or IOException)
-            {
-                if (failureStreak == 0)
-                {
-                    _logger.LogWarning(
-                        exception,
-                        "Secure Master gRPC connection failed. Retrying with backoff.");
-                }
-                else
-                {
-                    _logger.LogDebug(
-                        exception,
-                        "Secure Master gRPC connection is still failing. Retrying with backoff.");
-                }
-
-                failureStreak++;
-                _stateTracker.SetOffline(
-                    masterNetworkIdentityId,
-                    _clock.UtcNow,
-                    exception is RpcException rpcException ? rpcException.StatusCode.ToString() : null,
-                    exception.Message);
-            }
-
-            var delay = backoff.NextDelay();
-            await Task.Delay(delay, stoppingToken);
-        }
+        await new MasterConnectionRetryLoop(
+            _options, _jitter, _stateTracker, _clock, _logger).RunAsync(
+            token => ConnectUntilDisconnectedAsync(installationIdentity, clientNetworkIdentity, token),
+            stoppingToken);
     }
 
     private async Task ConnectUntilDisconnectedAsync(
@@ -209,7 +160,14 @@ public sealed class MasterGrpcConnectionClient
                 throw new IOException("Master gRPC stream ended.");
             }
 
-            await Task.Delay(_options.HeartbeatInterval, stoppingToken);
+            var heartbeatDelay = Task.Delay(_options.HeartbeatInterval, stoppingToken);
+            if (await Task.WhenAny(readTask, heartbeatDelay) == readTask)
+            {
+                await readTask;
+                throw new IOException("Master gRPC stream ended.");
+            }
+
+            await heartbeatDelay;
             // Heartbeat stays disk-idle; operation requests re-check trust before any action.
             await WriteAsync(call.RequestStream, new ClientEnvelope
             {
@@ -249,7 +207,7 @@ public sealed class MasterGrpcConnectionClient
                     HandleConnectionStatus(masterNetworkIdentityId, response.ConnectionStatus);
                     break;
                 case MasterEnvelope.PayloadOneofCase.HeartbeatAck:
-                    _stateTracker.SetOnline(masterNetworkIdentityId, _clock.UtcNow);
+                    MarkEstablished(masterNetworkIdentityId);
                     break;
                 case MasterEnvelope.PayloadOneofCase.OperationRequest:
                     await HandleOperationRequestAsync(
@@ -390,12 +348,16 @@ public sealed class MasterGrpcConnectionClient
         switch (status.Status)
         {
             case ConnectionState.Online:
-                _stateTracker.SetOnline(masterNetworkIdentityId, _clock.UtcNow);
+                MarkEstablished(masterNetworkIdentityId);
                 break;
             case ConnectionState.Connecting:
                 _stateTracker.SetConnecting(masterNetworkIdentityId, _clock.UtcNow);
                 break;
             case ConnectionState.Rejected:
+                if (_stateTracker.Snapshot.State == MasterConnectionState.Online)
+                {
+                    _logger.LogWarning("MASTER_CONNECTION_LOST ReasonCategory={ReasonCategory}", status.ReasonCode);
+                }
                 _stateTracker.SetOffline(
                     masterNetworkIdentityId,
                     _clock.UtcNow,
@@ -409,6 +371,16 @@ public sealed class MasterGrpcConnectionClient
                     status.ReasonCode,
                     status.Message);
                 break;
+        }
+    }
+
+    private void MarkEstablished(Guid masterNetworkIdentityId)
+    {
+        var wasOnline = _stateTracker.Snapshot.State == MasterConnectionState.Online;
+        _stateTracker.SetOnline(masterNetworkIdentityId, _clock.UtcNow);
+        if (!wasOnline)
+        {
+            _logger.LogInformation("MASTER_CONNECTION_ESTABLISHED State=ONLINE");
         }
     }
 
