@@ -1,6 +1,8 @@
 import { RefreshCw } from "lucide-react";
 import { DeviceCard } from "../components/DeviceCard";
+import { QuickActions } from "../components/QuickActions";
 import { SummaryCard } from "../components/SummaryCard";
+import type { BatchOperationResponse } from "../api/quickActionsApi";
 import type { ClassroomDashboardData } from "../types/classroom";
 
 type ClassroomDashboardProps = {
@@ -14,6 +16,12 @@ type ClassroomDashboardProps = {
   refreshError?: string;
   isRefreshing?: boolean;
   selectedDeviceIds?: Set<string>;
+  classroomId?: string;
+  operationResult?: BatchOperationResponse | null;
+  operationError?: string;
+  onOperationStart?: () => void;
+  onOperationResult?: (result: BatchOperationResponse) => void;
+  onOperationError?: (message: string) => void;
   onToggleDevice?: (deviceId: string) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
@@ -32,6 +40,12 @@ export function ClassroomDashboard({
   refreshError,
   isRefreshing = false,
   selectedDeviceIds = new Set(),
+  classroomId,
+  operationResult,
+  operationError,
+  onOperationStart,
+  onOperationResult,
+  onOperationError,
   onToggleDevice,
   onSelectAll,
   onClearSelection,
@@ -85,6 +99,12 @@ export function ClassroomDashboard({
         <ClassroomContent
           data={data}
           selectedDeviceIds={selectedDeviceIds}
+          classroomId={classroomId}
+          operationResult={operationResult}
+          operationError={operationError}
+          onOperationStart={onOperationStart}
+          onOperationResult={onOperationResult}
+          onOperationError={onOperationError}
           onToggleDevice={onToggleDevice}
           onSelectAll={onSelectAll}
           onClearSelection={onClearSelection}
@@ -97,12 +117,24 @@ export function ClassroomDashboard({
 function ClassroomContent({
   data,
   selectedDeviceIds,
+  classroomId,
+  operationResult,
+  operationError,
+  onOperationStart,
+  onOperationResult,
+  onOperationError,
   onToggleDevice,
   onSelectAll,
   onClearSelection
 }: {
   data: ClassroomDashboardData;
   selectedDeviceIds: Set<string>;
+  classroomId?: string;
+  operationResult?: BatchOperationResponse | null;
+  operationError?: string;
+  onOperationStart?: () => void;
+  onOperationResult?: (result: BatchOperationResponse) => void;
+  onOperationError?: (message: string) => void;
   onToggleDevice?: (deviceId: string) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
@@ -123,9 +155,7 @@ function ClassroomContent({
     );
   }
 
-  const selectedCount = selectedDeviceIds.size;
   const allSelected = data.devices.length > 0 && data.devices.every((device) => selectedDeviceIds.has(device.id));
-  const selectionLabel = `${selectedCount} ${selectedCount === 1 ? "equipo seleccionado" : "equipos seleccionados"}`;
 
   return (
     <>
@@ -148,14 +178,15 @@ function ClassroomContent({
             {allSelected ? "Deseleccionar todos" : "Seleccionar todos"}
           </button>
         </div>
-        {selectedCount > 0 ? (
-          <div className="selection-summary" aria-live="polite">
-            <span>{selectionLabel}</span>
-            <button className="selection-action selection-action--clear" type="button" onClick={onClearSelection}>
-              Limpiar selección
-            </button>
-          </div>
+        {classroomId && onOperationStart && onOperationResult && onOperationError ? (
+          <QuickActions key={classroomId} classroomId={classroomId} classroomName={data.classroomName}
+            devices={data.devices} selectedDeviceIds={selectedDeviceIds} onClearSelection={onClearSelection}
+            onStart={onOperationStart} onResult={onOperationResult} onError={onOperationError} />
         ) : null}
+        {operationError ? <p className="operation-feedback operation-feedback--error" role="alert">{operationError}</p> : null}
+        {operationResult ? <p className="operation-feedback" role="status" aria-live="polite">
+          Operación procesada · {operationResult.status} · {operationResult.successCount} correctos, {operationResult.failedCount} fallidos
+        </p> : null}
         <div className="device-grid">
           {data.devices.map((device) => (
             <DeviceCard

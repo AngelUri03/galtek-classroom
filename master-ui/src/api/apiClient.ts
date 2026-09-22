@@ -31,6 +31,21 @@ export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T>
   return (await response.json()) as T;
 }
 
+export async function postJson<T>(path: string, body: object, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+
+  return (await response.json()) as T;
+}
+
 async function apiErrorFromResponse(response: Response): Promise<ApiError> {
   let body: ApiErrorBody | null = null;
 
@@ -41,6 +56,6 @@ async function apiErrorFromResponse(response: Response): Promise<ApiError> {
   }
 
   const code = typeof body?.code === "string" ? body.code : undefined;
-  const message = typeof body?.message === "string" ? body.message : "No pudimos cargar el aula.";
+  const message = typeof body?.message === "string" ? body.message : "No pudimos completar la solicitud.";
   return new ApiError(response.status, message, code);
 }

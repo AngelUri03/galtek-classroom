@@ -1,5 +1,13 @@
 # Historial
 
+## 2026-09-21 - Paso 20D Master UI quick action dispatch foundation
+
+- Auditados controllers, DTO, tests y documentación API de los cuatro endpoints de quick actions. La UI usa requests tipadas con `classroomId` y `targetDeviceIds` completos y conserva targets `OFFLINE` para preflight backend.
+- Agregada barra compacta, diálogo de URL, confirmación para Reiniciar y Apagar, bloqueo de doble envío, error HTTP/red y feedback del estado global batch real. Un intent congela targets y se cancela ante cambios de selección o aula.
+- El último `BatchOperationResponse` queda en memoria para 20E, sin detalle por Device, polling ni retry automático. PRIMARY/SECONDARY queda para 20F.
+- No se ejecutaron operaciones físicas durante la validación de Codex. No hubo cambios en Agent, Protobuf ni backend; no se hizo commit.
+
+
 ## 2026-09-21 - Paso 20C.1 classroom selector duplicate-name disambiguation
 
 - Las opciones con nombre duplicado muestran un segundo renglón con equipos y referencia corta, derivados del bootstrap, sin fusionar aulas ni cambiar nombres reales.

@@ -2,11 +2,14 @@
 
 ## Ultima actualizacion
 
-2026-09-21 - Paso 20C.1 desambiguación de aulas con nombre duplicado.
+2026-09-21 - Paso 20D Master UI quick action dispatch foundation.
 
 ## Estado del proyecto
 
-Paso 20C.1 distingue en el dropdown las aulas activas con nombres equivalentes tras trim y comparación sin mayúsculas. Conserva todas las entidades y el `classroomId` completo como identidad; muestra solo en esas opciones el conteo de equipos del bootstrap y una referencia visual de ocho caracteres. El header y el título conservan el nombre real. Aún no existen acciones remotas en la UI.
+Paso 20D agrega una barra compacta para Devices seleccionados con Abrir URL, Bloquear, Desbloquear, Reiniciar y Apagar. Consume los cuatro endpoints batch existentes con `classroomId` y `deviceId` completos. Los seleccionados `OFFLINE` se envían sin filtrado frontend para que el Master resuelva el preflight por target. Reiniciar y Apagar requieren confirmación; Abrir URL tiene diálogo con input y targets congelados. Cambiar de aula cancela el diálogo y limpia selección. El último `BatchOperationResponse` queda tipado en memoria para 20E, con feedback global real; no hay detalle por target ni retry automático. PRIMARY/SECONDARY queda para 20F. No se ejecutaron operaciones físicas en la validación de Codex, ni se modificaron Agent o Protobuf.
+
+
+Paso 20C.1 distingue en el dropdown las aulas activas con nombres equivalentes tras trim y comparación sin mayúsculas. Conserva todas las entidades y el `classroomId` completo como identidad; muestra solo en esas opciones el conteo de equipos del bootstrap y una referencia visual de ocho caracteres. El header y el título conservan el nombre real. En ese paso aún no existían acciones remotas en la UI.
 
 Paso 20C agrega selección efímera de Devices en el Master UI. `selectedDeviceIds` vive en `App.tsx` como `Set<string>` y usa exclusivamente `snapshot.devices[].deviceId` (mapeado como `device.id`). La selección es propia del aula visible: cambiar `selectedClassroomId` la limpia inmediatamente; el refresh de la misma aula conserva únicamente la intersección con IDs presentes en el snapshot nuevo. Devices `OFFLINE` siguen siendo seleccionables. Hay selección individual/múltiple, seleccionar o deseleccionar todos, contador con gramática singular/plural y limpiar selección. No hay acciones remotas ni cambios de backend, Agent, Protobuf o contratos.
 

@@ -1,5 +1,13 @@
 # Decisiones vigentes
 
+## 2026-09-21 - Paso 20D Master UI quick action dispatch foundation
+
+- La barra aparece solo con selección. Usa los endpoints existentes de `power-control`, `input-control/lock`, `input-control/unlock` y `open-url`, sin API genérica nueva.
+- Cada intent de diálogo congela `classroomId` y `targetDeviceIds` completos; cambiar selección o aula lo cancela. OFFLINE permanece seleccionable y se incluye en la request.
+- Reiniciar y Apagar requieren confirmación. No hay retry automático, estado local inventado de bloqueo ni panel detallado de batch todavía; el último response batch se conserva tipado para 20E. PRIMARY/SECONDARY se reserva para 20F.
+- La validación de Codex no ejecuta operaciones remotas reales. Agent y Protobuf permanecen intactos.
+
+
 ## 2026-09-21 - Paso 20C.1 classroom selector duplicate-name disambiguation
 
 - Las aulas activas con nombres duplicados siguen siendo entidades independientes; no se fusionan ni se renombran.

@@ -713,6 +713,166 @@ h2 {
   background: transparent;
 }
 
+.quick-actions {
+  flex-wrap: wrap;
+  padding: 10px 12px 10px 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.quick-actions__selection,
+.quick-actions__buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-actions__buttons {
+  margin-left: auto;
+}
+
+.quick-actions__buttons button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 0 11px;
+  background: var(--surface);
+  color: var(--classroom-800);
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quick-actions__buttons button:hover:not(:disabled) {
+  border-color: var(--classroom-300);
+  background: var(--classroom-50);
+}
+
+.quick-actions button:disabled {
+  opacity: 0.52;
+  cursor: default;
+}
+
+.quick-actions__progress {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.operation-feedback {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--classroom-200);
+  border-radius: var(--radius-md);
+  background: var(--classroom-50);
+  color: var(--classroom-800);
+  font-size: 13px;
+}
+
+.operation-feedback--error {
+  border-color: var(--border-soft);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.action-dialog {
+  width: min(460px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  border: 1px solid var(--classroom-200);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  box-shadow: var(--shadow-md);
+}
+
+.action-dialog::backdrop {
+  background: rgba(19, 32, 65, 0.4);
+}
+
+.action-dialog__eyebrow {
+  margin: 0 0 7px;
+  color: var(--classroom-700);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.action-dialog h2 {
+  margin: 0 0 10px;
+  color: var(--classroom-950);
+  font-size: 21px;
+}
+
+.action-dialog p {
+  margin-top: 0;
+}
+
+.action-dialog__warning {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.action-dialog__field {
+  display: grid;
+  gap: 7px;
+  margin: 20px 0;
+  color: var(--classroom-950);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.action-dialog__field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--classroom-200);
+  border-radius: var(--radius-md);
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.action-dialog__field input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.action-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 22px;
+}
+
+.action-dialog__footer button {
+  min-height: 38px;
+  border: 1px solid var(--classroom-200);
+  border-radius: var(--radius-md);
+  padding: 0 15px;
+  background: var(--surface);
+  color: var(--classroom-800);
+  font-weight: 700;
+}
+
+.action-dialog__footer .action-dialog__confirm {
+  border-color: var(--classroom-600);
+  background: var(--classroom-600);
+  color: white;
+}
+
+.action-dialog__footer .action-dialog__confirm--danger {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.action-dialog__footer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .device-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 320px));

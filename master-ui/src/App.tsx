@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "./api/apiClient";
+import type { BatchOperationResponse } from "./api/quickActionsApi";
 import { toClassroomDashboardData } from "./api/classroomDashboardMapper";
 import {
   fetchClassroomSnapshot,
@@ -52,6 +53,8 @@ export function App() {
     activeClassrooms: []
   });
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(() => new Set());
+  const [operationResult, setOperationResult] = useState<BatchOperationResponse | null>(null);
+  const [operationError, setOperationError] = useState<string>();
   const refreshAbortRef = useRef<AbortController | null>(null);
 
   const loadDashboard = useCallback(async (signal?: AbortSignal) => {
@@ -190,6 +193,8 @@ export function App() {
 
       refreshAbortRef.current?.abort();
       setSelectedDeviceIds(new Set());
+      setOperationResult(null);
+      setOperationError(undefined);
       const controller = new AbortController();
       refreshAbortRef.current = controller;
       const header = {
@@ -246,6 +251,12 @@ export function App() {
           isRefreshing={dashboardState.isRefreshing}
           refreshError={dashboardState.refreshError}
           selectedDeviceIds={selectedDeviceIds}
+          classroomId={dashboardState.classroomId}
+          operationResult={operationResult}
+          operationError={operationError}
+          onOperationStart={() => { setOperationResult(null); setOperationError(undefined); }}
+          onOperationResult={(result) => { setOperationResult(result); setOperationError(undefined); }}
+          onOperationError={(message) => { setOperationResult(null); setOperationError(message); }}
           onToggleDevice={(deviceId) =>
             setSelectedDeviceIds((current) => {
               const next = new Set(current);
@@ -296,7 +307,7 @@ export function App() {
         onRefresh={() => void refreshSnapshot()}
       />
     );
-  }, [dashboardState, loadDashboard, refreshSnapshot, selectedDeviceIds]);
+  }, [dashboardState, loadDashboard, refreshSnapshot, selectedDeviceIds, operationResult, operationError]);
 
   return (
     <AppShell
