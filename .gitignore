@@ -1,29 +1,81 @@
-# Java / Maven
-target/
-*.log
-logs/
-
-# .NET
-bin/
-obj/
-TestResults/
+# OS / IDE
+.vs/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 *.user
 *.suo
+*.rsuser
+*.DotSettings.user
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# .NET
+**/bin/
+**/obj/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
 *.nupkg
 *.snupkg
-artifacts/
-!artifacts/
-artifacts/*
-!artifacts/windows/
-artifacts/windows/*
-!artifacts/windows/validation/
-artifacts/windows/validation/*
-!artifacts/windows/validation/20E.0B2/
 
-# Native Windows builds
+# Native Windows build intermediates
 agent/native/**/Win32/
 agent/native/**/x64/
 agent/native/**/GaltekCl.*/
+*.pdb
+
+# Java / Maven
+**/target/
+
+# Node / Webpack
+**/node_modules/
+**/dist/
+**/coverage/
+master-ui/build/
+.vite/
+*.tsbuildinfo
+
+# Rust / future Tauri shell
+src-tauri/target/
+
+# Reproducible publish, validation and installer outputs
+/artifacts/
+publish/
+installer/**/out/
+installer/**/tmp/
+installer/**/temp/
+*.wixpdb
+*.cab
+*.msi
+*.msix
+
+# Runtime logs / traces / diagnostics
+*.log
+*.etl
+*.dmp
+*.dump
+*.trace
+/installer/windows/diagnostics/
+
+# Temporary files / backups
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.rej
+/.tmp-wpr-validation/
+
+# Local tool caches
+.dotnet/
+.tools/
+.cache/
 
 # Galtek Classroom Master local SQLite data
 classroom.db
@@ -33,36 +85,6 @@ classroom.db-shm
 *.db-wal
 *.db-shm
 ProgramData/
-publish/
-
-# Visual Studio / Rider / IDEs
-.vs/
-.idea/
-.vscode/
-*.rsuser
-*.DotSettings.user
-
-# Node / future desktop UI
-node_modules/
-dist/
-build/
-.vite/
-
-# Rust / future Tauri shell
-src-tauri/target/
-
-# Windows
-Thumbs.db
-Desktop.ini
-*.tmp
-*.temp
-installer/**/out/
-installer/**/tmp/
-installer/**/temp/
-
-# Local tool caches
-.dotnet/
-.tools/
 
 # Galtek Classroom local Agent data and development licenses
 .local-agent-data/
