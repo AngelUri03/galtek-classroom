@@ -1,5 +1,225 @@
 # Historial
 
+## 2026-09-27 - Installer 0.0.4 cerrado con upgrade real en PC14
+
+- Se valido fisicamente el artefacto SHA-256 `1ED72A03E659C42CA37F08D4326A32730B96A28534F02F8C3834A4CE59BC7EEB`, BundleId `{C44D76A6-0183-4179-B45E-9123A4584B29}` y MSI ProductCode `{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}`.
+- El inventario final mostro legacy ARP `0`, MSI `0.0.3` `0`, Bundle `0.0.4` `1`, MSI `0.0.4` `1`, providers legacy `0`, caches legacy `0`, providers Bundle/MSI actuales presentes y ejecuciones historicas de BA `0`.
+- Cleanup termino `CLEANUP_COMPLETE`, `outcome=COMPLETE`, `reason=CLEAN`, `removed=21`; Apply termino `APPLY_COMPLETE`, `result=0x00000000`, `restart=None`.
+- Service, Session y Credential Provider quedaron sanos; se preservaron 7/7 hashes de appsettings/ProgramData; no quedo `setup-rollback.json`; no quedaron procesos del instalador y Windows Installer termino Stopped/Manual.
+- Resultado: Installer `0.0.4` **CLOSED - REAL UPGRADE VALIDATED ON PC14**. `20F.1B` vuelve a **CODE/LOCAL VALIDATED - READY FOR PHYSICAL PROFILE MANAGEMENT RETEST**.
+- No se ejecutaron Repair Apply, Uninstall Apply, fresh install limpio, rollback artificial, rollout multi-PC ni upgrade `0.0.4 -> 0.0.5`; no forman parte del cierre.
+- La higiene posterior retiro outputs reproducibles, logs PC14 ya condensados y el kit diagnostico 20E.0B2 ya cerrado; Git conserva source, tests, scripts activos, hashes y conclusiones.
+
+## 2026-09-27 - Paso 20I.0.4 definitive bridge release
+
+- Registrado el intento fisico 0.0.3 como parcial: MSI major upgrade y preservacion/runtime pasaron, pero C183 embedded recibio `Apply(0)`, devolvio `0x80070057`, y el helper bloqueo el grafo self-dependent con 2010. La finalizacion asistida no se etiqueta como exito normal ni `REAL VALIDATED`.
+- Sustituido el HWND nulo headless por `ApplyOwnerWindow`: HWND Win32 invisible, non-activating/tool, validado como propio del proceso y conservado hasta ApplyComplete/Quit. Interactive conserva el HWND WPF real. Fixtures cubren Uninstall/Install/rollback y futuro 0.0.5.
+- Extendida la supresion exacta a los cuatro BundleIds historicos 2DCF/43F6/C183/A274 para Upgrade. Sus BA no se lanzan; un BundleId desconocido sigue bajo Burn normal.
+- Rehecho `LegacyBundleRegistrationCleanup` como migracion fail-closed del grafo completo. Modela providers directos, estables y MSI, clasifica SELF/KNOWN/CURRENT/UNKNOWN, valida todo antes de mutar, bloquea current/unknown, elimina edges antes de providers y prueba cada residuo/mezcla/segunda ejecucion.
+- Elevado a ProductVersion 0.0.4, ProductCode `{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}` y ProviderKey `.0.0.4`; UpgradeCodes permanecen estables. Bind final: BundleId `{C44D76A6-0183-4179-B45E-9123A4584B29}`, PackageCode `{0C450F64-F8BA-442A-BC82-5AA87A31FDC8}`.
+- Pipeline installer/ICE y regresiones F1-F3D/F1/F2/0.0.3 PASS; BA/helper/MSI/Burn 0 warnings/0 errors. Agent 766, backend 363 y UI test/typecheck/build PASS; solo 3 warnings webpack de presupuesto. Smoke 0.0.4 `REPAIRABLE_PARTIAL` PASS, sin Plan/Apply/elevacion.
+- Artefacto final 31,802,082 bytes, SHA-256 `1ED72A03E659C42CA37F08D4326A32730B96A28534F02F8C3834A4CE59BC7EEB`, NotSigned. Manifest registra freeze e identidades. PC14 no tocada; sin commit.
+
+## 2026-09-27 - Paso 20I.0.3 clean upgrade y recovery consolidation
+
+- Elevado ProductVersion a 0.0.3 con ProductCode MSI nuevo/fijo `{2BA4D6A0-9492-484E-A27B-9EAE40C886A9}` y ProviderKey versionado. El MSI conserva el UpgradeCode de familia y compila una fila MajorUpgrade que reemplaza 0.0.2; `REINSTALLMODE=emus`, appsettings NeverOverwrite/Permanent y stores ProgramData permanecen sin ownership destructivo.
+- Separados explicitamente broken 0.0.1/broken 0.0.2 de C183 healthy. Solo los broken reciben `None`; C183 conserva la planificacion Burn normal. Fixtures prueban BAs rotas nunca ejecutadas, C183 embedded Uninstall y futuro 0.0.3 embedded Uninstall desde 0.0.4.
+- Rehecha la autoridad helper sobre el BundleId final generado de 0.0.3, ProviderKey 0.0.3 y MSI 0.0.3. C183 no es current ni target. Se conservaron guards F2, lifecycle Active/Arp, logging 20xx, validacion total previa, idempotencia y superficie exacta.
+- Corregida reapertura con stale related: la registration/MSI exactos de 0.0.3 dominan sobre predecessors y producen `INSTALLED_SAME + NeedsPredecessorCleanup`, con la UI de mantenimiento requerida.
+- Suite local: Agent 696 Service + 70 Session = 766 PASS; backend 363 PASS; UI test/typecheck/build PASS con 3 warnings de presupuesto ya conocidos. Pipeline installer e ICE PASS, todos los componentes 0 warnings/0 errors, smoke Detect/Cancel PASS sin Plan/Apply/UAC.
+- Bind final genero BundleId `{A2742DDC-6F6B-46F3-A42C-FF1FDFB8BD96}`. EXE 31,796,478 bytes, SHA-256 `8845B451714E66D9CB44602684CC19C8ACBA3252DA042E0F6525573DBCD6FB84`, NotSigned. PC14 no tocada; sin commit.
+
+## 2026-09-27 - Paso 20I.0.2-F2 cleanup exit 10 y lifecycle Active
+
+- Registrada la evidencia F1: Apply/MSI exitosos, suppression fisicamente correcta y cleanup non-vital bloqueado con exit 10/`0x8007000A`; ambos stale permanecieron y el producto quedo funcional/pending.
+- Mapeado exit 10 a `CleanupOutcome.Blocked`. El branch historico no retenia reason, de modo que el guard fisico exacto no puede recuperarse; no se atribuye sin evidencia al lifecycle Active ni al cache cuyo diagnostico manual tuvo ParserError.
+- Agregados exit codes 20xx, log durable acotado, preconditions/targets/steps tipados y propagacion del resumen al Burn log principal.
+- Endurecida la autoridad current: C183 exacto, ProviderKey estable distinto del BundleId, owner/count/cache/lifecycle exactos, MSI via MSI API, Service via SCM, Session via Task Scheduler COM, snapshot y procesos por path nativo. Active provisional y finalized son estados validos cerrados.
+- Agregados fixtures mixed/idempotent, Active, ProviderKey, current/old/broken process, cache present/missing, duplicados/unknown y validate-all-before-mutate. Helper y BA tests PASS; ambos builds net48 0 warnings/0 errors; recovery contract PASS.
+- El pipeline oficial llego a Bundle y expuso WIX0004 al intentar authorar Id. Tras retirar el atributo, un build de diagnostico Burn 0/0 genero `{2DBE4FA8-745B-4A99-B22B-35DDD027DFDE}`. Se confirmo en source WiX 5.0.2 que BundleId se genera al bind, same-version se clasifica Upgrade y Install escribe ProviderKey.
+- No se reemplazo el artefacto final, no hubo smoke del candidato ni Apply. El F1 SHA `370AD...4424` permanece historico y no contiene el fix. PC14 no tocada, sin commit. Estado: `RELEASE BLOCKED BY BUNDLE IDENTITY`.
+
+## 2026-09-27 - Paso 20I.0.2-F1 related-bundle upgrade deadlock
+
+- Registrado el retest como `REAL UPGRADE FAILURE ON PC14`: MSI 0.0.2 completo fisicamente con resultado 0/commit, seguido por deadlock del related bundle 0.0.1. La BA antigua se ejecuto `Uninstall + Embedded + Upgrade`, resolvio el current 0.0.2 como `INSTALLED_NEWER` y no emitio Plan, Apply ni Shutdown.
+- Conservado el fixture PC14 sin tocar: bundles stale 0.0.1 `{2DCDF1F3-FBDD-42D6-8879-EA33126CA34C}` y broken 0.0.2 `{43F6BCC5-2BEE-4CCD-9B51-1A4BE0548D85}`, MSI current `{DCF26CE0-A601-489B-B32A-E14095CC50C0}`, Service/Session sanos y sin snapshot.
+- Auditadas API/schema/source WiX 5.0.2. La BA ahora consume `IBootstrapperCommand.Action/Display/Relation`, separa Interactive/Embedded/Silent, no crea WPF headless y honra exactamente Install/Uninstall pedido por Burn. Cancel conserva la recomendacion del engine sin dialogo.
+- Agregada supresion exacta de predecessors defectuosos en `PlanRelatedBundleType` con `RelatedBundlePlanType.None`; `PlanRelatedBundle`/restore quedan en RequestState None. Los fixtures demuestran que no se inicia la old BA y que una futura 0.0.3 puede ejecutar 0.0.2 embedded para Uninstall o rollback Install sin deadlock.
+- Agregado helper allowlisted `LegacyBundleRegistrationCleanup` despues del MSI. Valida host/candidate fail-closed y elimina solo dependency leaves/provider, cache y ARP exactos de los dos BundleId conocidos con Registry64/APIs tipadas. Cleanup non-vital conserva el producto funcional ante fallo, reporta pending y es idempotente.
+- Agregado estado maintenance separado y UI `Completar actualizacion` para MSI/current 0.0.2 mas stale predecessors. Se fija ProductCode 0.0.2 al fisico y ProviderKey current estable para impedir productos MSI paralelos y permitir una sola registration fixed tras recovery.
+- Reordenado quiesce FilesInUse a capture -> stop/disable Session -> StopServices antes del reemplazo. Se preservan F1-F3D, `REINSTALLMODE=emus`, same-FileVersion, rollback, Registry64, `DisableSystemRestore` y native detection.
+- Fixtures PASS: clean 0.0.1->0.0.2, PC14 mixed-state, cleanup guards/idempotencia y future 0.0.2->0.0.3 embedded. Pipeline oficial PASS con MSI ICE; BA/helper/MSI/Burn 0 warnings/0 errors. Smoke Detect/Cancel PASS sin Plan/Apply/elevacion.
+- 20F.1B no fue cambiado por F1; Agent 766, backend 363 y UI tests PASS. Retest fisico de perfiles permanece pausado.
+- Artefacto recovery candidate 0.0.2: 31,787,016 bytes, SHA-256 `370AD6018CA87417F3175BB96A9746F40FEBA50E8574AECCFAF5E7FB84EB4424`, Authenticode `NotSigned`. PC14 no tocada; sin install/uninstall/repair/registry mutation/UAC/reboot y sin commit.
+- Estado: `Installer 0.0.2: CODE/LOCAL VALIDATED - READY FOR PC14 MIXED-STATE RECOVERY RETEST`.
+
+## 2026-09-25 - Paso 20F.1B + cierre fisico 20I.0
+
+- Cerrado 20I.0 con evidencia real de PC14 sobre el EXE 0.0.1 de SHA-256 `00CA643EB80999B901316B55FE8D7A257C37E0A2471180169DF275373436BC25`: adopcion legacy, instalacion/actualizacion, Service/Session/CP, preservacion, cleanup de snapshot, registros Burn/MSI y reapertura `INSTALLED_SAME` observados.
+- Agregado ADMIN de extremo a extremo como tercer managed role, manteniendo schema v1 compatible y preservando PRIMARY/SECONDARY.
+- Agregadas operaciones protobuf SET/REMOVE binding, capability V2 y errores tipados. El Agent valida inventario live, resuelve SID internamente, serializa mutaciones, bloquea unbind de sesion activa y limpia DPAPI con compensacion.
+- Extendidos backend y endpoints por Device para bind/unbind/credential; autorización y preflight existentes permanecen, Vault queda aislado por Device, y ADMIN se rechaza explicitamente en login/switch remoto.
+- Rehecha la experiencia del inspector con tres slots, flujos role-first/account-first, filtros exactos, estado parcial honesto, secreto solo en memoria, confirmaciones y accesibilidad.
+- ProductVersion actualizado a 0.0.2 preservando UpgradeCodes. Contratos F1-F3D, helper, BA, MSI, ICE, Burn y smoke no Apply pasaron; el artefacto queda listo para upgrade fisico desde 0.0.1.
+- Validacion local: Agent 766 tests PASS; backend 363 tests PASS; UI resolver tests/typecheck/build PASS. PC14 no tocada, no Apply/UAC/MSI y no commit.
+
+## 2026-09-25 - Paso 20I.0-F3D BUG 5A + 5B
+
+- Corregida la linea exacta `$failure = [byte[]]$registry.FailureActions` en `Assert-ServiceContract`: `$registry` no existia bajo StrictMode. Agregado DTO live Registry64/SCM con handles inicializados, read-only y dispuestos.
+- Agregado `test-client-f3d-service-registry.ps1`: reproduce el path StrictMode, valida lectura live, disposal, raw canonical, executable/arguments y negativos external/UNC/ADS/lookalike.
+- Corregido plumbing de rollback: la CA EXE no podia emitir stdout/stderr al MSI log. `ClientStateHelper.dll` x64 captura el proceso PowerShell y reenvia lineas con `MsiProcessMessage`; exports capture/rollback/commit confirmados.
+- Endurecido rollback real: ImagePath raw PRE exacto, runtime via SCM/polling, task con errores terminantes, recovery/failureflag separados en REGISTRY y VERIFY live de Service/task/CP.
+- Agregado `test-client-f3d-rollback-real-state.ps1`: PC14 PRE Running/Automatic/Delayed/LocalSystem/unquoted/recovery, Session Enabled, CP/Registry, partial SERVICE_RUNTIME, continuidad de fases, diagnostics tipados, snapshot policy e idempotencia.
+- El estado fisico F3C prueba primera falla en SERVICE_RUNTIME y restore SESSION incompleto; exception/HRESULT exactos no quedaron en el log por el tipo EXE anterior y no se inventan retrospectivamente.
+- CaptureClientState ~51 s no se cambio: sin causa local evidente y sin redisenar. Se preservan detect legacy ~1 s y DisableSystemRestore.
+- Pipeline oficial PASS: helper DLL/BA/MSI/Burn 0 warnings/0 errors, ICE PASS y todas las suites F1-F3D PASS. Smoke no Apply PASS `REPAIRABLE_PARTIAL` (window 1598 ms, detect 1613 ms).
+- EXE 0.0.1 final: 31,763,609 bytes; SHA-256 `00CA643EB80999B901316B55FE8D7A257C37E0A2471180169DF275373436BC25`; Authenticode `NotSigned`; `git diff --check` PASS. PC14 no tocada, no commit. Estado `READY FOR PC14 INSTALL RETEST #4`.
+
+## 2026-09-24 - Paso 20I.0-F3C FINAL STABILIZATION
+
+- Confirmado 4A: post-validation ya era live, no snapshot stale; fallo por igualdad raw quoted frente a raw unquoted persistido por `sc.exe`. Agregados canonical write Registry64, relectura live, parser semantico y diagnostics seguros.
+- Agregado `test-client-f3c-service-contract.ps1`: PRE unquoted, LIVE canonical, argumentos vacios y negativos external/UNC/ADS/lookalike.
+- Confirmado 4B por estado final/control flow: config Service restaurada y runtime no; `Start-Service` era el siguiente punto y su throw abortaba task/CP. Rollback ahora separa config/runtime, continua componentes, acumula failures, espera estado y conserva snapshot salvo COMPLETE. Helper reenvia stdout/stderr.
+- Agregado `test-client-f3c-rollback-final.ps1`: Running/Stopped, Service/Session/CP/Registry, idempotencia, cleanup solo success y continuidad tras fallo.
+- Deshabilitado el restore point propio de Burn mediante API oficial WiX 5.0.2 `Chain/@DisableSystemRestore="yes"`; sin Registry hack ni cambio global.
+- Sustituido detect helper/PowerShell por una pasada .NET 4.8 background cacheada: Registry64 Service/CP + una consulta Task Scheduler COM. Sin CIM/WMI/hash/scan/sleep/polling.
+- Cache SHA-256 por operacion elimina el segundo hash del CP; progreso cero sigue indeterminado; Failure usa `#C83C3C`.
+- Evidencia 213748/F3C-DIAGNOSTICO ausente del workspace; PC14 no tocada, no commit, ProductVersion 0.0.1.
+- Pipeline oficial final: helper/BA/MSI/Burn 0 warnings/0 errors, ICE y suites PASS. Smoke final `REPAIRABLE_PARTIAL` en 1.732 s, sin Plan/Apply/elevacion. EXE 31,752,033 bytes, SHA-256 `47E33381E008D921854E80C064D8068522E60A950B77FE2678ADC90EAC32D918`, NotSigned; `git diff --check` PASS. Estado `READY FOR PC14 FINAL INSTALL RETEST`.
+
+## 2026-09-24 - Paso 20I.0-F3B CUSTOM BOOTSTRAPPER APPLICATION
+
+- Auditado WiX 5.0.2 local y su modelo oficial out-of-process; creada BA WPF x64 `net48` con API 5.0.2, state machine, ViewModel y UI 720x520 es-MX.
+- Sustituido `bal:WixStandardBootstrapperApplication` por un `BootstrapperApplication SourceFile` propio. Retirados del bundle WixStdBA, WXL/theme XML y sprites ThmUtil; se conservaron sus fuentes como historia, no como runtime payload.
+- Agregado resolver puro para fresh/legacy/same/older/newer/partial/conflict/detection-failed, CTA separado de accion Burn y comparacion `System.Version` future-proof para 0.0.2.
+- Agregado `ClientStateHelper detect`: verbo fijo generado desde `legacy-adoption.ps1`, collector read-only Registry64/Task Scheduler COM, JSON minimo no secreto y fallo cerrado. Ninguna deteccion hace UAC o mutacion.
+- Implementadas vistas Ready, Planning/Applying, Success, Failure y Restart; progreso Burn real/indeterminado, elapsed timer de 1 s, HRESULT, ShellExecute del log, confirmacion de uninstall y cancelacion prudente durante Apply.
+- Agregados tests de product state, CTA, Burn action, version compare, presentation/failure, bridge legacy, assets/logo y smoke no-apply. Todos los fixtures F1/F2/F3A existentes permanecen PASS.
+- Build final: helper/BA/MSI/Burn 0 warnings/0 errors, ICE PASS, extraction contract PASS. EXE 31,798,374 bytes; SHA-256 `546A2C847429E12DFCDE33DF01F67190AAE3C5F8194683C431CA26DA5C4C3D4D`; Authenticode `NotSigned`.
+- Smoke real no elevado PASS con `REPAIRABLE_PARTIAL`, ventana ~1.400 s, DetectComplete ~1.539 s, working set ~117,960,704 bytes, cierre normal, NO Plan/Apply/UAC. La laptop contiene Service+CP sin Session; no se falseo FRESH. PC14 no tocada, no install/repair/uninstall/reboot y no commit. Estado `READY FOR CUSTOM BA VISUAL REVIEW`.
+
+## 2026-09-24 - Paso 20I.0-F3A REAL INSTALL FAILURE #3
+
+- Leidos completos Burn y MSI de `diagnostics/pc14/2026-09-24-164841`; el `_rollback.log` no existia y no se trato como error. Los dos logs brutos se retiraron despues de condensar aqui causa, HRESULT, tiempos e identidad.
+- Identificado `Return value 3` a las 16:52:06 en `InstallFinalize`, causado por `ConfigureClientInitial`: `LEGACY_ADOPTION_REJECTED component=SERVICE reason=PATH_OUTSIDE_GALTEK_ROOT path="C:\Program"`, WixQuietExec `0x80070001`, CA 1603.
+- Reproducido el SCM ImagePath completo sin comillas; el parser F2 devolvia `C:\Program`. Agregada adopcion estricta del valor completo solo para el EXE Service exacto y sin argumentos.
+- Agregado `test-client-f3a-service-imagepath.ps1` con reproduccion previa exacta y negativos de argumento ambiguo, raiz externa y filename lookalike; integrado al build y al contrato.
+- Perfilados 8,181 renglones MSI. Dominantes: capture 49.288 s, configure 45.110 s, files 16.307 s, CostFinalize ~9 s, rollback final 9.211 s y file rollback ~6.592 s.
+- Eliminadas consultas Service CIM y lecturas live duplicadas durante Configure; capture usa Registry64 y Configure reutiliza el snapshot de rollback para Service/task/CP.
+- Actualizado fixture rollback con el ImagePath fisico sin comillas; lifecycle, Registry rollback, legacy adoption, transporte y same-FileVersion PASS.
+- Build 0.0.1 PASS: ICE PASS; helper/MSI/Burn 0 warnings/0 errors; smoke UI no elevado PASS sin Plan/Apply/UAC. EXE 31,742,431 bytes; SHA-256 `9E29DC736BE7D9753600F1ED94FC4FA2507E765EEC3522727286BF5B9A2E402D`; Authenticode `NotSigned`.
+- El log fisico muestra rollback prepare y file rollback, pero `RollbackClientStateFinal` devolvio 1 sin stderr visible. Se conserva esa limitacion explicitamente; no se declara rollback fisico ni instalacion real validados.
+- PC14 no fue tocada durante F3A, no hubo install/Apply/reboot y no se hizo commit. Estado: `READY FOR CUSTOM BA REWORK`.
+
+## 2026-09-24 - Paso 20I.0-F2 REAL LEGACY ADOPTION FAILURE #2
+
+- Registrada evidencia PC14: F1 ya transporta `InstallDirectory`; el nuevo fallo fue `CAPTURE_STATE` -> `LEGACY_PATH_OUTSIDE_GALTEK_ROOT` -> 1603. El log antiguo no contenia componente/path y no permite una atribucion fisica retrospectiva fiable.
+- Rehecha la frontera legacy tipada. SERVICE parsea argv[0] de ImagePath Windows citado/con argumentos/whitespace; SESSION conserva Execute/Arguments/WorkingDirectory separados; CP normaliza InprocServer32. Se exige root/subroot/nombre Galtek y se loguea rejection segura con component/reason/path local.
+- Agregado fixture PC14 con root `C:\Program Files\Galtek\Classroom\Agent`, Service citado, task `--background` y CP side-by-side: adoptable. Agregados negativos SERVICE Temp, SESSION System32 y CP OtherVendor: rechazados.
+- Corregido `UnauthorizedAccessException`: restore ya no llama SetValue/DeleteValue sobre claves obtenidas por `Get-Item`; usa Registry64 con write access explicito. Regresion HKCU valida restore, delete acotado, segunda ejecucion e inesperado fail-closed sin tocar HKLM.
+- Separado rollback prepare quiesce-only del final embebido. El final restaura Service/task/CP despues del file rollback, reinicia solo lo previamente running y borra snapshot solo al terminar. La causa del exit 1 de `RollbackClientStateFinal` era la misma apertura read-only repetida por el script embebido.
+- Fixture completo capture/mutate/fail/prepare/file-rollback/final PASS e idempotente; hashes de appsettings y stores productivos permanecen iguales. Preservados F1 `"[INSTALLFOLDER]."`, `REINSTALLMODE=emus`, same-version y ProductVersion 0.0.1.
+- Corregida visibilidad minima de Failure: `Abrir registro` y el texto tecnico ya no usan `HideWhenDisabled`; titulo/body/Close y geometria permanecen sin rediseno.
+- Build oficial final PASS: helper x64, MSI y Burn 0 warnings/0 errors; ICE PASS; same-version PASS; contrato/theme/failure visibility PASS. Smoke no elevado PASS con Detect y Cancel confirmado, sin Plan/Apply/UAC. EXE 31,742,167 bytes, SHA-256 `617C7E95665C2C56B3BD30C420A231CCA3ABE3BF59DEE2EB0BF902AA10E4EFEE`, Authenticode `NotSigned`.
+- PC14 no tocada, sin instalacion local, reboot ni commit. Estado: `READY FOR PC14 INSTALL RETEST #2`, no `REAL INSTALL VALIDATED`.
+
+## 2026-09-24 - Paso 20I.0-F1 REAL INSTALL FAILURE FIX
+
+- Auditada la evidencia física PC14: Burn inició/elevó/cacheó; MSI falló 1603 cuando `Resolve-FullPath $InstallDirectory` recibió una ruta contaminada. Reproducción real de parsing: rollback recibió `C:\Program Files\Galtek\Classroom\Agent"`; initial recibió `C:\Program Files\Galtek\Classroom\Agent" -InitialInstall` y perdió el switch.
+- Corregidas las cinco acciones con `"[INSTALLFOLDER]."` + `Path.GetFullPath`; agregada prueba native-process para initial/maintenance/rollback/commit/uninstall y dos rutas con espacios. No se sanea una cadena corrupta ni se usa cmd.exe.
+- Agregado snapshot/rollback previo a mutación mediante `ClientStateHelper.exe` x64 embebido. Captura Service/task/CP antes de StopServices/End/Disable, restaura task enabled/running y Service/config/recovery/running después del rollback de archivos, y evita colisión durante major upgrade con `UPGRADINGPRODUCTCODE`.
+- Activado `REINSTALLMODE=emus` antes de costing. La regresión EXE/DLL demuestra OLD/NEW con FileVersion 0.5.0.0 igual y hashes distintos, consulta la política del MSI construido y termina con hash NEW. Agregado manifest instalado con hash de Service EXE/DLL, Session EXE y CP DLL.
+- Preservados `appsettings.json` (`NeverOverwrite`, `Permanent`), ProgramData fuera de ownership MSI, CP side-by-side/Apartment/sin Filter, task única y Service delayed-auto/recovery vigente. No se modificó `logo.png`; hash `FD004063DDFA305C3703190CEF786D1B5B9E61DBDCD7B29419DB1CB10775869E`.
+- Build final PASS: helper x64 0 warnings/0 errors; MSI ICE PASS y 0 warnings/0 errors; Burn 0 warnings/0 errors; contratos, theme geometry, transport, lifecycle fixture, rollback, same-version y legacy adoption PASS. Smoke runtime PASS con Detect begin/complete, sin Plan/Apply/UAC/theme errors y exit 1602 esperado.
+- EXE final: 31,734,683 bytes; SHA-256 `0E45EB90B025010270C713041A72DF838B4EB454A8DB0C1917FD52ED4447E82C`; Authenticode `NotSigned`. PC14 no tocada, sin instalación local, reboot o commit. Estado: `READY FOR PC14 INSTALL RETEST`, no `REAL INSTALL VALIDATED`.
+
+## 2026-09-23 - Paso 20I.0-UI-F1 runtime theme initialization fix
+
+- Registrado `REAL RUNTIME THEME FAILURE OBSERVED`: Burn inicio, pero WixStdBA rechazo antes de UI el `Window` 640x470 con `SourceX="0" SourceY="0"` contra `window-background.png` 640x470, con `0x8007000d` y sin llegar a Detect.
+- Confirmado en `ParseSourceXY` de WiX 5.0.2 que el source rectangle debe terminar estrictamente antes del borde del atlas. Se eliminaron `Theme/@ImageFile` y `Window/@SourceX/@SourceY`; el mismo fondo 640x470 se conserva como primer `ImageControl` standalone. No se ampliaron assets ni se agregaron pixeles ficticios.
+- Ampliado `test-client-installer-contract.ps1` con dimensiones PNG reales, caso de regresion edge-equal 0+640/640, recorrido general de source rectangles y contratos de background, button states, progress 4x1 e iconos success/failure. Contrato PASS y source rectangles vigentes: 0.
+- Agregado `test-client-bundle-ui-smoke.ps1`: exige sesion no elevada, lanza sin accion, observa ventana del hijo `wixstdba.exe` + Detect, cierra normalmente y rechaza Plan/Apply/elevacion/errores de theme. Ejecucion PASS: Detect completo, `WixBundleAction=0`, `WixBundleElevated=0`, sin Apply y exit 1602 esperado por cancelacion.
+- Rebuild PASS: MSI ICE PASS; MSI 0 warnings/0 errors; Burn 0 warnings/0 errors. EXE final: 31,674,519 bytes; SHA-256 `7A052E7568A54BACF560163B0FD2C4377AA9CF275109F73CB5988D62FE4E7E57`.
+- No se ejecuto MSI ni Apply, no hubo instalacion, repair, uninstall, UAC o reboot; PC14, lifecycle y el MSI 1603 de 20I.0-F1 no fueron tocados. Sin commit. Estado: `READY FOR VISUAL RUNTIME RETEST`, no `REAL INSTALL VALIDATED`.
+
+## 2026-09-23 - Paso 20I.0-UI refinamiento visual nativo
+
+- Auditado el bundle WixStdBA existente, la localizacion es-MX, el pipeline de build y `logo.png` oficial (865x1080, alpha, SHA-256 fijado), sin modificar el archivo fuente.
+- Redisenado el theme a 640x470 con cabecera de marca, welcome jerarquico, capacidades legibles, progreso honesto, mantenimiento, exito y fallo con acceso al registro. Agregados botones graficos deterministas con hover/pressed/focus y tratamiento danger discreto.
+- Generados localmente fondo, estados de botones, iconos de estado y barra de progreso; logo/lockup/simbolo/ICO siguen derivados unicamente de `logo.png`. Los 17 recursos auxiliares se agregaron como payloads BA y se comprobaron dentro de la extraccion del EXE.
+- Ampliado `test-client-installer-contract.ps1` para validar source hash, original intacto, derivacion determinista, dimensiones, paleta, estados, copy critico, downgrade, WixStdBA nativo, ausencia de URL/ruta absoluta/branding heredado y empaquetado efectivo.
+- Build oficial PASS: contrato PASS, MSI ICE PASS, MSI 0 warnings/0 errors, Burn 0 warnings/0 errors. EXE final: 31,674,497 bytes; SHA-256 `28DCFF1E19D23F0F5C49FBA5D88447CD9E5F1A2F0266D0F32493145E2662045B`; manifest con 427 payloads de producto.
+- No se ejecuto el setup ni se hizo Apply, instalacion, desinstalacion, repair, upgrade o prueba en PC14. El 1603 previo no se investigo ni corrigio. Sin commit. Estado: `READY FOR VISUAL REVIEW`.
+
+## 2026-09-23 - Paso 20I.0 Installer/Updater foundation 0.0.1
+
+- Creada la foundation `installer/windows/setup/` con WiX Toolset 5.0.2 fijado, proyectos MSI/Bundle, WixStdBA, ProductVersion unico 0.0.1 y UpgradeCodes estables.
+- Agregado `build-client-installer.ps1`: publica Service/Session/CP con los scripts productivos, valida CP, genera fragmento WiX con component GUIDs deterministas, hashes de payload, MSI, Burn EXE, SHA-256 y manifest no secreto en `artifacts/windows/installer/`.
+- Agregado lifecycle setup para fresh/adoption/update/repair/uninstall: Service LocalSystem delayed-auto con recovery vigente, task Session locale-independent y verificacion CP x64/Apartment/hash/ACL sin Filter.
+- Adopcion legacy explicita y testeable, sin `ServiceInstall` sobre servicio preexistente. Paths fuera del root Galtek fallan cerrados; rollback conserva/restaura lifecycle previo cuando es tecnicamente posible.
+- `appsettings.json` queda `NeverOverwrite` y permanente. ProgramData no es owned, leido, reemplazado ni purgado por MSI; uninstall normal lo preserva.
+- Agregado `test-client-installer-contract.ps1` con validacion estatica y fixtures temp; no toca servicios, tareas o Registry reales.
+- Build completo PASS: 427 payloads hasheados, UI Burn es-MX, MSI ICE validation PASS, MSI 0 warnings/0 errors, Burn bundle 0 warnings/0 errors. Artefacto `GaltekClassroom-Client-Setup-0.0.1.exe`, 31,397,723 bytes, SHA-256 `9DD91D37BD45D8E2EAB81303040025389D60CF02F95B42604DE2AE9E0D9CD405`. Authenticode `NotSigned`, permitido solo para validacion controlada/lab y pendiente como release gate comercial.
+- No se instalo/desinstalo el producto, no se ejecuto el EXE en PC14, no hubo reboot y no se declara `REAL INSTALL VALIDATED`. Sin commit.
+
+## 2026-09-23 - Paso 20F.1A-V preparacion de validacion fisica PC14
+
+- Se audito el working tree actual, documentacion, historial reciente, diff exacto de 20F.1A, proyectos y flujo productivo de publish/install/deploy. No hay cambios fuente en Credential Provider ni Session Agent; ninguno requiere actualizacion para esta unidad.
+- Se ejecuto `installer/windows/publish-agent-service.ps1` para `win-x64` self-contained. Publish completo: `artifacts/windows/agent-service-20F.1A-V`. Kit operativo: `artifacts/windows/validation/20F.1A-V`. Hashes: EXE `6A9A449F424D80E3EC44DCB085FB5F260B6D614094B513BEE0EE2E2A946CF297`; DLL `BCDA0D6036F82E07DFEF3C34A0198E6F80CEC39CF9AF1414AC7B76A0E8D7EA54`.
+- El kit agrega baseline elevado, deploy fail-closed de exactamente dos binarios, backup timestamped y validacion read-only desde el Master existente. Preserva y verifica appsettings/MasterConnection, ProgramData/identidades/trust/licencia/bindings/credenciales, Credential Provider, Session Agent y lifecycle/recovery. No incluye login, switch, logoff, power, input, URL, provisioning, passwords, cuentas Windows, bindings ni reboot.
+- UX menor: `CAPABILITY_NOT_SUPPORTED` ya no muestra el texto tecnico al usuario; el dashboard conserva un unico patron visible de limpieza de seleccion; la pestaña Sesion aporta detalle sin repetir el mismo label de la cabecera.
+- Validacion local: parser PowerShell PASS para los tres scripts; hashes del kit PASS; Agent dirigido 59/59 PASS; `dotnet build` Release PASS con 0 warnings/0 errors; Master dirigido 74/74 PASS; `npm run typecheck` PASS; `npm run build` PASS con las tres advertencias conocidas de performance/tamano; `git diff --check` PASS.
+- No se ejecuto ningun comando en PC14, no se reiniciaron/mataron procesos 8080/3000, no hubo reboot y no se hizo commit. Estado: `READY FOR PHYSICAL VALIDATION`, no `REAL VALIDATED`.
+
+## 2026-09-23 - Paso 20F.1A inventario Windows read-only + Identity UI
+
+- Agregados al protocolo v1 `GET_WINDOWS_ACCOUNT_INVENTORY`, `WINDOWS_ACCOUNT_INVENTORY_V1`, `WindowsAccountInventoryResult` y `WindowsAccountInventoryEntry` sin SID ni datos sensibles.
+- Implementado inventario Agent con NetAPI32/Advapi32: `NetUserEnum`, `LookupAccountName`, `LookupAccountSid`, SID integrado `S-1-5-32-544` y `NetLocalGroupGetMembers`; soporta enabled/disabled, múltiples administradores, built-in y mapping PRIMARY/SECONDARY por SID.
+- Registrado handler en `RemoteOperationDispatcher` y capability en hello. Conserva licencia comercial normal y no usa Session Agent, Credential Provider, DPAPI acquire, WMI, shell ni escrituras de SAM/bindings.
+- Agregada primitive Master `getWindowsAccountInventory(...)`, mapping tipado del resultado y endpoint `GET /api/classrooms/{classroomId}/devices/{deviceId}/windows-accounts` con autorización, ownership, binding, trust, online y capability.
+- Activada la tab Cuentas del Device Inspector con API/types específicos, fetch paralelo de inventario + managed status, abort al desmontar/cambiar Device, skeleton, error inline/retry read-only, empty state, secciones visuales y detail compacto sin SID.
+- Creado mapper puro de presentación que mantiene separadas existencia Windows, readiness Galtek y sesión activa. PRIMARY/SECONDARY se basan en status/binding real; ADMIN usa membresía real y built-in queda en sección secundaria.
+- `Iniciar sesión` permanece informativo y abre el inspector en Cuentas cuando el único target está en `NO_SESSION`. Eliminado el segundo control de limpieza del header del Command Center.
+- No se introdujo framework de tests frontend porque el paquete no dispone de infraestructura Jest/Vitest. Se agregaron pruebas dirigidas Agent y Master para contrato, capability, roles, admins múltiples, built-in, no SID, no mutación, preflight y mapping.
+- Validación local: `npm run typecheck` correcto; `npm run build` correcto con los 3 warnings de presupuesto de bundle existentes; `dotnet build GaltekClassroom.Agent.sln --no-restore` correcto con 0 warnings/errores; filtro Agent dirigido correcto con 59 pruebas Service; Master dirigido correcto con 74 pruebas (`WindowsAccountInventoryReadServiceTest`, `MasterRemoteOperationGatewayTest`, `MasterNetworkTransportTest`); `git diff --check` correcto con avisos LF/CRLF del working tree.
+- No se ejecutaron acciones reales ni lectura remota contra PC14. No se declara `REAL VALIDATED`. Sin commit.
+
+## 2026-09-23 - Paso 20F.0R.1 Command Center premium UX refinement
+
+- Unificados header contextual y command dock en una sola superficie compacta, con copy adaptado a uno o varios Devices y sin chips/conteos cero.
+- Rehecha la semantica session-first: `Iniciar sesion`, Primaria/Secundaria/Otra activa, estado no disponible y sin comunicacion; sin implementar login/switch real.
+- Convertidos Interaccion y Contenido en slots estables bloqueados cuando falta sesion, con popover rico de causa y ajuste de seleccion; `Abrir URL` vive dentro de Contenido.
+- Eliminados `Mas`, copy de roadmap, placeholders de cuentas/aplicaciones y conteos repetitivos por accion.
+- Reemplazado el selector modal por drawer derecho responsive con busqueda, tree expandible, checkbox de grupo mixed, estado de Device/sesion y scroll interno para 20/50/100 Devices.
+- Mejorados menus de Sistema, dialog compacto de URL con validacion inline, confirmaciones de power, toasts y resultado integrado con drawer jerarquizado.
+- Coordinados overlays para exclusividad, Escape por nivel, contencion/restauracion de foco y `aria-live` sin focus steal.
+- Agregadas transiciones 120-220ms para Command Center, contexto, menus, chevrons, cards, drawers, modal y toast, con reduced motion.
+- Auditado CSS para 1366x768, 1920x1080 y 2560x1440; no se instalo tooling de screenshots.
+- No se ejecutaron acciones reales sobre PC14. No se modificaron Agent, Protobuf ni operaciones backend. No se declara `REAL VALIDATED` y no se hizo commit.
+
+## 2026-09-23 - Paso 20F.0R Command Center foundation
+
+- Replanteado el dashboard Aula con una foundation de `Classroom Command Center`: header contextual compacto para seleccion, dock por familias (`Sesion`, `Interaccion`, `Abrir URL`, `Sistema`, `Mas`), selector avanzado de targets con busqueda/tree, popover de elegibilidad, toasts efimeros, resultado integrado y drawer de detalle del ultimo batch en memoria.
+- Enriquecido el mapper frontend del snapshot para conservar grupos, capacidades, presencia cruda, hostname y grupo del alumno asignado. Las cards de Devices siguen funcionando como seleccion rapida; el tree complementa seleccion batch para mas equipos.
+- Creado `actionAvailabilityResolver` como resolver puro de presentacion/elegibilidad. `OPEN_URL`, `LOCK_INPUT` y `UNLOCK_INPUT` requieren sesion interactiva confiable y Device online; `RESTART`/`SHUTDOWN` no requieren sesion Windows. Selecciones mixtas quedan bloqueadas en UI con razones por Device y accion `Ajustar seleccion`.
+- Corregido copy visible de input control a `Bloquear teclado y mouse` / `Desbloquear teclado y mouse`.
+- Agregado HTTP minimo `POST /api/classrooms/{classroomId}/windows-session-state` para consultar batch read-only de Windows session state. Reutiliza `MasterRemoteOperationGateway.getWindowsSessionState`, preflight tecnico existente (aula, binding, trust, presencia online, capability `WINDOWS_SESSION_STATE_V1`), `MasterAccessGuard` y storage ready. No persiste `BatchOperation`, no agrega Protobuf ni toca Agent.
+- `OperationResultPanel` conserva la semantica 20E.1 y agrega `Ver detalle` con drawer lateral. El drawer usa solo el ultimo `BatchOperationResult` en memoria y permite abrir un inspector foundation por Device con tabs `Resumen`, `Sesion`, `Cuentas` deshabilitado y `Capacidades`.
+- Agregadas microinteracciones CSS para menus/popovers, modal, drawer, toast y seleccion; `prefers-reduced-motion` sigue reduciendo animacion. No se agrego libreria de motion.
+- No se implemento gestion real de cuentas Windows, CRUD/remoto de bindings, login/logoff/switch UI, retry de operaciones, polling, SSE, historial persistente, shell ni framework UI nuevo. No se ejecutaron quick actions reales contra PC14. Sin commit.
+- Validacion local: `npm run typecheck` correcto; `mvn -q -DskipTests compile` en `master-backend` correcto; `npm run build` correcto; `git diff --check` correcto con solo warnings LF/CRLF del working tree. `rg "setInterval|localStorage|sessionStorage|polling" master-ui/src master-backend/src/main/java -n` sin coincidencias. `rg "retry|Retry|reintentar|Reintentar" master-ui/src -n` solo encontro el retry preexistente del error de carga del dashboard. No habia tooling Playwright/Puppeteer/screenshot en repo para validar capturas 1366/1920/2560 sin introducir dependencia nueva.
+
+## 2026-09-22 - Paso 20E.1 resultados por Device de quick actions
+
+- Auditados contratos de quick actions usados por 20D. `POST /api/classrooms/{classroomId}/open-url`, `POST /api/classrooms/{classroomId}/input-control/lock`, `POST /api/classrooms/{classroomId}/input-control/unlock` y `POST /api/classrooms/{classroomId}/power-control` devuelven directamente batch completo con `operationId`, `type`, `status`, `targetCount`, `successCount`, `failedCount` y `targets[]`; no se necesito `GET /api/operations/{id}` para 20E.1.
+- Agregados modelos frontend explicitos `BatchOperationResult` y `BatchTargetResult`, conservando `BatchOperationResponse` como alias de compatibilidad. El tipo refleja el DTO visible actual y no agrega `retryable`.
+- Creado mapper de presentacion para nombres de acciones, copy de exito por operacion y mapeo humano centralizado de `errorCode`. La UI usa `status`/`errorCode`; no decide por `message`.
+- Agregado panel compacto no modal `Resultado de la ultima accion`, debajo de quick actions y antes del grid de Devices. Muestra icono de accion, resultado global, conteos y lista por Device con nombre visible desde snapshot actual o fallback `Equipo <id corto>`. No muestra `operationId` ni UUID completo de Device.
+- `OPERATION_RESULT_UNKNOWN` y `SESSION_COMMAND_RESULT_UNKNOWN` se presentan como incertidumbre. `RESTART`/`SHUTDOWN` exitosos dicen `Solicitud de reinicio aceptada.` / `Solicitud de apagado aceptada.`, sin afirmar reinicio/apagado fisico.
+- Lifecycle: el resultado aparece al terminar la request, reemplaza el anterior, permanece ante cambios de seleccion, se limpia al cambiar de aula, puede cerrarse con boton accesible y no se persiste. Refresh de la misma aula conserva el panel.
+- No se agregaron polling, SSE, retry automatico, boton retry, activity timeline, historial persistente, endpoint nuevo, backend nuevo, Agent ni Protobuf. No se ejecutaron acciones reales contra PC14. Sin commit.
+- Validacion local: `npm run typecheck` correcto, `npm run build` correcto, `git diff --check` correcto con solo warnings LF/CRLF del working tree. `rg "setInterval|setTimeout|localStorage|sessionStorage" master-ui/src -n` sin coincidencias. `rg "retry|Retry|reintentar|Reintentar" master-ui/src -n` solo encontro `Reintentar`/`onRetry` preexistente del error de carga del dashboard, no retry de operaciones. Busqueda dirigida confirmo que no se renderiza `operationId`; `deviceId` queda en tipos/keys y fallback corto.
+
 ## 2026-09-22 - Paso 20E.0B1-F3 cierre operativo de startup Windows
 
 - Cerrada operativamente la incidencia SCM 7000/7009: `GaltekClassroomAgent` adopta `Automatic (Delayed Start)` como lifecycle productivo soportado porque no es boot-critical. Nueva instalacion y upgrade usan `start= delayed-auto`; el verificador exige StartMode Auto + `DelayedAutostart=1`, LocalSystem, ImagePath exacto y recovery restart 5/15/60 s, reset 86400, `failureflag=1`.
@@ -21,7 +241,7 @@
 - Corregida atribucion WER: los eventos 1001 de 13:26/13:28 reutilizan `IntegratorReportIdentifier=6270ab7c-e111-4d30-958f-58d511811ba6` y `EventTime=134345348849216176`, perteneciente a un crash historico. No hay evidencia de un APPCRASH nuevo ni se usa `0xe0434352` como causa del boot F1.
 - Aislamiento en el mismo boot y aun offline: `Start-Service` 5179 ms; bootstrap 790 -> 1580 bytes; `PROCESS_ENTER` 13:47:05.648, `HOST_RUN_BEGIN` 13:47:07.303 (~1.65 s); servicio `Running`. No es artifact/configuracion/DI/HostRun normalmente roto ni falta de red simple.
 - Auditados apphost self-contained win-x64, hostfxr/hostpolicy, runtimeconfig/deps, `WindowsServiceHelpers`/`ServiceBase.Run`, writer F1, publish/install y service config. El publish observado contiene runtime incluido `Microsoft.NETCore.App 8.0.30`, target `.NETCoreApp,Version=v8.0/win-x64` y hostfxr/hostpolicy/coreclr app-local. La frontera exacta continua no demostrada.
-- Agregado kit externo reversible: `06-arm-early-boot-trace.ps1`, `07-collect-early-boot-trace.ps1`, `08-restore-early-boot-trace.ps1` y `20E.0B2-F2.wprp`. COREHOST trace es per-service; WPR boot es opcional; logs se filtran desde `LastBootUpTime`; restore conserva exactamente Environment previo y cancela autologger. ACL del directorio F2: SYSTEM/Administrators.
+- Se agrego el kit externo reversible historico `20E.0B2` con scripts de arm/collect/restore y perfil WPR. COREHOST trace era per-service; WPR boot opcional; restore conservaba exactamente Environment previo. El kit se retiro del source tree al quedar cerrado y sin uso en el flujo soportado; esta entrada conserva su conocimiento operativo.
 - Corregido `04-collect-network-state.ps1`: por default usa `LastBootUpTime`; acepta `-Since` explicito. Ya no presenta por default `MASTER_CONNECTION_*` de una ventana historica arbitraria de dos horas.
 - Seguridad: sin full dumps, sin volcado de environment, sin secretos/config contents y con fail-closed si el servicio ya tiene variables ajenas a COREHOST; sin cambios a audit policy, Defender, Code Integrity o AppLocker. Host trace puede incluir paths/argumentos/resolucion de assemblies y ETL puede contener actividad general del boot, por lo que se trata como material restringido.
 - Validacion local: los ocho scripts PowerShell parsean; AST confirma que 06/07/08 no invocan Start/Stop/Restart-Service ni Stop-Process; checks estaticos confirman ausencia de variables globales, auditpol, LocalDumps, ServicesPipeTimeout y DelayedAutoStart; el WPRP lista correctamente con WPR 10.0.26100; `git diff --check` correcto. La validacion no mutante `wpr -addboot ... -export` requirio elevacion y devolvio Access Denied en la laptop no elevada; el arm real queda sujeto a deteccion/resultado explicito en PC14. No cambio codigo productivo, no se ejecuto build/test/publish y no cambian hashes. 8080/3000 siguieron vivos (backend health UP, UI HTTP 200). Sin deploy PC14, sin restart de frontend/backend y sin commit. Estado: `NOT REAL VALIDATED`.
@@ -44,6 +264,13 @@
 - Configuracion: `MasterConnection` del `appsettings.json` de esta maquina esta deshabilitada y sin endpoint/identity; no se infiere de ella la configuracion de PC14. Servicio local observado `Running`, `Automatic`, `LocalSystem`, sin dependencias ni delayed start, con recovery SCM 5/15/60s. Los puertos existentes 8080 y 3000 seguian escuchando; no se levantaron duplicados. El installer puede sobrescribir `appsettings.json`; deuda no corregida aqui.
 - Pruebas dirigidas de startup, fallo inicial, recuperacion tras varios fallos, perdida online, nuevo ClientHello, cancelacion del backoff, espera sin busy loop y no replay. En ese momento quedo pendiente 20E.0B2 para desplegar y validar en PC14; el pendiente de startup Windows fue cerrado posteriormente por F3 con SCM delayed-auto validado en hardware real PC14. Sin commit.
 - Validacion local: 48/48 tests dirigidos; `dotnet build agent/GaltekClassroom.Agent.sln` correcto sin warnings; `dotnet test` completo 667 Service + 70 Session = 737/737; publish Windows self-contained win-x64 correcto; `git diff --check` correcto. Artifact SHA-256: DLL `D31136C9CAC3D49248263C0164AD00E56A0036C4101B35EE9CAEE9BB8E7C7ED4`, EXE `BF0CA57211DFB8FF8742EB82C466607B911E41B1578BE995ECF35678DD753D69`.
+
+## 2026-09-21 - Paso 20E.0A operational classroom data cleanup
+
+- Auditada la SQLite usada por el proceso existente en 8080. Antes: ocho `Aula Primaria` activas con ocho PC01, ocho grupos, ocho alumnos, ocho workspaces, ocho browser profiles, ocho aplicaciones `Math Practice` con sus ocho vinculos, tres batches y 27 resultados; ademas un perfil Master `Teacher Chrome` de prueba. Las PC01 no tenian assignments ni network bindings. El laboratorio real tenia PC14 y un binding vigente; sus 17 batches se conservaron.
+- El historial de Codex del 2026-08-26 muestra que el fixture de `MasterSqlitePersistenceIntegrationTest` se ejecuto con un override `data-dir` que no llegaba al binder: una prueba de migracion encontro aulas de una ejecucion anterior en la base predeterminada. Ese mismo dia el test se cambio para pasar `--galtek.classroom.master.storage.data-dir=...`. El inicializador productivo solo migra y verifica la base.
+- Creado backup SQLite consistente e integro en `C:\ProgramData\Galtek\Classroom\Master\backups\classroom-20E.0A-20260921-181908.db`. Eliminadas transaccionalmente las entidades sinteticas y sus dependencias, incluido el perfil Master de prueba. `PRAGMA foreign_key_check` limpio; filas de `Laboratorio de Computo`, PC14 y su binding verificadas sin cambios.
+- Sin restart: `GET /api/master/bootstrap` en 8080 devolvio solo `Laboratorio de Computo` (`1968a9e5-73db-49dc-a5e4-d7d07fb951c2`), y su snapshot devolvio PC14/ICH11 (`2966678f-0f07-43ad-936f-8fcd8fc308dd`) `OFFLINE`. Se reutilizaron 8080 y 3000. Sin cambios Java, Agent, Protobuf, frontend, pairing, trust, licensing o vault; sin commit.
 
 ## 2026-09-21 - Paso 20D Master UI quick action dispatch foundation
 

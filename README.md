@@ -29,7 +29,7 @@ Before developing classroom functionality, read `docs/context/FUNCTIONAL_MODEL.m
 - .NET SDK 8.0 LTS or newer compatible LTS SDK.
 - Node.js and npm for `master-ui/`.
 
-In this workspace, the global `dotnet` command may expose only the runtime. Use `C:\Users\angel\.dotnet\dotnet.exe` when that happens.
+Ensure the .NET SDK is available through `dotnet` on `PATH`. A per-user SDK installation is also valid, but documentation and scripts must not depend on a developer-specific absolute path.
 
 ## Master Backend
 
@@ -168,21 +168,21 @@ Build the full Agent solution:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe build .\GaltekClassroom.Agent.sln
+dotnet build .\GaltekClassroom.Agent.sln
 ```
 
 Run .NET tests:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe test .\GaltekClassroom.Agent.sln
+dotnet test .\GaltekClassroom.Agent.sln
 ```
 
 Run the Agent Service in development console mode:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj
+dotnet run --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj
 ```
 
 The Service starts the Local IPC Named Pipe server on `GaltekClassroom.Agent.v1`.
@@ -201,21 +201,21 @@ Configure the current Windows account from an elevated administrator shell:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-current-user
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-current-user
 ```
 
 Configure another existing local/domain account:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraPrimaria"
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraPrimaria"
 ```
 
 Replace an existing binding only with explicit intent:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraB" --replace-master-binding
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --bind-master-account "AULA\MaestraB" --replace-master-binding
 ```
 
 The CLI does not autoelevate or bypass UAC. Without elevation it returns `ADMINISTRATOR_REQUIRED`. A missing account returns `WINDOWS_ACCOUNT_NOT_FOUND`, and an existing binding without replace returns `MASTER_BINDING_ALREADY_CONFIGURED`.
@@ -232,7 +232,7 @@ Run the Session Agent background lifecycle:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --background
+dotnet run --project .\src\GaltekClassroom.Agent.Session\GaltekClassroom.Agent.Session.csproj -- --background
 ```
 
 The Session Agent runs in the current interactive user session, acquires a per-session lock, waits for the Agent Service when it is unavailable, and reconnects automatically.
@@ -241,8 +241,8 @@ Query the Agent Service from the Session Agent through IPC:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
-C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
+dotnet .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
+dotnet .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
 ```
 
 The diagnostics are one-shot commands: they print JSON and terminate without starting the background supervisor.
@@ -460,8 +460,8 @@ Diagnostic commands:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
-C:\Users\angel\.dotnet\dotnet.exe .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
+dotnet .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-ping
+dotnet .\src\GaltekClassroom.Agent.Session\bin\Debug\net8.0\GaltekClassroom.Agent.Session.dll --ipc-status
 ```
 
 ## Machine Code
@@ -470,7 +470,7 @@ Print the development Machine Code and exit without starting the Worker:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --machine-code
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --machine-code
 ```
 
 Machine Code does not require an active Commercial License. It exists so a new installation can be identified before activation.
@@ -493,21 +493,21 @@ Query license status:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --license-status
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --license-status
 ```
 
 Activate from STDIN, avoiding command-line history and process listings:
 
 ```powershell
 cd agent
-Get-Content .\dev-license.jwt -Raw | C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --activate-license
+Get-Content .\dev-license.jwt -Raw | dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --activate-license
 ```
 
 Activate from an explicit file:
 
 ```powershell
 cd agent
-C:\Users\angel\.dotnet\dotnet.exe run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --activate-license-file .\dev-license.jwt
+dotnet run --no-build --project .\src\GaltekClassroom.Agent.Service\GaltekClassroom.Agent.Service.csproj -- --activate-license-file .\dev-license.jwt
 ```
 
 The CLI prints JSON status and never prints the JWT. If no `license.dat` exists, status is `ACTIVATION_REQUIRED`. If a license exists but no public key is configured, status is `LICENSE_KEY_NOT_CONFIGURED`.
