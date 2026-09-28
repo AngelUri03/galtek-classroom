@@ -127,6 +127,9 @@ public class ManagedCredentialProvisioningBridge {
         if (accountId == ManagedWindowsAccountType.SECONDARY) {
             return ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY;
         }
+        if (accountId == ManagedWindowsAccountType.ADMIN) {
+            return ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN;
+        }
         throw new CredentialVaultException(ErrorCode.INVALID_REQUEST, "Managed Windows account id is required.");
     }
 

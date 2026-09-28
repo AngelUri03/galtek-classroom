@@ -22,7 +22,10 @@ import com.galtek.classroom.network.v1.OperationStatusQuery;
 import com.galtek.classroom.network.v1.OperationStatusReport;
 import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParameters;
 import com.galtek.classroom.network.v1.SwitchManagedAccountOperationParameters;
+import com.galtek.classroom.network.v1.SetManagedAccountBindingOperationParameters;
+import com.galtek.classroom.network.v1.RemoveManagedAccountBindingOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
+import com.galtek.classroom.network.v1.WindowsAccountInventoryResult;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
@@ -106,7 +109,7 @@ public class MasterRemoteOperationGateway {
             OperationType operationType,
             String operationId,
             String targetDeviceId) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, null, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -115,7 +118,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, parameters, null, null, null, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -124,7 +127,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             ApplyBrowserDownloadPolicyOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, parameters, null, null, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -133,7 +136,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenUrlOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, null, parameters, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> dispatch(
@@ -142,7 +145,7 @@ public class MasterRemoteOperationGateway {
             String operationId,
             String targetDeviceId,
             OpenApplicationOperationParameters parameters) {
-        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null, null, null, null, null);
+        return dispatch(snapshot, operationType, operationId, targetDeviceId, null, null, parameters, null, null, null, null, null, null, null);
     }
 
     public Optional<DispatchHandle> provisionManagedCredential(
@@ -170,7 +173,9 @@ public class MasterRemoteOperationGateway {
                 null,
                 null,
                 null,
-                parameters);
+                parameters,
+                null,
+                null);
     }
 
     public Optional<DispatchHandle> logonManagedAccount(
@@ -194,6 +199,8 @@ public class MasterRemoteOperationGateway {
                 null,
                 null,
                 parameters,
+                null,
+                null,
                 null,
                 null,
                 null);
@@ -222,6 +229,8 @@ public class MasterRemoteOperationGateway {
                 null,
                 parameters,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -247,6 +256,49 @@ public class MasterRemoteOperationGateway {
                 targetDeviceId);
     }
 
+    public Optional<DispatchHandle> getWindowsAccountInventory(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId) {
+        return dispatch(
+                snapshot,
+                OperationType.GET_WINDOWS_ACCOUNT_INVENTORY,
+                operationId,
+                targetDeviceId);
+    }
+
+    public Optional<DispatchHandle> setManagedAccountBinding(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId,
+            ManagedWindowsAccountId accountId,
+            String windowsAccountName) {
+        SetManagedAccountBindingOperationParameters parameters =
+                SetManagedAccountBindingOperationParameters.newBuilder()
+                        .setAccountId(accountId == null
+                                ? ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED
+                                : accountId)
+                        .setWindowsAccountName(windowsAccountName == null ? "" : windowsAccountName)
+                        .build();
+        return dispatch(snapshot, OperationType.SET_MANAGED_ACCOUNT_BINDING, operationId, targetDeviceId,
+                null, null, null, null, null, null, null, null, parameters, null);
+    }
+
+    public Optional<DispatchHandle> removeManagedAccountBinding(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId,
+            ManagedWindowsAccountId accountId) {
+        RemoveManagedAccountBindingOperationParameters parameters =
+                RemoveManagedAccountBindingOperationParameters.newBuilder()
+                        .setAccountId(accountId == null
+                                ? ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED
+                                : accountId)
+                        .build();
+        return dispatch(snapshot, OperationType.REMOVE_MANAGED_ACCOUNT_BINDING, operationId, targetDeviceId,
+                null, null, null, null, null, null, null, null, null, parameters);
+    }
+
     public Optional<DispatchHandle> switchManagedAccount(
             ClientConnectionSnapshot snapshot,
             String operationId,
@@ -270,6 +322,8 @@ public class MasterRemoteOperationGateway {
                 null,
                 null,
                 parameters,
+                null,
+                null,
                 null);
     }
 
@@ -285,7 +339,9 @@ public class MasterRemoteOperationGateway {
             LogonManagedAccountOperationParameters logonManagedAccountParameters,
             LogoffWindowsSessionOperationParameters logoffWindowsSessionParameters,
             SwitchManagedAccountOperationParameters switchManagedAccountParameters,
-            ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters) {
+            ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters,
+            SetManagedAccountBindingOperationParameters setManagedAccountBindingParameters,
+            RemoveManagedAccountBindingOperationParameters removeManagedAccountBindingParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
         }
@@ -337,6 +393,12 @@ public class MasterRemoteOperationGateway {
             }
             if (provisionManagedCredentialParameters != null) {
                 request.setProvisionManagedCredential(provisionManagedCredentialParameters);
+            }
+            if (setManagedAccountBindingParameters != null) {
+                request.setSetManagedAccountBinding(setManagedAccountBindingParameters);
+            }
+            if (removeManagedAccountBindingParameters != null) {
+                request.setRemoveManagedAccountBinding(removeManagedAccountBindingParameters);
             }
             session.send(MasterEnvelope.newBuilder()
                     .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
@@ -533,7 +595,7 @@ public class MasterRemoteOperationGateway {
 
             if (result.getOperationType() == NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS) {
                 if (!result.hasManagedAccountStatus()
-                        || result.getManagedAccountStatus().getAccountsCount() != 2) {
+                        || result.getManagedAccountStatus().getAccountsCount() != 3) {
                     return RemoteOperationOutcome.failed(
                             ErrorCode.OPERATION_RESULT_UNKNOWN,
                             "Agent reported invalid managed account status.");
@@ -542,6 +604,19 @@ public class MasterRemoteOperationGateway {
                 return RemoteOperationOutcome.success(
                         "Agent reported managed account status.",
                         result.getManagedAccountStatus());
+            }
+
+            if (result.getOperationType()
+                    == NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY) {
+                if (!result.hasWindowsAccountInventory()) {
+                    return RemoteOperationOutcome.failed(
+                            ErrorCode.OPERATION_RESULT_UNKNOWN,
+                            "Agent reported invalid Windows account inventory.");
+                }
+
+                return RemoteOperationOutcome.success(
+                        "Agent reported Windows account inventory.",
+                        result.getWindowsAccountInventory());
             }
 
             return RemoteOperationOutcome.success("Agent reported operation success.");
@@ -619,6 +694,24 @@ public class MasterRemoteOperationGateway {
                     ErrorCode.MANAGED_CREDENTIAL_STORE_INVALID;
             case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED ->
                     ErrorCode.MANAGED_CREDENTIAL_PROTECTION_FAILED;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_DISABLED -> ErrorCode.WINDOWS_ACCOUNT_DISABLED;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_BUILT_IN -> ErrorCode.WINDOWS_ACCOUNT_BUILT_IN;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ALREADY_MANAGED ->
+                    ErrorCode.WINDOWS_ACCOUNT_ALREADY_MANAGED;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ROLE_ALREADY_ASSIGNED ->
+                    ErrorCode.MANAGED_ROLE_ALREADY_ASSIGNED;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_REQUIRED ->
+                    ErrorCode.WINDOWS_ACCOUNT_ADMIN_REQUIRED;
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_NOT_ALLOWED ->
+                    ErrorCode.WINDOWS_ACCOUNT_ADMIN_NOT_ALLOWED;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_CONFLICT ->
+                    ErrorCode.MANAGED_ACCOUNT_BINDING_CONFLICT;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_INVALID ->
+                    ErrorCode.MANAGED_ACCOUNT_BINDING_INVALID;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_SESSION_ACTIVE ->
+                    ErrorCode.MANAGED_ACCOUNT_SESSION_ACTIVE;
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_CLEANUP_FAILED ->
+                    ErrorCode.MANAGED_CREDENTIAL_CLEANUP_FAILED;
             case NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE ->
                     ErrorCode.CREDENTIAL_PROVIDER_UNAVAILABLE;
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED -> ErrorCode.OPERATION_NOT_IMPLEMENTED;
@@ -727,6 +820,26 @@ public class MasterRemoteOperationGateway {
                     "Managed Windows credential store is invalid on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_PROTECTION_FAILED ->
                     "Managed Windows credential protection failed on the target device.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_DISABLED ->
+                    "Selected Windows account is disabled.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_BUILT_IN ->
+                    "Built-in Windows accounts cannot be managed.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ALREADY_MANAGED ->
+                    "Selected Windows account already has a Galtek role.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ROLE_ALREADY_ASSIGNED ->
+                    "Requested Galtek role is already assigned.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_REQUIRED ->
+                    "Administration requires a current Windows administrator account.";
+            case NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_NOT_ALLOWED ->
+                    "School profiles cannot use a Windows administrator account.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_CONFLICT ->
+                    "Managed account binding conflicts with the current device state.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_INVALID ->
+                    "Managed account binding request is invalid.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_SESSION_ACTIVE ->
+                    "Managed profile cannot be removed while its session is active.";
+            case NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_CLEANUP_FAILED ->
+                    "Protected credential cleanup failed; the binding was retained when possible.";
             case NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE ->
                     "Credential Provider listener is unavailable on the target device.";
             case NETWORK_OPERATION_ERROR_CODE_OPERATION_NOT_IMPLEMENTED ->
@@ -762,6 +875,12 @@ public class MasterRemoteOperationGateway {
                     NetworkOperationType.NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL;
             case GET_MANAGED_ACCOUNT_STATUS ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS;
+            case GET_WINDOWS_ACCOUNT_INVENTORY ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY;
+            case SET_MANAGED_ACCOUNT_BINDING ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_SET_MANAGED_ACCOUNT_BINDING;
+            case REMOVE_MANAGED_ACCOUNT_BINDING ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_REMOVE_MANAGED_ACCOUNT_BINDING;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->
@@ -801,13 +920,14 @@ public class MasterRemoteOperationGateway {
             ErrorCode errorCode,
             String message,
             WindowsSessionState windowsSessionState,
-            ManagedAccountStatusResult managedAccountStatus) {
+            ManagedAccountStatusResult managedAccountStatus,
+            WindowsAccountInventoryResult windowsAccountInventory) {
 
         public RemoteOperationOutcome(
                 TargetExecutionStatus status,
                 ErrorCode errorCode,
                 String message) {
-            this(status, errorCode, message, null, null);
+            this(status, errorCode, message, null, null, null);
         }
 
         public static RemoteOperationOutcome success(String message) {
@@ -815,7 +935,7 @@ public class MasterRemoteOperationGateway {
         }
 
         public static RemoteOperationOutcome success(String message, WindowsSessionState windowsSessionState) {
-            return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message, windowsSessionState, null);
+            return new RemoteOperationOutcome(TargetExecutionStatus.SUCCESS, null, message, windowsSessionState, null, null);
         }
 
         public static RemoteOperationOutcome success(
@@ -826,7 +946,20 @@ public class MasterRemoteOperationGateway {
                     null,
                     message,
                     null,
-                    managedAccountStatus);
+                    managedAccountStatus,
+                    null);
+        }
+
+        public static RemoteOperationOutcome success(
+                String message,
+                WindowsAccountInventoryResult windowsAccountInventory) {
+            return new RemoteOperationOutcome(
+                    TargetExecutionStatus.SUCCESS,
+                    null,
+                    message,
+                    null,
+                    null,
+                    windowsAccountInventory);
         }
 
         public static RemoteOperationOutcome failed(ErrorCode errorCode, String message) {

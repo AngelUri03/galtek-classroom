@@ -36,6 +36,8 @@ import com.galtek.classroom.network.v1.OperationStatusReport;
 import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParameters;
 import com.galtek.classroom.network.v1.SwitchManagedAccountOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
+import com.galtek.classroom.network.v1.WindowsAccountInventoryEntry;
+import com.galtek.classroom.network.v1.WindowsAccountInventoryResult;
 import com.galtek.classroom.network.v1.WindowsSessionStateResult;
 import com.google.protobuf.ByteString;
 import com.galtek.classroom.operations.ErrorCode;
@@ -125,6 +127,43 @@ class MasterRemoteOperationGatewayTest {
         assertThat(request.getAllFields().keySet())
                 .extracting(field -> field.getJsonName())
                 .doesNotContain("username", "sid", "sessionId", "accountId", "password");
+    }
+
+    @Test
+    void setManagedAccountBindingSendsOnlyRoleAndInventoryAccountName() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.setManagedAccountBinding(snapshot, "bind-1", "device-1",
+                ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN, "ADMIN-14").orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_SET_MANAGED_ACCOUNT_BINDING);
+        assertThat(request.getSetManagedAccountBinding().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN);
+        assertThat(request.getSetManagedAccountBinding().getWindowsAccountName()).isEqualTo("ADMIN-14");
+        assertThat(request.toString()).doesNotContain("S-1-5", "password", "credential");
+    }
+
+    @Test
+    void removeManagedAccountBindingSendsRoleWithoutPasswordOrSid() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.removeManagedAccountBinding(snapshot, "unbind-1", "device-1",
+                ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY).orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_REMOVE_MANAGED_ACCOUNT_BINDING);
+        assertThat(request.getRemoveManagedAccountBinding().getAccountId())
+                .isEqualTo(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY);
+        assertThat(request.toString()).doesNotContain("S-1-5", "password", "credential");
     }
 
     @Test
@@ -509,6 +548,23 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void getWindowsAccountInventoryBuildsTypedReadOnlyOperationRequestWithoutFunctionalPayload() {
+        MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
+        RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
+        ClientConnectionSnapshot snapshot = snapshot("device-1", UUID.randomUUID(), "connection-1");
+        gateway.registerSession(snapshot, observer);
+
+        gateway.getWindowsAccountInventory(snapshot, "inventory-1", "device-1").orElseThrow();
+
+        OperationRequest request = observer.values().getFirst().getOperationRequest();
+        assertThat(request.getOperationId()).isEqualTo("inventory-1");
+        assertThat(request.getOperationType())
+                .isEqualTo(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY);
+        assertThat(request.getOperationParametersCase())
+                .isEqualTo(OperationRequest.OperationParametersCase.OPERATIONPARAMETERS_NOT_SET);
+    }
+
+    @Test
     void switchManagedAccountMapsPrimaryAndSecondaryOnly() {
         MasterRemoteOperationGateway gateway = new MasterRemoteOperationGateway(CLOCK, Duration.ofMillis(100));
         RecordingObserver<MasterEnvelope> observer = new RecordingObserver<>();
@@ -797,6 +853,12 @@ class MasterRemoteOperationGatewayTest {
                         .setCredentialConfigured(false)
                         .setCredentialStatus(ManagedAccountCredentialStatus
                                 .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN)
+                        .setConfigured(false)
+                        .setCredentialConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
                 .build();
 
         RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
@@ -812,6 +874,31 @@ class MasterRemoteOperationGatewayTest {
         assertThat(outcome.errorCode()).isNull();
         assertThat(outcome.managedAccountStatus()).isEqualTo(status);
         assertThat(outcome.toString()).doesNotContain("password", "protectedData", "credentialId", "S-1-5");
+    }
+
+    @Test
+    void operationResultPreservesWindowsAccountInventoryWithoutSid() {
+        WindowsAccountInventoryResult inventory = WindowsAccountInventoryResult.newBuilder()
+                .addAccounts(WindowsAccountInventoryEntry.newBuilder()
+                        .setAccountName("ADMIN-14")
+                        .setDisplayName("Administrador")
+                        .setEnabled(true)
+                        .setAdministrator(true)
+                        .setManagedRole(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED))
+                .build();
+
+        RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
+                .setOperationId("inventory")
+                .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY)
+                .setTargetDeviceId("PC01")
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_SUCCESS)
+                .setWindowsAccountInventory(inventory)
+                .build());
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.SUCCESS);
+        assertThat(outcome.windowsAccountInventory()).isEqualTo(inventory);
+        assertThat(outcome.toString()).doesNotContain("S-1-5", "password", "protectedData");
     }
 
     @Test

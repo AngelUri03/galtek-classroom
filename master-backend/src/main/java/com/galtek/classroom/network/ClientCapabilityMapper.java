@@ -45,6 +45,10 @@ public final class ClientCapabilityMapper {
             case NETWORK_CAPABILITY_MANAGED_CREDENTIAL_PROVISIONING_V1 ->
                     DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1;
             case NETWORK_CAPABILITY_MANAGED_ACCOUNT_STATUS_V1 -> DeviceCapability.MANAGED_ACCOUNT_STATUS_V1;
+            case NETWORK_CAPABILITY_WINDOWS_ACCOUNT_INVENTORY_V1 ->
+                    DeviceCapability.WINDOWS_ACCOUNT_INVENTORY_V1;
+            case NETWORK_CAPABILITY_MANAGED_ACCOUNT_BINDING_V2 ->
+                    DeviceCapability.MANAGED_ACCOUNT_BINDING_V2;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

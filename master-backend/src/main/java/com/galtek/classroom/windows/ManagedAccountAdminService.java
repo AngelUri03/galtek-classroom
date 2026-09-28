@@ -26,6 +26,7 @@ import com.galtek.classroom.network.MasterRemoteOperationGateway.RemoteOperation
 import com.galtek.classroom.network.PairingStatus;
 import com.galtek.classroom.network.RegisteredNetworkDevice;
 import com.galtek.classroom.network.v1.ManagedAccountStatusResult;
+import com.galtek.classroom.network.v1.ManagedWindowsAccountId;
 import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageHealth;
@@ -34,6 +35,7 @@ import com.galtek.classroom.persistence.MasterStorageStatus;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountCredentialProvisionResponse;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountSlotResponse;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountStatusResponse;
+import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountMutationResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -97,6 +99,51 @@ public class ManagedAccountAdminService {
         return ManagedAccountStatusResponse.from(status);
     }
 
+    public ManagedAccountMutationResponse bind(
+            String classroomId,
+            String deviceId,
+            String accountId,
+            String windowsAccountName) {
+        requireAuthorizedAndStorage();
+        ManagedWindowsAccountType accountType = parseAccountId(accountId);
+        String cleanAccountName = required(windowsAccountName, "windowsAccountName");
+        if (cleanAccountName.length() > 256 || cleanAccountName.chars().anyMatch(Character::isISOControl)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_REQUEST,
+                    "windowsAccountName is invalid.");
+        }
+        TargetPlan target = preflightBindingTarget(classroomId, deviceId);
+        String operationId = UUID.randomUUID().toString();
+        RemoteOperationOutcome outcome = remoteOperationGateway.setManagedAccountBinding(
+                        target.snapshot(), operationId, target.deviceId(),
+                        toNetworkAccountId(accountType), cleanAccountName)
+                .map(handle -> awaitOutcome(handle, remoteOperationGateway.resultTimeout()))
+                .orElseGet(() -> RemoteOperationOutcome.failed(ErrorCode.DEVICE_OFFLINE, "Device is offline."));
+        ManagedAccountSlotResponse observed = null;
+        if (outcome.status() == TargetExecutionStatus.SUCCESS) {
+            observed = ManagedAccountAdminDtos.requireAccount(queryManagedAccountStatus(target), accountType);
+        }
+        return mutationResponse(accountType, operationId, outcome, observed);
+    }
+
+    public ManagedAccountMutationResponse unbind(
+            String classroomId,
+            String deviceId,
+            String accountId) {
+        requireAuthorizedAndStorage();
+        ManagedWindowsAccountType accountType = parseAccountId(accountId);
+        TargetPlan target = preflightBindingTarget(classroomId, deviceId);
+        String operationId = UUID.randomUUID().toString();
+        RemoteOperationOutcome outcome = remoteOperationGateway.removeManagedAccountBinding(
+                        target.snapshot(), operationId, target.deviceId(), toNetworkAccountId(accountType))
+                .map(handle -> awaitOutcome(handle, remoteOperationGateway.resultTimeout()))
+                .orElseGet(() -> RemoteOperationOutcome.failed(ErrorCode.DEVICE_OFFLINE, "Device is offline."));
+        ManagedAccountSlotResponse observed = null;
+        if (outcome.status() == TargetExecutionStatus.SUCCESS) {
+            observed = ManagedAccountAdminDtos.requireAccount(queryManagedAccountStatus(target), accountType);
+        }
+        return mutationResponse(accountType, operationId, outcome, observed);
+    }
+
     public ManagedAccountCredentialProvisionResponse configureCredential(
             String classroomId,
             String deviceId,
@@ -130,6 +177,7 @@ public class ManagedAccountAdminService {
 
         String credentialId = upsertVaultCredential(
                 vaultSessionToken,
+                target.deviceId(),
                 beforeAccount.windowsAccountName(),
                 password);
         String operationId = UUID.randomUUID().toString();
@@ -157,11 +205,14 @@ public class ManagedAccountAdminService {
 
     private String upsertVaultCredential(
             String vaultSessionToken,
+            String deviceId,
             String windowsAccountName,
             String password) {
+        String displayName = REQUESTED_DISPLAY_PREFIX + deviceId + " / " + windowsAccountName;
         List<CredentialVaultEntryMetadata> matches = credentialVaultService.list(vaultSessionToken).stream()
                 .filter(entry -> entry.credentialType() == CredentialType.WINDOWS_ACCOUNT)
                 .filter(entry -> windowsAccountName.equals(entry.loginIdentifier()))
+                .filter(entry -> displayName.equals(entry.displayName()))
                 .toList();
         if (matches.size() > 1) {
             throw new ApiException(
@@ -170,7 +221,6 @@ public class ManagedAccountAdminService {
                     "Multiple vault credentials match the managed Windows account.");
         }
 
-        String displayName = REQUESTED_DISPLAY_PREFIX + windowsAccountName;
         if (matches.isEmpty()) {
             CredentialVaultEntryMetadata created = credentialVaultService.add(
                     vaultSessionToken,
@@ -265,6 +315,15 @@ public class ManagedAccountAdminService {
         return new TargetPlan(device.deviceId(), snapshot);
     }
 
+    private TargetPlan preflightBindingTarget(String classroomId, String deviceId) {
+        TargetPlan target = preflightStatusTarget(classroomId, deviceId);
+        if (!target.snapshot().capabilities().contains(DeviceCapability.MANAGED_ACCOUNT_BINDING_V2)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.CAPABILITY_NOT_SUPPORTED,
+                    "Device does not announce MANAGED_ACCOUNT_BINDING_V2.");
+        }
+        return target;
+    }
+
     private void trustOrThrow(RegisteredNetworkDevice binding) {
         Map<UUID, KnownMasterClient> knownClients = pairingService.knownClients().stream()
                 .collect(Collectors.toMap(
@@ -309,8 +368,30 @@ public class ManagedAccountAdminService {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     ErrorCode.INVALID_REQUEST,
-                    "accountId must be PRIMARY or SECONDARY.");
+                    "accountId must be PRIMARY, SECONDARY or ADMIN.");
         }
+    }
+
+    private ManagedWindowsAccountId toNetworkAccountId(ManagedWindowsAccountType accountType) {
+        return switch (accountType) {
+            case PRIMARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY;
+            case SECONDARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY;
+            case ADMIN -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN;
+        };
+    }
+
+    private ManagedAccountMutationResponse mutationResponse(
+            ManagedWindowsAccountType accountType,
+            String operationId,
+            RemoteOperationOutcome outcome,
+            ManagedAccountSlotResponse observed) {
+        return new ManagedAccountMutationResponse(
+                accountType.name(),
+                outcome.status().name(),
+                operationId,
+                outcome.errorCode() == null ? null : outcome.errorCode().name(),
+                outcome.message(),
+                observed);
     }
 
     private String provisioningStatus(RemoteOperationOutcome outcome) {

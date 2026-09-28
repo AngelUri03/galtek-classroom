@@ -31,6 +31,18 @@ public final class ManagedAccountAdminDtos {
             ManagedAccountSlotResponse account) {
     }
 
+    public record ManagedAccountBindingRequest(String windowsAccountName) {
+    }
+
+    public record ManagedAccountMutationResponse(
+            String accountId,
+            String status,
+            String operationId,
+            String errorCode,
+            String message,
+            ManagedAccountSlotResponse account) {
+    }
+
     public record ManagedAccountSlotResponse(
             String accountId,
             boolean configured,
@@ -52,6 +64,7 @@ public final class ManagedAccountAdminDtos {
         return switch (accountId) {
             case MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY -> ManagedWindowsAccountType.PRIMARY.name();
             case MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY -> ManagedWindowsAccountType.SECONDARY.name();
+            case MANAGED_WINDOWS_ACCOUNT_ID_ADMIN -> ManagedWindowsAccountType.ADMIN.name();
             case MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

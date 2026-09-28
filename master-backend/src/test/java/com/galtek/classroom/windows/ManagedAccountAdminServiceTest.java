@@ -132,6 +132,83 @@ class ManagedAccountAdminServiceTest {
         verify(fixture.provisioningBridge, never()).provision(anyString(), anyString(), anyString(), anyString(), any());
     }
 
+    @Test
+    void bindDispatchesTypedOperationAndRefreshesOnlyAfterSuccess() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.setManagedAccountBinding(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY), eq("PC14\\Primaria")))
+                .thenReturn(handle(RemoteOperationOutcome.success("bound")));
+        when(fixture.remoteOperationGateway.getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID)))
+                .thenReturn(handle(RemoteOperationOutcome.success("status", status(false))));
+
+        var response = fixture.service.bind(CLASSROOM_ID, DEVICE_ID, "PRIMARY", "PC14\\Primaria");
+
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        assertThat(response.account()).isNotNull();
+        assertThat(response.account().accountId()).isEqualTo("PRIMARY");
+        verify(fixture.remoteOperationGateway).setManagedAccountBinding(
+                any(), eq(response.operationId()), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY), eq("PC14\\Primaria"));
+    }
+
+    @Test
+    void bindReturnsTypedConflictWithoutRefreshingStatus() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.setManagedAccountBinding(
+                any(), anyString(), eq(DEVICE_ID), any(), anyString()))
+                .thenReturn(handle(RemoteOperationOutcome.failed(
+                        ErrorCode.MANAGED_ACCOUNT_BINDING_CONFLICT, "conflict")));
+
+        var response = fixture.service.bind(CLASSROOM_ID, DEVICE_ID, "SECONDARY", "PC14\\Secundaria");
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.errorCode()).isEqualTo("MANAGED_ACCOUNT_BINDING_CONFLICT");
+        assertThat(response.account()).isNull();
+        verify(fixture.remoteOperationGateway, never()).getManagedAccountStatus(any(), anyString(), anyString());
+    }
+
+    @Test
+    void bindRejectsMissingBindingCapabilityBeforeDispatch() {
+        Fixture fixture = new Fixture();
+        when(fixture.connectionRegistry.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(
+                fixture.snapshot(EnumSet.of(DeviceCapability.MANAGED_ACCOUNT_STATUS_V1))));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> fixture.service.bind(
+                        CLASSROOM_ID, DEVICE_ID, "ADMIN", "ADMIN-14"))
+                .isInstanceOf(com.galtek.classroom.api.ApiException.class)
+                .hasMessageContaining("MANAGED_ACCOUNT_BINDING_V2");
+
+        verify(fixture.remoteOperationGateway, never())
+                .setManagedAccountBinding(any(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void credentialProvisioningFailureKeepsObservedMissingState() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID)))
+                .thenReturn(handle(RemoteOperationOutcome.success("status", status(false))));
+        when(fixture.credentialVaultService.list("vault-token")).thenReturn(List.of());
+        when(fixture.credentialVaultService.add(eq("vault-token"), any(CredentialVaultEntryDraft.class)))
+                .thenReturn(new CredentialVaultEntryMetadata(
+                        "cred-1", CredentialType.WINDOWS_ACCOUNT, "managed", "PC14\\Primaria",
+                        Instant.parse("2026-09-14T12:00:00Z"), Instant.parse("2026-09-14T12:00:00Z")));
+        when(fixture.provisioningBridge.provision(
+                eq("vault-token"), eq("cred-1"), eq(DEVICE_ID), anyString(),
+                eq(ManagedWindowsAccountType.PRIMARY)))
+                .thenReturn(RemoteOperationOutcome.failed(
+                        ErrorCode.CREDENTIAL_NOT_PROVISIONABLE, "provision failed"));
+
+        var response = fixture.service.configureCredential(
+                CLASSROOM_ID, DEVICE_ID, "PRIMARY", "vault-token", "windows-secret");
+
+        assertThat(response.provisioningStatus()).isEqualTo("FAILED");
+        assertThat(response.account().configured()).isTrue();
+        assertThat(response.account().credentialConfigured()).isFalse();
+        assertThat(response.account().credentialStatus()).isEqualTo("CREDENTIAL_NOT_CONFIGURED");
+        verify(fixture.remoteOperationGateway).getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID));
+    }
+
     private static ManagedAccountStatusResult status(boolean ready) {
         return ManagedAccountStatusResult.newBuilder()
                 .addAccounts(ManagedAccountStatus.newBuilder()
@@ -145,6 +222,11 @@ class ManagedAccountAdminServiceTest {
                         .setWindowsAccountName("PC14\\Primaria"))
                 .addAccounts(ManagedAccountStatus.newBuilder()
                         .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .setConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN)
                         .setConfigured(false)
                         .setCredentialStatus(ManagedAccountCredentialStatus
                                 .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
@@ -230,7 +312,15 @@ class ManagedAccountAdminServiceTest {
                     "spki",
                     Instant.parse("2026-09-14T12:00:00Z"),
                     null)));
-            when(connectionRegistry.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(new ClientConnectionSnapshot(
+            when(connectionRegistry.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(snapshot(EnumSet.of(
+                    DeviceCapability.MANAGED_ACCOUNT_STATUS_V1,
+                    DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1,
+                    DeviceCapability.MANAGED_ACCOUNT_BINDING_V2))));
+            when(remoteOperationGateway.resultTimeout()).thenReturn(java.time.Duration.ofMillis(100));
+        }
+
+        ClientConnectionSnapshot snapshot(EnumSet<DeviceCapability> capabilities) {
+            return new ClientConnectionSnapshot(
                     NETWORK_IDENTITY_ID,
                     INSTALLATION_ID,
                     DEVICE_ID,
@@ -240,15 +330,12 @@ class ManagedAccountAdminServiceTest {
                     "PC14",
                     DeviceStatus.ONLINE,
                     "0.5.0",
-                    EnumSet.of(
-                            DeviceCapability.MANAGED_ACCOUNT_STATUS_V1,
-                            DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1),
+                    capabilities,
                     Instant.parse("2026-09-14T12:00:00Z"),
                     Instant.parse("2026-09-14T12:00:00Z"),
                     null,
                     "connection-1",
-                    null)));
-            when(remoteOperationGateway.resultTimeout()).thenReturn(java.time.Duration.ofMillis(100));
+                    null);
         }
     }
 }

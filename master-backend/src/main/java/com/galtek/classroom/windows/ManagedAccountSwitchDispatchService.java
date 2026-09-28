@@ -460,6 +460,9 @@ public class ManagedAccountSwitchDispatchService {
         ManagedWindowsAccountType targetAccountType;
         try {
             targetAccountType = ManagedWindowsAccountType.valueOf(targetAccountId.trim());
+            if (targetAccountType == ManagedWindowsAccountType.ADMIN) {
+                throw validation("ADMIN remote login and switch are not supported.");
+            }
         } catch (IllegalArgumentException exception) {
             throw validation("targetAccountId must be PRIMARY or SECONDARY.");
         }
@@ -523,7 +526,12 @@ public class ManagedAccountSwitchDispatchService {
                     || targetAccountId.asText().isBlank()) {
                 throw rejected("Stored operation target account is missing.");
             }
-            return ManagedWindowsAccountType.valueOf(targetAccountId.asText().trim());
+            ManagedWindowsAccountType accountType =
+                    ManagedWindowsAccountType.valueOf(targetAccountId.asText().trim());
+            if (accountType == ManagedWindowsAccountType.ADMIN) {
+                throw rejected("ADMIN remote login and switch are not supported.");
+            }
+            return accountType;
         } catch (IllegalArgumentException | JsonProcessingException exception) {
             throw rejected("Stored operation target account is invalid.");
         }
@@ -604,6 +612,7 @@ public class ManagedAccountSwitchDispatchService {
         return switch (targetAccountType) {
             case PRIMARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY;
             case SECONDARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY;
+            case ADMIN -> throw rejected("ADMIN remote login and switch are not supported.");
         };
     }
 

@@ -3,9 +3,12 @@ package com.galtek.classroom.windows;
 import com.galtek.classroom.credentialvault.CredentialVaultController;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountCredentialProvisionResponse;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountStatusResponse;
+import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountBindingRequest;
+import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountMutationResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +38,24 @@ public class ManagedAccountAdminController {
             @PathVariable String classroomId,
             @PathVariable String deviceId) {
         return service.status(classroomId, deviceId);
+    }
+
+    @PutMapping("/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}")
+    public ManagedAccountMutationResponse bind(
+            @PathVariable String classroomId,
+            @PathVariable String deviceId,
+            @PathVariable String accountId,
+            @RequestBody ManagedAccountBindingRequest request) {
+        return service.bind(classroomId, deviceId, accountId,
+                request == null ? null : request.windowsAccountName());
+    }
+
+    @DeleteMapping("/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}")
+    public ManagedAccountMutationResponse unbind(
+            @PathVariable String classroomId,
+            @PathVariable String deviceId,
+            @PathVariable String accountId) {
+        return service.unbind(classroomId, deviceId, accountId);
     }
 
     @PutMapping(
