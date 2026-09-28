@@ -1,0 +1,111 @@
+<Window x:Class="GaltekClassroom.Bootstrapper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Instalación de Galtek Classroom"
+        Width="720" Height="520" MinWidth="680" MinHeight="500"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
+        Background="#F5F7FB" FontFamily="Segoe UI Variable Text, Segoe UI"
+        TextOptions.TextFormattingMode="Display"
+        AutomationProperties.Name="Instalación de Galtek Classroom">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Primary" Color="#456FE8" />
+        <SolidColorBrush x:Key="Corporate" Color="#104C75" />
+        <SolidColorBrush x:Key="Ink" Color="#172033" />
+        <SolidColorBrush x:Key="Muted" Color="#5D687B" />
+        <Style x:Key="BaseButton" TargetType="Button">
+            <Setter Property="Height" Value="38" />
+            <Setter Property="MinWidth" Value="108" />
+            <Setter Property="Padding" Value="18,0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource BaseButton}" />
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{StaticResource Primary}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Primary}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Border" Property="Background" Value="#365FD3" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Border" Property="Background" Value="#294DB6" /></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Border" Property="BorderBrush" Value="#104C75" /><Setter TargetName="Border" Property="BorderThickness" Value="2" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Border" Property="Opacity" Value="0.5" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Foreground" Value="{StaticResource Corporate}" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#C9D2E3" />
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Foreground" Value="#A32929" />
+            <Setter Property="BorderBrush" Value="#E7BABA" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="84" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="68" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="White" BorderBrush="#E4E8F0" BorderThickness="0,0,0,1">
+            <Grid Margin="32,15">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Image Width="44" Height="44" Stretch="Uniform" Source="pack://application:,,,/Assets/galtek-classroom-icon.png" AutomationProperties.Name="Símbolo de Galtek Classroom" />
+                <StackPanel Grid.Column="1" Margin="14,6,0,0">
+                    <TextBlock Text="Galtek Classroom" Foreground="{StaticResource Ink}" FontWeight="SemiBold" FontSize="19" />
+                    <TextBlock Text="Cliente para equipos del aula" Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="40,26,40,22">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <TextBlock Text="{Binding Eyebrow}" Foreground="{StaticResource Primary}" FontWeight="Bold" FontSize="11" />
+            <TextBlock Grid.Row="1" Text="{Binding Title}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" FontSize="28" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.Name="{Binding Title}" />
+            <TextBlock Grid.Row="2" Text="{Binding Body}" Foreground="{StaticResource Muted}" FontSize="15" LineHeight="22" Margin="0,9,0,0" TextWrapping="Wrap" MaxWidth="610" HorizontalAlignment="Left" />
+
+            <Border Grid.Row="3" Background="White" BorderBrush="#DEE4EF" BorderThickness="1" CornerRadius="8" Margin="0,22,0,0" Padding="22,18">
+                <Grid>
+                    <Grid Visibility="{Binding ReadyVisibility}">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="5" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Border Background="{Binding CardAccent}" CornerRadius="3" />
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding CardTitle}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding CardBody}" Foreground="{StaticResource Muted}" FontSize="13" LineHeight="20" Margin="0,7,0,0" TextWrapping="Wrap" />
+                            <Button Content="_Abrir registro" Command="{Binding OpenLogCommand}" Visibility="{Binding LogVisibility}" HorizontalAlignment="Left" Style="{StaticResource SecondaryButton}" Margin="0,14,0,0" AutomationProperties.Name="Abrir registro técnico" />
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Visibility="{Binding ProgressVisibility}" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Stage}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" />
+                        <ProgressBar Height="8" Margin="0,16,0,0" Minimum="0" Maximum="100" Value="{Binding Progress, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Foreground="{StaticResource Primary}" AutomationProperties.Name="Progreso de la instalación" />
+                        <TextBlock Text="{Binding Elapsed}" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,12,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Background="White" BorderBrush="#E4E8F0" BorderThickness="0,1,0,0">
+            <Grid Margin="32,14">
+                <TextBlock Text="{Binding Footer}" Foreground="#718096" FontSize="12" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="{Binding DestructiveLabel}" Command="{Binding DestructiveCommand}" Visibility="{Binding DestructiveVisibility}" Style="{StaticResource DangerButton}" AutomationProperties.Name="Desinstalar Galtek Classroom" />
+                    <Button Content="{Binding SecondaryLabel}" Command="{Binding SecondaryCommand}" Visibility="{Binding SecondaryVisibility}" Style="{StaticResource SecondaryButton}" AutomationProperties.Name="{Binding SecondaryLabel}" />
+                    <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Visibility="{Binding PrimaryVisibility}" IsEnabled="{Binding CanPrimary}" Style="{StaticResource PrimaryButton}" IsDefault="True" AutomationProperties.Name="{Binding PrimaryLabel}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

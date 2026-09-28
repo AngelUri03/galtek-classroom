@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GaltekClassroom.Bootstrapper.Tests</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="5.0.2" />
+    <Compile Include="..\BootstrapperApplication\BootstrapperExecution.cs" Link="BootstrapperExecution.cs" />
+    <Compile Include="..\BootstrapperApplication\ApplyOwnerWindow.cs" Link="ApplyOwnerWindow.cs" />
+    <Compile Include="..\BootstrapperApplication\BundleIdentity.cs" Link="BundleIdentity.cs" />
+    <Compile Include="..\BootstrapperApplication\ProductState.cs" Link="ProductState.cs" />
+    <Compile Include="..\BootstrapperApplication\Presentation.cs" Link="Presentation.cs" />
+    <Compile Include="..\BootstrapperApplication\LegacyDetector.cs" Link="LegacyDetector.cs" />
+  </ItemGroup>
+</Project>

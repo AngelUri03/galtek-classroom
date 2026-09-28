@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GaltekClassroom.LegacyBundleCleanup.Tests</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\LegacyBundleRegistrationCleanup\CleanupDomain.cs" Link="CleanupDomain.cs" />
+  </ItemGroup>
+</Project>

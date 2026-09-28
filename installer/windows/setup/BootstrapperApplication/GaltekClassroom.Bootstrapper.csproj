@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>GaltekClassroom.Bootstrapper</AssemblyName>
+    <RootNamespace>GaltekClassroom.Bootstrapper</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <UseWPF>true</UseWPF>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <DebugType>embedded</DebugType>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\theme\assets\galtek-classroom.ico</ApplicationIcon>
+    <Product>Galtek Classroom Client Installer</Product>
+    <Company>GaltekSolution</Company>
+    <Copyright>GaltekSolution</Copyright>
+    <Version>$(ProductVersion).0</Version>
+    <FileVersion>$(ProductVersion).0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="5.0.2" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\theme\assets\galtek-classroom-icon.png" Link="Assets\galtek-classroom-icon.png" />
+  </ItemGroup>
+</Project>

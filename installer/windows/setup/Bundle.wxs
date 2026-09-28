@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Bundle
+      Name="Galtek Classroom Client"
+      Manufacturer="GaltekSolution"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="$(var.BundleUpgradeCode)"
+      ProviderKey="$(var.BundleProviderKey)"
+      Compressed="yes"
+      IconSourceFile="$(var.BrandingRoot)\galtek-classroom.ico"
+      DisableModify="no">
+
+    <Variable Name="GaltekNeedsPredecessorCleanup" Type="numeric" Value="0" />
+    <Variable Name="GaltekLegacyPredecessors" Type="string" Value="" />
+    <Variable Name="GaltekCurrentBundleId" Type="string" Value="" Hidden="yes" />
+    <Variable Name="GaltekCleanupLogPath" Type="string" Value="" Hidden="yes" />
+
+    <BootstrapperApplication
+        SourceFile="$(var.BaRoot)\GaltekClassroom.Bootstrapper.exe"
+        Name="GaltekClassroom.Bootstrapper.exe">
+      <Payload SourceFile="$(var.BaRoot)\GaltekClassroom.Bootstrapper.exe.config" Name="GaltekClassroom.Bootstrapper.exe.config" />
+      <Payload SourceFile="$(var.BaRoot)\WixToolset.BootstrapperApplicationApi.dll" Name="WixToolset.BootstrapperApplicationApi.dll" />
+      <Payload SourceFile="$(var.BaRoot)\mbanative.dll" Name="mbanative.dll" />
+    </BootstrapperApplication>
+
+    <Chain DisableSystemRestore="yes">
+      <MsiPackage Id="GaltekClassroomClientMsi"
+                  SourceFile="$(var.MsiSourcePath)"
+                  Compressed="yes"
+                  Visible="no"
+                  Vital="yes">
+        <MsiProperty Name="ARPSYSTEMCOMPONENT" Value="1" />
+      </MsiPackage>
+      <ExePackage Id="LegacyBundleRegistrationCleanup"
+                  SourceFile="$(var.LegacyCleanupHelperPath)"
+                  Compressed="yes"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="no"
+                  DetectCondition="0"
+                  InstallCondition="GaltekNeedsPredecessorCleanup = 1"
+                  InstallArguments="--predecessors &quot;[GaltekLegacyPredecessors]&quot; --current-bundle-id &quot;[GaltekCurrentBundleId]&quot; --log &quot;[GaltekCleanupLogPath]&quot;" />
+    </Chain>
+  </Bundle>
+</Wix>

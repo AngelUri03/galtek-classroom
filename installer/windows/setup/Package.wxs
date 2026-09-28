@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package
+      Name="Galtek Classroom Client"
+      Manufacturer="GaltekSolution"
+      Version="$(var.ProductVersion)"
+      ProductCode="$(var.ProductCode)"
+      UpgradeCode="$(var.ProductUpgradeCode)"
+      Scope="perMachine"
+      InstallerVersion="500"
+      Language="1033"
+      Compressed="yes">
+
+    <SummaryInformation
+        Description="Galtek Classroom Client"
+        Manufacturer="GaltekSolution" />
+
+    <MajorUpgrade
+        AllowSameVersionUpgrades="no"
+        DowngradeErrorMessage="A newer version of Galtek Classroom Client is already installed."
+        Schedule="afterInstallExecute" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Agent assembly/file versions remain independent from ProductVersion;
+         appsettings stays in its own NeverOverwrite component. -->
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPPRODUCTICON" Value="GaltekClassroom.ico" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <!-- "e" makes equal-version payload bytes authoritative during adoption,
+         repair, and normal installs; m/u/s preserve standard repair behavior. -->
+    <Property Id="GALTEK_BUILD_COMMIT" Value="$(var.GitCommit)" Secure="yes" />
+    <Property Id="GALTEK_BUILD_TIMESTAMP_UTC" Value="$(var.BuildTimestampUtc)" Secure="yes" />
+    <Icon Id="GaltekClassroom.ico" SourceFile="$(var.BrandingRoot)\galtek-classroom.ico" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="GaltekDirectory" Name="Galtek">
+        <Directory Id="ClassroomDirectory" Name="Classroom">
+          <Directory Id="INSTALLFOLDER" Name="Agent">
+            <Directory Id="SessionDirectory" Name="Session" />
+            <Directory Id="CredentialProviderDirectory" Name="CredentialProvider">
+              <Directory Id="CredentialVersionsDirectory" Name="versions">
+                <Directory Id="CredentialPackageDirectory" Name="$(var.CredentialPackageId)" />
+              </Directory>
+            </Directory>
+            <Directory Id="InstallerSupportDirectory" Name="Installer" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Component Id="cmpAppsettings" Directory="INSTALLFOLDER"
+               Guid="{A9790CBA-9D5D-4D27-9B22-E5573B7512FC}"
+               Bitness="always64" NeverOverwrite="yes" Permanent="yes">
+      <File Id="filAppsettings"
+            Source="$(var.PayloadRoot)\Service\appsettings.json"
+            Name="appsettings.json"
+            KeyPath="yes" />
+    </Component>
+
+    <Component Id="cmpInstallerLifecycle" Directory="InstallerSupportDirectory"
+               Guid="{A3061B30-19A1-409D-BC0D-C2FCFE6DFF2B}"
+               Bitness="always64">
+      <File Id="filInstallerLifecycle"
+            Source="$(var.PayloadRoot)\Setup\client-lifecycle.ps1"
+            Name="client-lifecycle.ps1"
+            KeyPath="yes" />
+      <File Id="filLegacyAdoption"
+            Source="$(var.PayloadRoot)\Setup\legacy-adoption.ps1"
+            Name="legacy-adoption.ps1" />
+      <File Id="filClientState"
+            Source="$(var.PayloadRoot)\Setup\client-state.ps1"
+            Name="client-state.ps1" />
+      <File Id="filInstalledPayloadManifest"
+            Source="$(var.PayloadRoot)\Setup\installed-payload-manifest.json"
+            Name="installed-payload-manifest.json" />
+    </Component>
+
+    <Component Id="cmpLifecycleMetadata" Directory="INSTALLFOLDER"
+               Guid="{D3997BE7-A7CB-4B43-B463-1BB9A444831A}"
+               Bitness="always64">
+      <RegistryKey Root="HKLM" Key="SOFTWARE\GaltekSolution\Galtek Classroom Client">
+        <RegistryValue Name="InstallerVersion" Type="string" Value="$(var.ProductVersion)" KeyPath="yes" />
+        <RegistryValue Name="GitCommit" Type="string" Value="$(var.GitCommit)" />
+        <RegistryValue Name="BuildTimestampUtc" Type="string" Value="$(var.BuildTimestampUtc)" />
+      </RegistryKey>
+    </Component>
+
+    <Component Id="cmpCredentialProviderDll" Directory="CredentialPackageDirectory"
+               Guid="*" Bitness="always64">
+      <File Id="filCredentialProvider"
+            Source="$(var.PayloadRoot)\CredentialProvider\GaltekClassroom.CredentialProvider.dll"
+            Name="GaltekClassroom.CredentialProvider.dll" />
+    </Component>
+
+    <Component Id="cmpCredentialProviderManifest" Directory="CredentialPackageDirectory"
+               Guid="*" Bitness="always64">
+      <File Id="filCredentialProviderManifest"
+            Source="$(var.PayloadRoot)\CredentialProvider\credential-provider.manifest.json"
+            Name="credential-provider.manifest.json"
+            KeyPath="yes" />
+    </Component>
+
+    <Component Id="cmpCredentialProviderRegistration" Directory="INSTALLFOLDER"
+               Guid="{FF204058-73AA-486A-AB0B-22A89339C6DB}"
+               Bitness="always64">
+      <RegistryKey Root="HKLM" Key="SOFTWARE\Classes\CLSID\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}">
+        <RegistryValue Type="string" Value="Galtek Classroom Credential Provider" />
+        <RegistryValue Key="InprocServer32" Type="string" Value="[CredentialPackageDirectory]GaltekClassroom.CredentialProvider.dll" KeyPath="yes" />
+        <RegistryValue Key="InprocServer32" Name="ThreadingModel" Type="string" Value="Apartment" />
+      </RegistryKey>
+      <RegistryValue Root="HKLM"
+                     Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{D1A77223-ACAE-4C53-8C52-4FE8B8357E82}"
+                     Type="string"
+                     Value="Galtek Classroom Credential Provider" />
+    </Component>
+
+    <Feature Id="ClientFeature" Title="Galtek Classroom Client" Level="1">
+      <ComponentRef Id="cmpAppsettings" />
+      <ComponentRef Id="cmpInstallerLifecycle" />
+      <ComponentRef Id="cmpLifecycleMetadata" />
+      <ComponentRef Id="cmpCredentialProviderDll" />
+      <ComponentRef Id="cmpCredentialProviderManifest" />
+      <ComponentRef Id="cmpCredentialProviderRegistration" />
+      <ComponentGroupRef Id="PublishedPayloadComponents" />
+    </Feature>
+
+    <!-- INSTALLFOLDER is directory-formatted by MSI and ends in a backslash.
+         Appending the explicit dot segment before quoting prevents the terminal
+         slash from escaping the closing quote. GetFullPath removes the segment. -->
+    <SetProperty Id="REINSTALLMODE" Value="emus" Sequence="execute" Before="CostInitialize" />
+
+    <Binary Id="ClientStateHelper" SourceFile="$(var.ClientStateHelperPath)" />
+    <CustomAction Id="CaptureClientState" BinaryRef="ClientStateHelper" DllEntry="CaptureClientState"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="RollbackClientStateFinal" BinaryRef="ClientStateHelper" DllEntry="RollbackClientStateFinal"
+                  Execute="rollback" Impersonate="no" Return="ignore" HideTarget="yes" />
+    <CustomAction Id="CommitClientStateFinal" BinaryRef="ClientStateHelper" DllEntry="CommitClientStateFinal"
+                  Execute="commit" Impersonate="no" Return="ignore" HideTarget="yes" />
+
+    <SetProperty Id="ConfigureClientInitial"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#filInstallerLifecycle]&quot; -Action Configure -InstallDirectory &quot;[INSTALLFOLDER].&quot; -InitialInstall"
+                 Sequence="execute" Before="ConfigureClientInitial" />
+    <CustomAction Id="ConfigureClientInitial" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+
+    <SetProperty Id="ConfigureClientMaintenance"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#filInstallerLifecycle]&quot; -Action Configure -InstallDirectory &quot;[INSTALLFOLDER].&quot;"
+                 Sequence="execute" Before="ConfigureClientMaintenance" />
+    <CustomAction Id="ConfigureClientMaintenance" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+
+    <SetProperty Id="RollbackClientConfiguration"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#filInstallerLifecycle]&quot; -Action Rollback -InstallDirectory &quot;[INSTALLFOLDER].&quot;"
+                 Sequence="execute" Before="RollbackClientConfiguration" />
+    <CustomAction Id="RollbackClientConfiguration" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="rollback" Impersonate="no" Return="ignore" HideTarget="yes" />
+
+    <SetProperty Id="UnconfigureClient"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#filInstallerLifecycle]&quot; -Action Unconfigure -InstallDirectory &quot;[INSTALLFOLDER].&quot;"
+                 Sequence="execute" Before="UnconfigureClient" />
+    <CustomAction Id="UnconfigureClient" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+
+    <SetProperty Id="CommitClientConfiguration"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#filInstallerLifecycle]&quot; -Action Commit -InstallDirectory &quot;[INSTALLFOLDER].&quot;"
+                 Sequence="execute" Before="CommitClientConfiguration" />
+    <CustomAction Id="CommitClientConfiguration" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="commit" Impersonate="no" Return="ignore" HideTarget="yes" />
+
+    <CustomAction Id="StopSessionAgentTask"
+                  Directory="System64Folder"
+                  ExeCommand="schtasks.exe /End /TN &quot;\GaltekClassroomSessionAgent&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="DisableSessionAgentTask"
+                  Directory="System64Folder"
+                  ExeCommand="schtasks.exe /Change /TN &quot;\GaltekClassroomSessionAgent&quot; /Disable"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="CaptureClientState" Before="StopSessionAgentTask"
+              Condition="NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RollbackClientStateFinal" After="CaptureClientState"
+              Condition="NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="StopSessionAgentTask" Before="DisableSessionAgentTask"
+              Condition="NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="DisableSessionAgentTask" Before="StopServices"
+              Condition="NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RollbackClientConfiguration" After="RemoveExistingProducts"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ConfigureClientInitial" After="RollbackClientConfiguration"
+              Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ConfigureClientMaintenance" After="ConfigureClientInitial"
+              Condition="(Installed OR WIX_UPGRADE_DETECTED) AND NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="UnconfigureClient" Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="CommitClientConfiguration" Before="CommitClientStateFinal"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="CommitClientStateFinal" Before="InstallFinalize"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

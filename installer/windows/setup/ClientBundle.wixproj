@@ -1,0 +1,26 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <Import Project="InstallerVersion.props" />
+
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <Platform>x64</Platform>
+    <Cultures>es-MX</Cultures>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <DefineConstants>
+      ProductVersion=$(ProductVersion);
+      BundleUpgradeCode=$(BundleUpgradeCode);
+      BundleProviderKey=$(BundleProviderKey);
+      MsiSourcePath=$(MsiSourcePath);
+      BrandingRoot=$(BrandingRoot);
+      BaRoot=$(BaRoot);
+      ClientStateHelperPath=$(ClientStateHelperPath);
+      LegacyCleanupHelperPath=$(LegacyCleanupHelperPath)
+    </DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Bundle.wxs" />
+  </ItemGroup>
+</Project>
