@@ -8,6 +8,7 @@ using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Power;
 using GaltekClassroom.Agent.Service.WindowsSessions;
+using GaltekClassroom.Agent.Service.WindowsAccounts;
 
 namespace GaltekClassroom.Agent.Service.NetworkTransport;
 
@@ -51,6 +52,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWindowsSessionSwitchClock, WindowsSessionSwitchClock>();
         services.AddSingleton<IWindowsSessionSwitchDelay, WindowsSessionSwitchDelay>();
         services.AddSingleton<WindowsSessionSwitchService>();
+        services.AddSingleton<IWindowsAccountInventorySource, WindowsAccountInventorySource>();
+        services.AddSingleton<ManagedAccountBindingMutationService>();
         services.AddSingleton<RemoteOperationLicensePolicy>();
         services.AddSingleton<IRemoteOperationHandler, ShutdownOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RestartOperationHandler>();
@@ -66,6 +69,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRemoteOperationHandler, SwitchManagedAccountOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, ProvisionManagedCredentialOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, GetManagedAccountStatusOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, GetWindowsAccountInventoryOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, SetManagedAccountBindingOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, RemoveManagedAccountBindingOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();

@@ -19,7 +19,10 @@ public static class ClassroomOperationTypes
     public const string LogoffWindowsSession = "LOGOFF_WINDOWS_SESSION";
     public const string SwitchManagedAccount = "SWITCH_MANAGED_ACCOUNT";
     public const string GetManagedAccountStatus = "GET_MANAGED_ACCOUNT_STATUS";
+    public const string GetWindowsAccountInventory = "GET_WINDOWS_ACCOUNT_INVENTORY";
     public const string ProvisionManagedCredential = "PROVISION_MANAGED_CREDENTIAL";
+    public const string SetManagedAccountBinding = "SET_MANAGED_ACCOUNT_BINDING";
+    public const string RemoveManagedAccountBinding = "REMOVE_MANAGED_ACCOUNT_BINDING";
     public const string ApplyBrowserNavigationPolicy = "APPLY_BROWSER_NAVIGATION_POLICY";
     public const string ApplyBrowserDownloadPolicy = "APPLY_BROWSER_DOWNLOAD_POLICY";
     public const string AssignStudent = "ASSIGN_STUDENT";
@@ -181,6 +184,7 @@ public static class ClassroomManagedWindowsAccountTypes
 {
     public const string Primary = "PRIMARY";
     public const string Secondary = "SECONDARY";
+    public const string Admin = "ADMIN";
 }
 
 public static class ClassroomManagedWindowsAccountStatuses
@@ -321,4 +325,6 @@ public static class ClassroomCapabilities
     public const string WindowsSessionSwitchV1 = "WINDOWS_SESSION_SWITCH_V1";
     public const string ManagedCredentialProvisioningV1 = "MANAGED_CREDENTIAL_PROVISIONING_V1";
     public const string ManagedAccountStatusV1 = "MANAGED_ACCOUNT_STATUS_V1";
+    public const string WindowsAccountInventoryV1 = "WINDOWS_ACCOUNT_INVENTORY_V1";
+    public const string ManagedAccountBindingV2 = "MANAGED_ACCOUNT_BINDING_V2";
 }

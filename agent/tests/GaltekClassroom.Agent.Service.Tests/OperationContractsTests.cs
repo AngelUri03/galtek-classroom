@@ -25,6 +25,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.LogoffWindowsSession, operations);
         Assert.Contains(ClassroomOperationTypes.SwitchManagedAccount, operations);
         Assert.Contains(ClassroomOperationTypes.GetManagedAccountStatus, operations);
+        Assert.Contains(ClassroomOperationTypes.GetWindowsAccountInventory, operations);
         Assert.Contains(ClassroomOperationTypes.ProvisionManagedCredential, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserDownloadPolicy, operations);
@@ -586,6 +587,7 @@ public sealed class OperationContractsTests
         Assert.DoesNotContain("VaultSessionToken", slotProperties);
         Assert.DoesNotContain("SessionId", slotProperties);
         Assert.True(Enum.IsDefined(NetworkCapability.ManagedAccountStatusV1));
+        Assert.True(Enum.IsDefined(NetworkCapability.WindowsAccountInventoryV1));
     }
 
     private static HashSet<string> ConstantValues(Type type)

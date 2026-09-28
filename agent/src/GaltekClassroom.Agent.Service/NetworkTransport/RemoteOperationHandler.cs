@@ -16,7 +16,8 @@ public sealed record RemoteOperationHandlerResult(
     NetworkOperationErrorCode ErrorCode,
     string Message,
     WindowsSessionStateResult? WindowsSessionState = null,
-    ManagedAccountStatusResult? ManagedAccountStatus = null)
+    ManagedAccountStatusResult? ManagedAccountStatus = null,
+    WindowsAccountInventoryResult? WindowsAccountInventory = null)
 {
     public static RemoteOperationHandlerResult Success(string message)
     {
@@ -50,6 +51,19 @@ public sealed record RemoteOperationHandlerResult(
             NetworkOperationErrorCode.Unspecified,
             message,
             ManagedAccountStatus: managedAccountStatus);
+    }
+
+    public static RemoteOperationHandlerResult Success(
+        string message,
+        WindowsAccountInventoryResult windowsAccountInventory)
+    {
+        ArgumentNullException.ThrowIfNull(windowsAccountInventory);
+
+        return new RemoteOperationHandlerResult(
+            OperationExecutionStatus.Success,
+            NetworkOperationErrorCode.Unspecified,
+            message,
+            WindowsAccountInventory: windowsAccountInventory);
     }
 
     public static RemoteOperationHandlerResult NotImplemented()

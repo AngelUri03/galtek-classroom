@@ -1388,7 +1388,9 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
         IEnumerable<ManagedWindowsCredentialEntry> entries)
     {
         return entries
-            .OrderBy(entry => entry.AccountId == ClassroomManagedWindowsAccountTypes.Primary ? 0 : 1)
+            .OrderBy(entry => entry.AccountId == ClassroomManagedWindowsAccountTypes.Primary
+                ? 0
+                : entry.AccountId == ClassroomManagedWindowsAccountTypes.Secondary ? 1 : 2)
             .ToArray();
     }
 

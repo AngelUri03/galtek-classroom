@@ -11,7 +11,8 @@ public sealed class GetManagedAccountStatusOperationHandler : IRemoteOperationHa
     private static readonly string[] OrderedSlots =
     [
         ClassroomManagedWindowsAccountTypes.Primary,
-        ClassroomManagedWindowsAccountTypes.Secondary
+        ClassroomManagedWindowsAccountTypes.Secondary,
+        ClassroomManagedWindowsAccountTypes.Admin
     ];
 
     private readonly InstallationIdentityStore _installationIdentityStore;
@@ -164,7 +165,9 @@ public sealed class GetManagedAccountStatusOperationHandler : IRemoteOperationHa
     {
         return accountId == ClassroomManagedWindowsAccountTypes.Primary
             ? ManagedWindowsAccountId.Primary
-            : ManagedWindowsAccountId.Secondary;
+            : accountId == ClassroomManagedWindowsAccountTypes.Secondary
+                ? ManagedWindowsAccountId.Secondary
+                : ManagedWindowsAccountId.Admin;
     }
 
     private static RemoteOperationHandlerResult Failed(

@@ -35,7 +35,8 @@ public static class ManagedWindowsAccountBindingValidator
     private static readonly string[] OrderedAccountIds =
     [
         ClassroomManagedWindowsAccountTypes.Primary,
-        ClassroomManagedWindowsAccountTypes.Secondary
+        ClassroomManagedWindowsAccountTypes.Secondary,
+        ClassroomManagedWindowsAccountTypes.Admin
     ];
 
     public static ManagedWindowsAccountBindingValidationResult ValidateAccountId(string? accountId)
@@ -43,7 +44,7 @@ public static class ManagedWindowsAccountBindingValidator
         return ManagedWindowsAccountBinding.IsValidAccountId(accountId)
             ? ManagedWindowsAccountBindingValidationResult.Valid()
             : ManagedWindowsAccountBindingValidationResult.Invalid(
-                "Managed Windows accountId must be PRIMARY or SECONDARY.");
+                "Managed Windows accountId must be PRIMARY, SECONDARY or ADMIN.");
     }
 
     public static ManagedWindowsAccountBindingValidationResult ValidateBinding(
@@ -67,7 +68,7 @@ public static class ManagedWindowsAccountBindingValidator
             StringComparison.Ordinal))
         {
             return ManagedWindowsAccountBindingValidationResult.Invalid(
-                "managed-windows-accounts.json accountId must be canonical PRIMARY or SECONDARY.");
+                "managed-windows-accounts.json accountId must be canonical PRIMARY, SECONDARY or ADMIN.");
         }
 
         if (!MasterBindingValidator.IsValidSid(binding.WindowsSid))
@@ -163,7 +164,7 @@ public static class ManagedWindowsAccountBindingValidator
             if (!sids.Add(binding.WindowsSid))
             {
                 return ManagedWindowsAccountBindingValidationResult.Invalid(
-                    "managed-windows-accounts.json binds PRIMARY and SECONDARY to the same SID.");
+                    "managed-windows-accounts.json binds more than one managed role to the same SID.");
             }
         }
 

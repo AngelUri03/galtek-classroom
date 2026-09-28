@@ -221,7 +221,7 @@ public sealed class ManagedWindowsAccountBindingConfigurationService
         IReadOnlyList<ManagedWindowsAccountBinding> bindings)
     {
         var byAccountId = bindings.ToDictionary(binding => binding.AccountId, StringComparer.Ordinal);
-        var accounts = new List<ManagedWindowsAccountView>(capacity: 2);
+        var accounts = new List<ManagedWindowsAccountView>(capacity: 3);
 
         foreach (var accountId in ManagedWindowsAccountBindingValidator.OrderedSlots)
         {

@@ -91,7 +91,18 @@ message OperationRequest {
     LogoffWindowsSessionOperationParameters logoff_windows_session = 25;
     LogonManagedAccountOperationParameters logon_managed_account = 26;
     SwitchManagedAccountOperationParameters switch_managed_account = 27;
+    SetManagedAccountBindingOperationParameters set_managed_account_binding = 28;
+    RemoveManagedAccountBindingOperationParameters remove_managed_account_binding = 29;
   }
+}
+
+message SetManagedAccountBindingOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
+  string windows_account_name = 2;
+}
+
+message RemoveManagedAccountBindingOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
 }
 
 message SwitchManagedAccountOperationParameters {
@@ -167,6 +178,7 @@ message OperationResult {
   oneof result_details {
     WindowsSessionStateResult windows_session_state = 20;
     ManagedAccountStatusResult managed_account_status = 21;
+    WindowsAccountInventoryResult windows_account_inventory = 22;
   }
 }
 
@@ -184,6 +196,19 @@ message ManagedAccountStatus {
   bool credential_configured = 3;
   ManagedAccountCredentialStatus credential_status = 4;
   string windows_account_name = 5;
+}
+
+message WindowsAccountInventoryResult {
+  repeated WindowsAccountInventoryEntry accounts = 1;
+}
+
+message WindowsAccountInventoryEntry {
+  string account_name = 1;
+  string display_name = 2;
+  bool enabled = 3;
+  bool administrator = 4;
+  bool built_in = 5;
+  ManagedWindowsAccountId managed_role = 6;
 }
 
 message OperationStatusQuery {
@@ -217,6 +242,8 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_WINDOWS_SESSION_LOGON_V1 = 13;
   NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1 = 14;
   NETWORK_CAPABILITY_MANAGED_ACCOUNT_STATUS_V1 = 15;
+  NETWORK_CAPABILITY_WINDOWS_ACCOUNT_INVENTORY_V1 = 16;
+  NETWORK_CAPABILITY_MANAGED_ACCOUNT_BINDING_V2 = 17;
 }
 
 enum NetworkOperationType {
@@ -241,12 +268,16 @@ enum NetworkOperationType {
   NETWORK_OPERATION_TYPE_APPLY_BROWSER_DOWNLOAD_POLICY = 18;
   NETWORK_OPERATION_TYPE_PROVISION_MANAGED_CREDENTIAL = 19;
   NETWORK_OPERATION_TYPE_GET_MANAGED_ACCOUNT_STATUS = 20;
+  NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY = 21;
+  NETWORK_OPERATION_TYPE_SET_MANAGED_ACCOUNT_BINDING = 22;
+  NETWORK_OPERATION_TYPE_REMOVE_MANAGED_ACCOUNT_BINDING = 23;
 }
 
 enum ManagedWindowsAccountId {
   MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED = 0;
   MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY = 1;
   MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY = 2;
+  MANAGED_WINDOWS_ACCOUNT_ID_ADMIN = 3;
 }
 
 enum ManagedAccountCredentialStatus {
@@ -376,4 +407,14 @@ enum NetworkOperationErrorCode {
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_BUSY = 50;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_LOGON_NOT_CONFIRMED = 51;
   NETWORK_OPERATION_ERROR_CODE_WINDOWS_SWITCH_NOT_CONFIRMED = 52;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_DISABLED = 53;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_BUILT_IN = 54;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ALREADY_MANAGED = 55;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_ROLE_ALREADY_ASSIGNED = 56;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_REQUIRED = 57;
+  NETWORK_OPERATION_ERROR_CODE_WINDOWS_ACCOUNT_ADMIN_NOT_ALLOWED = 58;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_CONFLICT = 59;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_BINDING_INVALID = 60;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_ACCOUNT_SESSION_ACTIVE = 61;
+  NETWORK_OPERATION_ERROR_CODE_MANAGED_CREDENTIAL_CLEANUP_FAILED = 62;
 }

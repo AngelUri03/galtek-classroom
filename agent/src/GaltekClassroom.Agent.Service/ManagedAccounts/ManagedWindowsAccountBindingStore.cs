@@ -464,7 +464,9 @@ public sealed class ManagedWindowsAccountBindingStore : IManagedWindowsAccountBi
         IEnumerable<ManagedWindowsAccountBinding> bindings)
     {
         return bindings
-            .OrderBy(binding => binding.AccountId == ClassroomManagedWindowsAccountTypes.Primary ? 0 : 1)
+            .OrderBy(binding => binding.AccountId == ClassroomManagedWindowsAccountTypes.Primary
+                ? 0
+                : binding.AccountId == ClassroomManagedWindowsAccountTypes.Secondary ? 1 : 2)
             .ToArray();
     }
 

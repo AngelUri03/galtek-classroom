@@ -41,7 +41,7 @@ public sealed class GetManagedAccountStatusOperationHandlerTests : IDisposable
 
         Assert.Equal(OperationExecutionStatus.Success, result.Status);
         Assert.NotNull(result.ManagedAccountStatus);
-        Assert.Equal(2, result.ManagedAccountStatus!.Accounts.Count);
+        Assert.Equal(3, result.ManagedAccountStatus!.Accounts.Count);
         ManagedAccountStatus primary = result.ManagedAccountStatus.Accounts[0];
         ManagedAccountStatus secondary = result.ManagedAccountStatus.Accounts[1];
         Assert.Equal(ManagedWindowsAccountId.Primary, primary.AccountId);
@@ -53,6 +53,9 @@ public sealed class GetManagedAccountStatusOperationHandlerTests : IDisposable
         Assert.False(secondary.Configured);
         Assert.False(secondary.CredentialConfigured);
         Assert.Equal(ManagedAccountCredentialStatus.NotConfigured, secondary.CredentialStatus);
+        ManagedAccountStatus admin = result.ManagedAccountStatus.Accounts[2];
+        Assert.Equal(ManagedWindowsAccountId.Admin, admin.AccountId);
+        Assert.False(admin.Configured);
         Assert.Equal(1, credentialStore.GetStatusCalls);
         Assert.Equal(0, credentialStore.AcquireCalls);
         Assert.DoesNotContain("Password", result.ManagedAccountStatus.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -96,7 +99,7 @@ public sealed class GetManagedAccountStatusOperationHandlerTests : IDisposable
 
         Assert.Equal(OperationExecutionStatus.Success, dispatch.Result.Status);
         Assert.Equal(OperationResult.ResultDetailsOneofCase.ManagedAccountStatus, dispatch.Result.ResultDetailsCase);
-        Assert.Equal(2, dispatch.Result.ManagedAccountStatus.Accounts.Count);
+        Assert.Equal(3, dispatch.Result.ManagedAccountStatus.Accounts.Count);
         Assert.DoesNotContain("protectedData", dispatch.Result.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("CredentialId", dispatch.Result.ToString(), StringComparison.OrdinalIgnoreCase);
     }

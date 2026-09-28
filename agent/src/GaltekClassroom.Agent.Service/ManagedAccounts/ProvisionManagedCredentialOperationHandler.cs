@@ -78,7 +78,8 @@ public sealed class ProvisionManagedCredentialOperationHandler : IRemoteOperatio
             }
 
             _logger.LogInformation(
-                "Managed credential provisioning completed for accountId {AccountId}.",
+                "MANAGED_ACCOUNT_CREDENTIAL_UPDATED DeviceId: {DeviceId}; Role: {Role}; Result: SUCCESS",
+                request.TargetDeviceId,
                 accountId);
 
             return RemoteOperationHandlerResult.Success(
@@ -96,6 +97,7 @@ public sealed class ProvisionManagedCredentialOperationHandler : IRemoteOperatio
         {
             ManagedWindowsAccountId.Primary => ClassroomManagedWindowsAccountTypes.Primary,
             ManagedWindowsAccountId.Secondary => ClassroomManagedWindowsAccountTypes.Secondary,
+            ManagedWindowsAccountId.Admin => ClassroomManagedWindowsAccountTypes.Admin,
             _ => null
         };
     }

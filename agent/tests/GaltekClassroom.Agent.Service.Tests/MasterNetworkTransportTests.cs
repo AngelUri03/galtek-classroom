@@ -13,6 +13,7 @@ using GaltekClassroom.Agent.Service.OpenUrl;
 using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Service.Power;
 using GaltekClassroom.Agent.Service.WindowsSessions;
+using GaltekClassroom.Agent.Service.WindowsAccounts;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using Google.Protobuf;
@@ -175,6 +176,8 @@ public sealed class MasterNetworkTransportTests : IDisposable
         Assert.Contains(NetworkCapability.WindowsSessionLogoffV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.WindowsSessionSwitchV1, hello.Hello.Capabilities);
         Assert.Contains(NetworkCapability.ManagedCredentialProvisioningV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.ManagedAccountStatusV1, hello.Hello.Capabilities);
+        Assert.Contains(NetworkCapability.WindowsAccountInventoryV1, hello.Hello.Capabilities);
         Assert.DoesNotContain(NetworkCapability.Unspecified, hello.Hello.Capabilities);
         Assert.DoesNotContain("private", hello.Hello.ToString(), StringComparison.OrdinalIgnoreCase);
     }
@@ -339,7 +342,10 @@ public sealed class MasterNetworkTransportTests : IDisposable
             NetworkOperationType.LogoffWindowsSession,
             NetworkOperationType.SwitchManagedAccount,
             NetworkOperationType.GetManagedAccountStatus,
-            NetworkOperationType.ProvisionManagedCredential
+            NetworkOperationType.GetWindowsAccountInventory,
+            NetworkOperationType.ProvisionManagedCredential,
+            NetworkOperationType.SetManagedAccountBinding,
+            NetworkOperationType.RemoveManagedAccountBinding
         ];
         var services = new ServiceCollection();
         services.AddMasterNetworkTransportServices(new ConfigurationBuilder().Build());
@@ -358,7 +364,10 @@ public sealed class MasterNetworkTransportTests : IDisposable
             [typeof(LogoffWindowsSessionOperationHandler)] = NetworkOperationType.LogoffWindowsSession,
             [typeof(SwitchManagedAccountOperationHandler)] = NetworkOperationType.SwitchManagedAccount,
             [typeof(GetManagedAccountStatusOperationHandler)] = NetworkOperationType.GetManagedAccountStatus,
-            [typeof(ProvisionManagedCredentialOperationHandler)] = NetworkOperationType.ProvisionManagedCredential
+            [typeof(GetWindowsAccountInventoryOperationHandler)] = NetworkOperationType.GetWindowsAccountInventory,
+            [typeof(ProvisionManagedCredentialOperationHandler)] = NetworkOperationType.ProvisionManagedCredential,
+            [typeof(SetManagedAccountBindingOperationHandler)] = NetworkOperationType.SetManagedAccountBinding,
+            [typeof(RemoveManagedAccountBindingOperationHandler)] = NetworkOperationType.RemoveManagedAccountBinding
         };
         ServiceDescriptor[] descriptors = services
             .Where(descriptor => descriptor.ServiceType == typeof(IRemoteOperationHandler))

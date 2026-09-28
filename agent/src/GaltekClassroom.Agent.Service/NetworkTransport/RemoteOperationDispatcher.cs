@@ -153,7 +153,8 @@ public sealed class RemoteOperationDispatcher
                 handlerResult.Message,
                 startedAt,
                 handlerResult.WindowsSessionState,
-                handlerResult.ManagedAccountStatus);
+                handlerResult.ManagedAccountStatus,
+                handlerResult.WindowsAccountInventory);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -193,7 +194,8 @@ public sealed class RemoteOperationDispatcher
         string message,
         DateTimeOffset startedAt,
         WindowsSessionStateResult? windowsSessionState = null,
-        ManagedAccountStatusResult? managedAccountStatus = null)
+        ManagedAccountStatusResult? managedAccountStatus = null,
+        WindowsAccountInventoryResult? windowsAccountInventory = null)
     {
         var result = new OperationResult
         {
@@ -216,6 +218,11 @@ public sealed class RemoteOperationDispatcher
         if (managedAccountStatus is not null)
         {
             result.ManagedAccountStatus = managedAccountStatus;
+        }
+
+        if (windowsAccountInventory is not null)
+        {
+            result.WindowsAccountInventory = windowsAccountInventory;
         }
 
         return result;
@@ -328,6 +335,10 @@ public sealed class RemoteOperationDispatcher
                     request.LogoffWindowsSession),
                 OperationRequest.OperationParametersOneofCase.SwitchManagedAccount => SwitchManagedAccountSignature(
                     request.SwitchManagedAccount),
+                OperationRequest.OperationParametersOneofCase.SetManagedAccountBinding => SetManagedAccountBindingSignature(
+                    request.SetManagedAccountBinding),
+                OperationRequest.OperationParametersOneofCase.RemoveManagedAccountBinding => RemoveManagedAccountBindingSignature(
+                    request.RemoveManagedAccountBinding),
                 OperationRequest.OperationParametersOneofCase.None => string.Empty,
                 _ => "<unknown>"
             };
@@ -381,6 +392,22 @@ public sealed class RemoteOperationDispatcher
 
         private static string SwitchManagedAccountSignature(
             SwitchManagedAccountOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
+
+        private static string SetManagedAccountBindingSignature(
+            SetManagedAccountBindingOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : $"{parameters.AccountId}\u001f{parameters.WindowsAccountName}";
+        }
+
+        private static string RemoveManagedAccountBindingSignature(
+            RemoveManagedAccountBindingOperationParameters? parameters)
         {
             return parameters is null
                 ? string.Empty

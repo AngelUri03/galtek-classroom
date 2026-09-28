@@ -18,12 +18,12 @@ public sealed class ManagedWindowsAccountBindingConfigurationServiceTests : IDis
         Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task ListAsync_WhenNoBindingsExist_ReturnsBothSlotsNotConfigured()
+    public async Task ListAsync_WhenNoBindingsExist_ReturnsAllSlotsNotConfigured()
     {
         var result = await CreateService(isAdmin: false).ListAsync(CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(2, result.Accounts.Count);
+        Assert.Equal(3, result.Accounts.Count);
         Assert.All(result.Accounts, account =>
         {
             Assert.False(account.Configured);

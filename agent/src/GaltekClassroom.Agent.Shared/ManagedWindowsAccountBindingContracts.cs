@@ -16,6 +16,14 @@ public static class ManagedWindowsAccountBindingErrorCodes
     public const string ManagedAccountBindingConflict = "MANAGED_ACCOUNT_BINDING_CONFLICT";
     public const string ManagedAccountBindingInvalid = "MANAGED_ACCOUNT_BINDING_INVALID";
     public const string WindowsAccountNotFound = "WINDOWS_ACCOUNT_NOT_FOUND";
+    public const string WindowsAccountDisabled = "WINDOWS_ACCOUNT_DISABLED";
+    public const string WindowsAccountBuiltIn = "WINDOWS_ACCOUNT_BUILT_IN";
+    public const string WindowsAccountAlreadyManaged = "WINDOWS_ACCOUNT_ALREADY_MANAGED";
+    public const string ManagedRoleAlreadyAssigned = "MANAGED_ROLE_ALREADY_ASSIGNED";
+    public const string WindowsAccountAdminRequired = "WINDOWS_ACCOUNT_ADMIN_REQUIRED";
+    public const string WindowsAccountAdminNotAllowed = "WINDOWS_ACCOUNT_ADMIN_NOT_ALLOWED";
+    public const string ManagedAccountSessionActive = "MANAGED_ACCOUNT_SESSION_ACTIVE";
+    public const string ManagedCredentialCleanupFailed = "MANAGED_CREDENTIAL_CLEANUP_FAILED";
     public const string AdministratorRequired = "ADMINISTRATOR_REQUIRED";
     public const string InstallationIdentityInvalid = "INSTALLATION_IDENTITY_INVALID";
 }
@@ -57,7 +65,8 @@ public sealed record ManagedWindowsAccountBinding(
     public static bool IsValidAccountId(string? accountId)
     {
         return string.Equals(accountId?.Trim(), ClassroomManagedWindowsAccountTypes.Primary, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(accountId?.Trim(), ClassroomManagedWindowsAccountTypes.Secondary, StringComparison.OrdinalIgnoreCase);
+            || string.Equals(accountId?.Trim(), ClassroomManagedWindowsAccountTypes.Secondary, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(accountId?.Trim(), ClassroomManagedWindowsAccountTypes.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     public static string NormalizeAccountId(string accountId)
@@ -75,7 +84,12 @@ public sealed record ManagedWindowsAccountBinding(
             return ClassroomManagedWindowsAccountTypes.Secondary;
         }
 
-        throw new ArgumentException("Managed Windows accountId must be PRIMARY or SECONDARY.", nameof(accountId));
+        if (string.Equals(trimmed, ClassroomManagedWindowsAccountTypes.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return ClassroomManagedWindowsAccountTypes.Admin;
+        }
+
+        throw new ArgumentException("Managed Windows accountId must be PRIMARY, SECONDARY or ADMIN.", nameof(accountId));
     }
 }
 
