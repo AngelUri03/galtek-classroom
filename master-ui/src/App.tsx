@@ -257,6 +257,7 @@ export function App() {
           onOperationStart={() => { setOperationResult(null); setOperationError(undefined); }}
           onOperationResult={(result) => { setOperationResult(result); setOperationError(undefined); }}
           onOperationError={(message) => { setOperationResult(null); setOperationError(message); }}
+          onDismissOperationResult={() => setOperationResult(null)}
           onToggleDevice={(deviceId) =>
             setSelectedDeviceIds((current) => {
               const next = new Set(current);

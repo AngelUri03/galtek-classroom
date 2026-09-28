@@ -1,5 +1,7 @@
 import { LoaderCircle, MonitorCheck, MonitorOff, TriangleAlert, WifiOff } from "lucide-react";
+import type { WindowsSessionState } from "../api/quickActionsApi";
 import type { ClassroomDeviceCardData, DeviceCardStatus } from "../types/classroom";
+import { sessionStateLabels } from "./actionAvailabilityResolver";
 
 const statusIcon: Record<DeviceCardStatus, typeof MonitorCheck> = {
   online: MonitorCheck,
@@ -13,10 +15,11 @@ const statusIcon: Record<DeviceCardStatus, typeof MonitorCheck> = {
 type DeviceCardProps = {
   device: ClassroomDeviceCardData;
   selected: boolean;
+  sessionState?: WindowsSessionState;
   onToggle: () => void;
 };
 
-export function DeviceCard({ device, selected, onToggle }: DeviceCardProps) {
+export function DeviceCard({ device, selected, sessionState, onToggle }: DeviceCardProps) {
   const Icon = statusIcon[device.status];
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -56,6 +59,11 @@ export function DeviceCard({ device, selected, onToggle }: DeviceCardProps) {
           {device.statusLabel}
         </span>
         <small>{device.secondaryStatus}</small>
+        {sessionState && device.rawStatus === "ONLINE" ? (
+          <small className={`device-card__session device-card__session--${sessionState.toLowerCase().replace(/_/g, "-")}`}>
+            {sessionStateLabels[sessionState]}
+          </small>
+        ) : null}
         <small>{device.note}</small>
       </div>
     </article>

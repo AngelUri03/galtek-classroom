@@ -23,9 +23,15 @@ const statusLabels: Record<ClassroomDeviceStatus, string> = {
 
 export function toClassroomDashboardData(snapshot: ClassroomSnapshotResponse): ClassroomDashboardData {
   const onlineDevices = snapshot.devices.filter((device) => device.status === "ONLINE").length;
+  const studentsById = new Map(snapshot.students.map((student) => [student.studentId, student]));
 
   return {
     classroomName: snapshot.classroom.displayName,
+    groups: snapshot.groups.map((group) => ({
+      id: group.groupId,
+      label: clean(group.displayName) ?? `${clean(group.grade) ?? "Grupo"} ${clean(group.section) ?? ""}`.trim(),
+      active: group.active
+    })),
     summary: [
       {
         id: "devices",
@@ -56,23 +62,33 @@ export function toClassroomDashboardData(snapshot: ClassroomSnapshotResponse): C
         tone: "neutral"
       }
     ],
-    devices: snapshot.devices.map(toDeviceCardData)
+    devices: snapshot.devices.map((device) => toDeviceCardData(device, studentsById))
   };
 }
 
-function toDeviceCardData(device: ClassroomDeviceResponse): ClassroomDeviceCardData {
+function toDeviceCardData(
+  device: ClassroomDeviceResponse,
+  studentsById: Map<string, { groupId: string | null; groupDisplayName: string | null }>
+): ClassroomDeviceCardData {
   const label = readableDeviceName(device);
   const hostname = clean(device.hostname);
   const hostnameDetail = hostname && hostname !== clean(device.displayName) ? `Host ${hostname}` : null;
+  const assignedStudent = device.assignedStudentId ? studentsById.get(device.assignedStudentId) : undefined;
 
   return {
     id: device.deviceId,
     label,
     studentName: clean(device.assignedStudentDisplayName) ?? "Sin alumno asignado",
     status: toCardStatus(device.status),
+    rawStatus: device.status,
     statusLabel: statusLabels[device.status],
     secondaryStatus: formatLastSeen(device.lastSeenUtc),
-    note: hostnameDetail ?? `ID ${shortDeviceId(device.deviceId)}`
+    note: hostnameDetail ?? `ID ${shortDeviceId(device.deviceId)}`,
+    capabilities: [...device.capabilities],
+    assignedStudentId: device.assignedStudentId,
+    assignedStudentGroupId: assignedStudent?.groupId ?? null,
+    assignedStudentGroupName: clean(assignedStudent?.groupDisplayName ?? null),
+    hostname
   };
 }
 

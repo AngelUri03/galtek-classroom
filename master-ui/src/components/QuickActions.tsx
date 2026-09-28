@@ -1,182 +1,165 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, LockKeyhole, Power, RotateCcw, UnlockKeyhole } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Keyboard, Link, LoaderCircle, LogIn, MousePointer2, Power, RotateCcw, Search, ShieldAlert, UserRound, WifiOff, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { ApiError } from "../api/apiClient";
-import {
-  openUrl,
-  powerControl,
-  setInputLocked,
-  type BatchOperationResponse,
-  type QuickActionType
-} from "../api/quickActionsApi";
-import type { ClassroomDeviceCardData } from "../types/classroom";
+import { fetchWindowsSessionStates, openUrl, powerControl, setInputLocked, type BatchOperationResponse, type QuickActionType, type WindowsSessionState } from "../api/quickActionsApi";
+import type { ClassroomDeviceCardData, ClassroomGroupData } from "../types/classroom";
+import { resolveActionAvailability, sessionStateLabels, type ActionAvailability, type DeviceSessionContext } from "./actionAvailabilityResolver";
+import { OperationResultPanel } from "./OperationResultPanel";
+import { DeviceInspector } from "./DeviceInspector";
 
-type Intent = {
-  type: "OPEN_URL" | "RESTART" | "SHUTDOWN";
-  classroomId: string;
-  classroomName: string;
-  targetDeviceIds: Set<string>;
-  targetNames: string[];
-};
-
+type Intent = { type: "OPEN_URL" | "RESTART" | "SHUTDOWN"; classroomId: string; targetDeviceIds: Set<string>; availability: ActionAvailability };
+type Toast = { id: number; tone: "success" | "info" | "warning" | "error"; title: string; detail: string };
+type Overlay = "selector" | "eligibility" | "session" | "inspector" | "intent" | "result" | null;
 type Props = {
-  classroomId: string;
-  classroomName: string;
-  devices: ClassroomDeviceCardData[];
-  selectedDeviceIds: Set<string>;
-  onClearSelection?: () => void;
-  onStart: () => void;
-  onResult: (result: BatchOperationResponse) => void;
-  onError: (message: string) => void;
+  classroomId: string; classroomName: string; groups: ClassroomGroupData[]; devices: ClassroomDeviceCardData[];
+  selectedDeviceIds: Set<string>; operationResult?: BatchOperationResponse | null; onDismissOperationResult?: () => void;
+  onToggleDevice?: (deviceId: string) => void; onSelectAll?: () => void; onClearSelection?: () => void;
+  onSessionStatesChange?: (states: Map<string, WindowsSessionState>) => void;
+  onStart: () => void; onResult: (result: BatchOperationResponse) => void; onError: (message: string) => void;
 };
 
-const actionName: Record<QuickActionType, string> = {
-  OPEN_URL: "Abrir URL", LOCK_INPUT: "Bloquear", UNLOCK_INPUT: "Desbloquear",
-  RESTART: "Reiniciar", SHUTDOWN: "Apagar"
+const actionName: Record<QuickActionType, string> = { OPEN_URL: "Abrir URL", LOCK_INPUT: "Bloquear teclado y mouse", UNLOCK_INPUT: "Desbloquear teclado y mouse", RESTART: "Reiniciar", SHUTDOWN: "Apagar" };
+const actionIcons: Record<QuickActionType, LucideIcon> = { OPEN_URL: Link, LOCK_INPUT: Keyboard, UNLOCK_INPUT: MousePointer2, RESTART: RotateCcw, SHUTDOWN: Power };
+const actionDescriptions: Record<QuickActionType, string> = {
+  OPEN_URL: "Abre una página web en los equipos seleccionados.", LOCK_INPUT: "Impide temporalmente la interacción del alumno.",
+  UNLOCK_INPUT: "Restaura teclado y mouse.", RESTART: "Solicita un reinicio a Windows.", SHUTDOWN: "Solicita el apagado a Windows."
 };
 
-function sameTargets(targets: ReadonlySet<string>, selected: ReadonlySet<string>) {
-  if (targets.size !== selected.size) return false;
-  for (const id of targets) {
-    if (!selected.has(id)) return false;
-  }
-  return true;
-}
+function sameTargets(targets: ReadonlySet<string>, selected: ReadonlySet<string>) { if (targets.size !== selected.size) return false; for (const id of targets) if (!selected.has(id)) return false; return true; }
+function interactiveSession(state: WindowsSessionState) { return state === "PRIMARY_ACTIVE" || state === "SECONDARY_ACTIVE" || state === "OTHER_SESSION_ACTIVE"; }
 
-export function QuickActions({ classroomId, classroomName, devices, selectedDeviceIds,
-  onClearSelection, onStart, onResult, onError }: Props) {
+export function QuickActions({ classroomId, classroomName, groups, devices, selectedDeviceIds, operationResult, onDismissOperationResult, onToggleDevice, onSelectAll, onClearSelection, onSessionStatesChange, onStart, onResult, onError }: Props) {
   const [intent, setIntent] = useState<Intent | null>(null);
   const [url, setUrl] = useState("");
+  const [urlTouched, setUrlTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [selectorSearch, setSelectorSearch] = useState("");
+  const [eligibility, setEligibility] = useState<ActionAvailability | null>(null);
+  const [sessionByDeviceId, setSessionByDeviceId] = useState<Map<string, WindowsSessionState>>(() => new Map());
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const submittingRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const sessionControllerRef = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const selectorRef = useRef<HTMLElement>(null);
+  const selectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const toastIdRef = useRef(0);
+  const selectedDevices = useMemo(() => devices.filter((device) => selectedDeviceIds.has(device.id)), [devices, selectedDeviceIds]);
+  const contexts = useMemo<DeviceSessionContext[]>(() => selectedDevices.map((device) => ({ device, sessionState: device.rawStatus === "ONLINE" ? sessionByDeviceId.get(device.id) ?? "UNKNOWN" : "UNKNOWN", sessionLoading: sessionLoading && device.rawStatus === "ONLINE" })), [selectedDevices, sessionByDeviceId, sessionLoading]);
+  const availability = useMemo(() => ({ OPEN_URL: resolveActionAvailability("OPEN_URL", contexts), LOCK_INPUT: resolveActionAvailability("LOCK_INPUT", contexts), UNLOCK_INPUT: resolveActionAvailability("UNLOCK_INPUT", contexts), RESTART: resolveActionAvailability("RESTART", contexts), SHUTDOWN: resolveActionAvailability("SHUTDOWN", contexts) }), [contexts]);
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
-
+  useEffect(() => () => { controllerRef.current?.abort(); sessionControllerRef.current?.abort(); }, []);
   useEffect(() => {
-    if (intent && (intent.classroomId !== classroomId ||
-      !sameTargets(intent.targetDeviceIds, selectedDeviceIds))) {
-      setIntent(null);
-    }
-  }, [classroomId, intent, selectedDeviceIds]);
+    if (selectedDeviceIds.size === 0) { sessionControllerRef.current?.abort(); const empty = new Map<string, WindowsSessionState>(); setSessionByDeviceId(empty); onSessionStatesChange?.(empty); setSessionLoading(false); return; }
+    const onlineTargets = new Set(devices.filter((device) => selectedDeviceIds.has(device.id) && device.rawStatus === "ONLINE").map((device) => device.id));
+    if (onlineTargets.size === 0) { const empty = new Map<string, WindowsSessionState>(); setSessionByDeviceId(empty); onSessionStatesChange?.(empty); setSessionLoading(false); return; }
+    sessionControllerRef.current?.abort(); const controller = new AbortController(); sessionControllerRef.current = controller; setSessionLoading(true);
+    void fetchWindowsSessionStates(classroomId, onlineTargets, controller.signal).then((response) => {
+      if (controller.signal.aborted) return; const states = new Map(response.targets.map((target) => [target.deviceId, target.state])); setSessionByDeviceId(states); onSessionStatesChange?.(states);
+    }).catch(() => { if (!controller.signal.aborted) { const unknown = new Map([...onlineTargets].map((id) => [id, "UNKNOWN" as WindowsSessionState])); setSessionByDeviceId(unknown); onSessionStatesChange?.(unknown); } }).finally(() => { if (sessionControllerRef.current === controller) { sessionControllerRef.current = null; setSessionLoading(false); } });
+  }, [classroomId, devices, selectedDeviceIds, onSessionStatesChange]);
+  useEffect(() => { if (intent && (intent.classroomId !== classroomId || !sameTargets(intent.targetDeviceIds, selectedDeviceIds))) { setIntent(null); setOverlay(null); } }, [classroomId, intent, selectedDeviceIds]);
+  useEffect(() => { if (overlay !== "intent" || !intent) return; const dialog = dialogRef.current; dialog?.showModal(); (intent.type === "OPEN_URL" ? urlInputRef.current : cancelRef.current)?.focus(); return () => { dialog?.close(); if (openerRef.current?.isConnected) openerRef.current.focus(); }; }, [intent, overlay]);
+  useEffect(() => { if (overlay !== "selector") return; selectorRef.current?.focus(); return () => selectorTriggerRef.current?.focus(); }, [overlay]);
+  useEffect(() => { if (selectedDeviceIds.size === 0) { setOverlay(null); setOpenMenu(null); } }, [selectedDeviceIds.size]);
 
-  useEffect(() => {
-    if (!intent) return;
-    const dialog = dialogRef.current;
-    dialog?.showModal();
-    (intent.type === "OPEN_URL" ? urlInputRef.current : cancelRef.current)?.focus();
-    return () => {
-      dialog?.close();
-      if (openerRef.current?.isConnected) openerRef.current.focus();
-    };
-  }, [intent]);
-
-  if (selectedDeviceIds.size === 0) return null;
-
+  if (selectedDeviceIds.size === 0) return <ToastRegion toasts={toasts} />;
   const targetCount = selectedDeviceIds.size;
-  const countLabel = `${targetCount} ${targetCount === 1 ? "equipo seleccionado" : "equipos seleccionados"}`;
-
-  const captureTargets = () => {
-    const targetDeviceIds = new Set(selectedDeviceIds);
-    const targetNames: string[] = [];
-    targetDeviceIds.forEach((id) => targetNames.push(devices.find((device) => device.id === id)?.label ?? "Equipo"));
-    return {
-      targetDeviceIds,
-      targetNames
-    };
-  };
-
-  const openIntent = (type: Intent["type"], opener: HTMLButtonElement) => {
-    if (submittingRef.current) return;
-    openerRef.current = opener;
-    setUrl("");
-    setIntent({ type, classroomId, classroomName, ...captureTargets() });
-  };
-
-  const dispatch = async (type: QuickActionType, targetClassroomId: string,
-    targetDeviceIds: ReadonlySet<string>, nextUrl?: string) => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    onStart();
-    const controller = new AbortController();
-    controllerRef.current = controller;
+  const activeCount = contexts.filter((context) => context.device.rawStatus === "ONLINE" && interactiveSession(context.sessionState)).length;
+  const offlineCount = selectedDevices.filter((device) => device.rawStatus !== "ONLINE").length;
+  const noSessionCount = contexts.filter((context) => context.device.rawStatus === "ONLINE" && context.sessionState === "NO_SESSION").length;
+  const unknownCount = contexts.filter((context) => context.device.rawStatus === "ONLINE" && context.sessionState === "UNKNOWN").length;
+  const primaryCount = contexts.filter((context) => context.sessionState === "PRIMARY_ACTIVE").length;
+  const secondaryCount = contexts.filter((context) => context.sessionState === "SECONDARY_ACTIVE").length;
+  const singleContext = contexts.length === 1 ? contexts[0] : null;
+  const singleState = singleContext?.sessionState ?? "UNKNOWN";
+  const sessionControl = sessionPresentation(singleContext, sessionLoading);
+  const urlError = urlTouched ? validateUrl(url) : null;
+  const captureTargets = () => ({ targetDeviceIds: new Set(selectedDeviceIds) });
+  const closeTransient = () => { setOpenMenu(null); setEligibility(null); setOverlay(null); };
+  const showOverlay = (next: Exclude<Overlay, null>) => { setOpenMenu(null); setEligibility(null); setOverlay(next); };
+  const openMenuOnly = (id: string) => { setOverlay(null); setEligibility(null); setOpenMenu((current) => current === id ? null : id); };
+  const showEligibility = (value: ActionAvailability) => { setOpenMenu(null); setEligibility(value); setOverlay("eligibility"); };
+  const pushToast = (tone: Toast["tone"], title: string, detail: string) => { const id = ++toastIdRef.current; setToasts((current) => [...current, { id, tone, title, detail }]); window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3600); };
+  const openIntent = (type: Intent["type"], currentAvailability: ActionAvailability, opener: HTMLButtonElement) => { if (submittingRef.current) return; if (!currentAvailability.enabled) return showEligibility(currentAvailability); openerRef.current = opener; setUrl(""); setUrlTouched(false); setIntent({ type, classroomId, availability: currentAvailability, ...captureTargets() }); showOverlay("intent"); };
+  const dispatch = async (type: QuickActionType, targetClassroomId: string, targetDeviceIds: ReadonlySet<string>, nextUrl?: string) => {
+    if (submittingRef.current) return; submittingRef.current = true; setSubmitting(true); closeTransient(); onStart(); const controller = new AbortController(); controllerRef.current = controller;
     try {
-      const result = type === "OPEN_URL"
-        ? await openUrl(targetClassroomId, targetDeviceIds, nextUrl!, controller.signal)
-        : type === "LOCK_INPUT" || type === "UNLOCK_INPUT"
-          ? await setInputLocked(targetClassroomId, targetDeviceIds, type === "LOCK_INPUT", controller.signal)
-          : await powerControl(targetClassroomId, targetDeviceIds, type, controller.signal);
-      if (!controller.signal.aborted) onResult(result);
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        onError(error instanceof ApiError ? error.message : "No pudimos enviar la operación. Inténtalo de nuevo.");
-      }
-    } finally {
-      if (controllerRef.current === controller) controllerRef.current = null;
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
+      const result = type === "OPEN_URL" ? await openUrl(targetClassroomId, targetDeviceIds, nextUrl!, controller.signal) : type === "LOCK_INPUT" || type === "UNLOCK_INPUT" ? await setInputLocked(targetClassroomId, targetDeviceIds, type === "LOCK_INPUT", controller.signal) : await powerControl(targetClassroomId, targetDeviceIds, type, controller.signal);
+      if (!controller.signal.aborted) { onResult(result); pushToast("success", "Solicitud enviada", `${actionName[type]} · ${targetDeviceIds.size} ${targetDeviceIds.size === 1 ? "equipo" : "equipos"}`); }
+    } catch (error) { if (!controller.signal.aborted) { const message = error instanceof ApiError ? error.message : "No pudimos enviar la acción."; onError(message); pushToast("error", "No pudimos enviar la acción", "Revisa el estado de los equipos e intenta de nuevo."); } }
+    finally { if (controllerRef.current === controller) controllerRef.current = null; submittingRef.current = false; setSubmitting(false); }
   };
+  const submitIntent = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!intent || submittingRef.current || intent.classroomId !== classroomId || !sameTargets(intent.targetDeviceIds, selectedDeviceIds) || !intent.availability.enabled) return; if (intent.type === "OPEN_URL") { setUrlTouched(true); if (validateUrl(url)) return; } const currentIntent = intent; const trimmedUrl = url.trim(); setIntent(null); setOverlay(null); void dispatch(currentIntent.type, currentIntent.classroomId, currentIntent.targetDeviceIds, trimmedUrl); };
 
-  const submitIntent = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!intent || submittingRef.current || intent.classroomId !== classroomId ||
-      !sameTargets(intent.targetDeviceIds, selectedDeviceIds)) return;
-    const trimmedUrl = url.trim();
-    if (intent.type === "OPEN_URL" && !trimmedUrl) return;
-    void dispatch(intent.type, intent.classroomId, intent.targetDeviceIds, trimmedUrl);
-    setIntent(null);
-  };
-
-  const targetDescription = intent ? intent.targetNames.slice(0, 3).join(", ") +
-    (intent.targetNames.length > 3 ? ` y ${intent.targetNames.length - 3} más` : "") : "";
-
-  return (
-    <>
-      <div className="selection-summary quick-actions" role="group"
-        aria-label="Acciones para equipos seleccionados" aria-busy={submitting}>
-        <div className="quick-actions__selection">
-          <strong aria-live="polite">{countLabel}</strong>
-          <button className="selection-action selection-action--clear" type="button"
-            onClick={onClearSelection} disabled={submitting}>Limpiar selección</button>
+  return <>
+    <section className="command-center" aria-label="Centro de comandos" aria-busy={submitting}>
+      <div className="command-context">
+        <div className="command-context__identity" key={`${targetCount}-${singleState}-${activeCount}-${noSessionCount}-${offlineCount}-${unknownCount}`}>
+          {singleContext ? <><div className="command-context__title-row"><strong>{singleContext.device.label}</strong><span className={`command-context__online command-context__online--${singleContext.device.rawStatus === "ONLINE" ? "online" : "offline"}`}><i aria-hidden="true" />{singleContext.device.rawStatus === "ONLINE" ? "En línea" : "Sin comunicación"}</span></div><span className={`command-context__session command-context__session--${sessionTone(singleContext)}`}>{singleContext.device.rawStatus === "ONLINE" ? (sessionLoading ? "Consultando sesión" : sessionStateLabels[singleState]) : "Equipo no disponible"}</span></> : <><strong>{targetCount} equipos seleccionados</strong><div className="command-context__breakdown">{activeCount > 0 ? <span>{activeCount} con sesión</span> : null}{noSessionCount > 0 ? <span>{noSessionCount} sin sesión</span> : null}{unknownCount > 0 ? <span>{unknownCount} con estado no disponible</span> : null}{offlineCount > 0 ? <span>{offlineCount} sin comunicación</span> : null}</div>{primaryCount > 0 || secondaryCount > 0 ? <div className="command-context__session-types">{primaryCount > 0 ? <span>Primaria {primaryCount}</span> : null}{secondaryCount > 0 ? <span>Secundaria {secondaryCount}</span> : null}</div> : null}</>}
         </div>
-        <div className="quick-actions__buttons">
-          <button type="button" disabled={submitting} onClick={(event) => openIntent("OPEN_URL", event.currentTarget)}><Link size={16} aria-hidden="true" />Abrir URL</button>
-          <button type="button" disabled={submitting} onClick={() => void dispatch("LOCK_INPUT", classroomId, captureTargets().targetDeviceIds)}><LockKeyhole size={16} aria-hidden="true" />Bloquear</button>
-          <button type="button" disabled={submitting} onClick={() => void dispatch("UNLOCK_INPUT", classroomId, captureTargets().targetDeviceIds)}><UnlockKeyhole size={16} aria-hidden="true" />Desbloquear</button>
-          <button type="button" disabled={submitting} onClick={(event) => openIntent("RESTART", event.currentTarget)}><RotateCcw size={16} aria-hidden="true" />Reiniciar</button>
-          <button type="button" disabled={submitting} onClick={(event) => openIntent("SHUTDOWN", event.currentTarget)}><Power size={16} aria-hidden="true" />Apagar</button>
-        </div>
-        {submitting ? <span className="quick-actions__progress" role="status">Enviando…</span> : null}
+        <div className="command-context__actions"><button ref={selectorTriggerRef} type="button" onClick={() => showOverlay("selector")}>Cambiar selección</button></div>
       </div>
-      {intent ? (
-        <dialog ref={dialogRef} className="action-dialog" aria-labelledby="action-dialog-title"
-          aria-describedby="action-dialog-description"
-          onCancel={(event) => { event.preventDefault(); setIntent(null); }}>
-          <form onSubmit={submitIntent}>
-            <p className="action-dialog__eyebrow">Galtek Classroom</p>
-            <h2 id="action-dialog-title">{intent.type === "OPEN_URL" ? "Abrir URL" :
-              `¿${actionName[intent.type]} ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}?`}</h2>
-            <p id="action-dialog-description">Aula: {intent.classroomName}. {intent.targetDeviceIds.size} {intent.targetDeviceIds.size === 1 ? "equipo objetivo" : "equipos objetivo"}: {targetDescription}.</p>
-            {intent.type === "SHUTDOWN" ? <p className="action-dialog__warning">Apagar puede cerrar trabajo no guardado.</p> : null}
-            {intent.type === "OPEN_URL" ? (
-              <label className="action-dialog__field">URL
-                <input ref={urlInputRef} type="text" inputMode="url" value={url} onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://ejemplo.com/material" required />
-              </label>
-            ) : null}
-            <div className="action-dialog__footer">
-              <button ref={cancelRef} type="button" onClick={() => setIntent(null)}>Cancelar</button>
-              <button type="submit" className={intent.type === "SHUTDOWN" ? "action-dialog__confirm action-dialog__confirm--danger" : "action-dialog__confirm"}
-                disabled={intent.type === "OPEN_URL" && !url.trim()}>{intent.type === "OPEN_URL" ? "Abrir" : actionName[intent.type]}</button>
-            </div>
-          </form>
-        </dialog>
-      ) : null}
-    </>
-  );
+      <div className="command-dock" role="toolbar" aria-label="Comandos disponibles">
+        <CommandSlot icon={sessionControl.icon} label={sessionControl.label} sublabel={sessionControl.sublabel} tone={sessionControl.tone} open={overlay === "session" || overlay === "inspector"} disabled={submitting} onClick={() => { if (singleContext?.device.rawStatus === "ONLINE" && singleContext.sessionState === "NO_SESSION") showOverlay("inspector"); else if (overlay === "session") closeTransient(); else showOverlay("session"); }} />
+        <CommandMenu id="interaction" icon={Keyboard} label="Interacción" open={openMenu === "interaction"} locked={!availability.LOCK_INPUT.enabled || !availability.UNLOCK_INPUT.enabled} disabled={submitting} onToggle={() => { if (!availability.LOCK_INPUT.enabled || !availability.UNLOCK_INPUT.enabled) return showEligibility(availability.LOCK_INPUT); openMenuOnly("interaction"); }}><ActionItem action="LOCK_INPUT" availability={availability.LOCK_INPUT} onChoose={(action) => void dispatch(action, classroomId, captureTargets().targetDeviceIds)} onBlocked={showEligibility} /><ActionItem action="UNLOCK_INPUT" availability={availability.UNLOCK_INPUT} onChoose={(action) => void dispatch(action, classroomId, captureTargets().targetDeviceIds)} onBlocked={showEligibility} /></CommandMenu>
+        <CommandMenu id="content" icon={Link} label="Contenido" open={openMenu === "content"} locked={!availability.OPEN_URL.enabled} disabled={submitting} onToggle={() => availability.OPEN_URL.enabled ? openMenuOnly("content") : showEligibility(availability.OPEN_URL)}><ActionItem action="OPEN_URL" availability={availability.OPEN_URL} onChoose={(action, event) => openIntent(action as Intent["type"], availability.OPEN_URL, event.currentTarget)} onBlocked={showEligibility} /></CommandMenu>
+        <CommandMenu id="system" icon={Power} label="Sistema" open={openMenu === "system"} disabled={submitting} onToggle={() => openMenuOnly("system")}><ActionItem action="RESTART" availability={availability.RESTART} onChoose={(action, event) => openIntent(action as Intent["type"], availability.RESTART, event.currentTarget)} onBlocked={showEligibility} /><ActionItem action="SHUTDOWN" availability={availability.SHUTDOWN} danger separator onChoose={(action, event) => openIntent(action as Intent["type"], availability.SHUTDOWN, event.currentTarget)} onBlocked={showEligibility} /></CommandMenu>
+        {submitting ? <span className="command-dock__progress" role="status"><LoaderCircle size={15} aria-hidden="true" /> Enviando</span> : null}
+      </div>
+      {overlay === "session" ? <SessionPopover context={singleContext} contexts={contexts} loading={sessionLoading} onClose={closeTransient} /> : null}
+      {overlay === "eligibility" && eligibility ? <EligibilityPanel availability={eligibility} contexts={contexts} onClose={closeTransient} onSession={() => showOverlay("session")} onAdjust={() => showOverlay("selector")} /> : null}
+      {operationResult && onDismissOperationResult ? <OperationResultPanel classroomId={classroomId} result={operationResult} devices={devices} onDismiss={onDismissOperationResult} drawerOpen={overlay === "result"} onDrawerChange={(open) => open ? showOverlay("result") : setOverlay(null)} /> : null}
+    </section>
+    {overlay === "intent" && intent ? <dialog ref={dialogRef} className="action-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-description" onCancel={(event) => { event.preventDefault(); setIntent(null); setOverlay(null); }}><form onSubmit={submitIntent} noValidate><span className={`action-dialog__icon action-dialog__icon--${intent.type.toLowerCase()}`} aria-hidden="true">{intent.type === "OPEN_URL" ? <Link size={21} /> : intent.type === "RESTART" ? <RotateCcw size={21} /> : <Power size={21} />}</span><h2 id="action-dialog-title">{intent.type === "OPEN_URL" ? "Abrir página web" : `${actionName[intent.type]} ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}`}</h2><p id="action-dialog-description">{intent.type === "OPEN_URL" ? `Destino: ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}` : `Se solicitará a Windows ${intent.type === "RESTART" ? "reiniciar" : "apagar"} los equipos seleccionados. Las sesiones activas se cerrarán.`}</p>{intent.type === "OPEN_URL" ? <label className={`action-dialog__field${urlError ? " action-dialog__field--error" : ""}`}>Dirección web<input ref={urlInputRef} type="url" inputMode="url" value={url} onChange={(event) => setUrl(event.target.value)} onBlur={() => setUrlTouched(true)} placeholder="https://ejemplo.com/material" aria-invalid={Boolean(urlError)} aria-describedby="url-helper" /><small id="url-helper">{urlError ?? "Usa una dirección http o https completa."}</small></label> : <p className="action-dialog__impact">{intent.targetDeviceIds.size} {intent.targetDeviceIds.size === 1 ? "equipo recibirá" : "equipos recibirán"} la solicitud.</p>}<div className="action-dialog__footer"><button ref={cancelRef} type="button" onClick={() => { setIntent(null); setOverlay(null); }}>Cancelar</button><button type="submit" className={`action-dialog__confirm${intent.type === "SHUTDOWN" ? " action-dialog__confirm--danger" : ""}`}>{intent.type === "OPEN_URL" ? `Abrir en ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}` : `${actionName[intent.type]} equipos`}</button></div></form></dialog> : null}
+    {overlay === "selector" ? <div className="target-drawer-shell" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setOverlay(null); } if (event.key === "Tab") trapFocus(event, selectorRef.current); }}><button className="target-drawer-shell__backdrop" type="button" aria-label="Cerrar selección" onClick={() => setOverlay(null)} /><aside ref={selectorRef} className="target-selector" role="dialog" aria-modal="true" aria-labelledby="target-selector-title" tabIndex={-1}><TargetSelector title={classroomName} groups={groups} devices={devices} selectedDeviceIds={selectedDeviceIds} query={selectorSearch} sessionByDeviceId={sessionByDeviceId} onQueryChange={setSelectorSearch} onToggleDevice={onToggleDevice} onSelectAll={onSelectAll} onClearSelection={onClearSelection} onClose={() => setOverlay(null)} /></aside></div> : null}
+    {overlay === "inspector" && singleContext ? <div className="result-drawer-shell" role="presentation"><button className="result-drawer-shell__backdrop" type="button" aria-label="Cerrar inspector" onClick={() => setOverlay(null)} /><aside className="result-drawer device-inspector-drawer" role="dialog" aria-modal="true" aria-label={`Cuentas de ${singleContext.device.label}`}><DeviceInspector classroomId={classroomId} device={singleContext.device} initialTab="accounts" onClose={() => setOverlay(null)} /></aside></div> : null}
+    <ToastRegion toasts={toasts} />
+  </>;
 }
+
+function CommandSlot({ icon: Icon, label, sublabel, tone, open, disabled, onClick }: { icon: LucideIcon; label: string; sublabel?: string; tone: string; open: boolean; disabled: boolean; onClick: () => void }) { return <button type="button" className={`command-slot command-slot--${tone}`} aria-expanded={open} disabled={disabled} onClick={onClick}><Icon size={17} aria-hidden="true" /><span><strong>{label}</strong>{sublabel ? <small>{sublabel}</small> : null}</span><ChevronDown size={15} aria-hidden="true" /></button>; }
+
+function CommandMenu({ id, icon: Icon, label, open, locked = false, disabled, onToggle, children }: { id: string; icon: LucideIcon; label: string; open: boolean; locked?: boolean; disabled: boolean; onToggle: () => void; children: ReactNode }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => { if (event.key === "Escape" && open) { event.stopPropagation(); onToggle(); } if ((event.key === "ArrowDown" || event.key === "ArrowUp") && open) { event.preventDefault(); const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[data-menu-item]") ?? []); if (items.length === 0) return; const current = items.indexOf(document.activeElement as HTMLButtonElement); items[event.key === "ArrowDown" ? (current + 1 + items.length) % items.length : (current - 1 + items.length) % items.length].focus(); } };
+  return <div className="command-menu" onKeyDown={handleKeyDown} ref={menuRef}><button type="button" className={`command-menu__trigger${locked ? " command-menu__trigger--locked" : ""}`} aria-expanded={open} aria-controls={`command-menu-${id}`} disabled={disabled} onClick={onToggle}><Icon size={16} aria-hidden="true" /><span>{label}{locked ? <small>Requiere sesión</small> : null}</span><ChevronDown size={15} aria-hidden="true" /></button>{open ? <div className="command-menu__panel" id={`command-menu-${id}`} role="menu">{children}</div> : null}</div>;
+}
+
+function ActionItem({ action, availability, danger = false, separator = false, onChoose, onBlocked }: { action: QuickActionType; availability: ActionAvailability; danger?: boolean; separator?: boolean; onChoose: (action: QuickActionType, event: React.MouseEvent<HTMLButtonElement>) => void; onBlocked: (availability: ActionAvailability) => void }) { const Icon = actionIcons[action]; return <button type="button" role="menuitem" data-menu-item className={`command-menu__item${danger ? " command-menu__item--danger" : ""}${separator ? " command-menu__item--separator" : ""}`} aria-disabled={!availability.enabled} onClick={(event) => availability.enabled ? onChoose(action, event) : onBlocked(availability)}><Icon size={16} aria-hidden="true" /><span><strong>{actionName[action]}</strong><small>{actionDescriptions[action]}</small></span>{!availability.enabled ? <CircleAlert size={15} aria-hidden="true" /> : null}</button>; }
+
+function SessionPopover({ context, contexts, loading, onClose }: { context: DeviceSessionContext | null; contexts: DeviceSessionContext[]; loading: boolean; onClose: () => void }) {
+  const active = contexts.filter((item) => interactiveSession(item.sessionState)).length;
+  return <aside className="command-popover session-popover" role="status" aria-live="polite"><PopoverHeader icon={UserRound} title={context ? sessionStateLabels[context.sessionState] : "Estado de las sesiones"} onClose={onClose} />{loading ? <p>Consultando el estado de Windows…</p> : context ? <div className="session-popover__device"><strong>{context.device.label}</strong><span>{context.device.rawStatus !== "ONLINE" ? "Sin comunicación" : context.sessionState === "NO_SESSION" ? "Este equipo no tiene una sesión iniciada." : context.sessionState === "UNKNOWN" ? "No fue posible confirmar la sesión de Windows." : "La sesión interactiva está disponible."}</span></div> : <p>{active} de {contexts.length} equipos tienen una sesión interactiva disponible.</p>}</aside>;
+}
+
+function EligibilityPanel({ availability, contexts, onClose, onAdjust, onSession }: { availability: ActionAvailability; contexts: DeviceSessionContext[]; onClose: () => void; onAdjust: () => void; onSession: () => void }) {
+  const Icon = actionIcons[availability.action]; const single = contexts.length === 1 ? contexts[0] : null; const noSession = single?.device.rawStatus === "ONLINE" && single.sessionState === "NO_SESSION"; const title = `${availability.action === "OPEN_URL" ? "Contenido" : "Interacción"} no disponible`;
+  return <aside className="command-popover eligibility-popover" role="status" aria-live="polite"><PopoverHeader icon={Icon} title={title} onClose={onClose} />{single ? <><div className="eligibility-popover__device"><strong>{single.device.label}</strong><span>{availability.reasons[0]?.reason ?? "No disponible"}</span></div><p>{availability.action === "OPEN_URL" ? "Para abrir URLs o aplicaciones primero debe existir una sesión interactiva de Windows." : "Para controlar teclado y mouse primero debe existir una sesión interactiva de Windows."}</p></> : <><div className="eligibility-popover__counts"><strong>{availability.eligibleCount} disponibles</strong><span>{availability.blockedCount} requieren atención</span></div><div className="eligibility-popover__list">{availability.reasons.slice(0, 8).map((reason) => <div key={reason.deviceId}><strong>{reason.deviceName}</strong><span>{reason.reason}</span></div>)}</div></>}<button type="button" className="eligibility-popover__adjust" onClick={noSession ? onSession : onAdjust}>{noSession ? "Ver estado de sesión" : "Ajustar selección"}</button></aside>;
+}
+
+function PopoverHeader({ icon: Icon, title, onClose }: { icon: LucideIcon; title: string; onClose: () => void }) { return <div className="eligibility-popover__header"><span><Icon size={17} aria-hidden="true" />{title}</span><button type="button" aria-label="Cerrar" onClick={onClose}><X size={15} aria-hidden="true" /></button></div>; }
+
+function TargetSelector({ title, groups, devices, selectedDeviceIds, query, sessionByDeviceId, onQueryChange, onToggleDevice, onSelectAll, onClose }: { title: string; groups: ClassroomGroupData[]; devices: ClassroomDeviceCardData[]; selectedDeviceIds: Set<string>; query: string; sessionByDeviceId: Map<string, WindowsSessionState>; onQueryChange: (value: string) => void; onToggleDevice?: (deviceId: string) => void; onSelectAll?: () => void; onClearSelection?: () => void; onClose: () => void }) {
+  const normalized = query.trim().toLocaleLowerCase("es-MX"); const visibleDevices = devices.filter((device) => !normalized || `${device.label} ${device.studentName} ${device.hostname ?? ""}`.toLocaleLowerCase("es-MX").includes(normalized)); const groupsWithDevices = groups.map((group) => ({ group, devices: visibleDevices.filter((device) => device.assignedStudentGroupId === group.id) })).filter(({ devices: items }) => items.length > 0); const unassigned = visibleDevices.filter((device) => !device.assignedStudentGroupId);
+  return <div className="target-selector__content"><div className="target-selector__header"><div><p className="target-selector__eyebrow">Seleccionar equipos</p><h2 id="target-selector-title">{title}</h2></div><button type="button" aria-label="Cerrar selector" onClick={onClose}><X size={18} aria-hidden="true" /></button></div><label className="target-selector__search"><Search size={16} aria-hidden="true" /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Buscar equipo o alumno" /></label><div className="target-selector__toolbar"><button type="button" onClick={onSelectAll}>Seleccionar todos</button><span>{selectedDeviceIds.size} seleccionados</span></div><div className="target-tree" role="tree" aria-label="Selección de equipos">{groupsWithDevices.map(({ group, devices: groupDevices }) => <TreeGroup key={group.id} label={group.label} devices={groupDevices} selectedDeviceIds={selectedDeviceIds} sessionByDeviceId={sessionByDeviceId} onToggleDevice={onToggleDevice} />)}{unassigned.length > 0 ? <TreeGroup label="Sin asignar" devices={unassigned} selectedDeviceIds={selectedDeviceIds} sessionByDeviceId={sessionByDeviceId} onToggleDevice={onToggleDevice} /> : null}{visibleDevices.length === 0 ? <p className="target-tree__empty">No hay equipos que coincidan con la búsqueda.</p> : null}</div></div>;
+}
+
+function TreeGroup({ label, devices, selectedDeviceIds, sessionByDeviceId, onToggleDevice }: { label: string; devices: ClassroomDeviceCardData[]; selectedDeviceIds: Set<string>; sessionByDeviceId: Map<string, WindowsSessionState>; onToggleDevice?: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(true); const selectedCount = devices.filter((device) => selectedDeviceIds.has(device.id)).length; const allSelected = devices.length > 0 && selectedCount === devices.length; const toggleGroup = () => devices.forEach((device) => { if (selectedDeviceIds.has(device.id) === allSelected) onToggleDevice?.(device.id); });
+  return <div className="target-tree__group" role="group"><div className="target-tree__group-label"><button type="button" className="target-tree__chevron" aria-label={`${expanded ? "Contraer" : "Expandir"} ${label}`} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><ChevronRight size={16} aria-hidden="true" /></button><button type="button" className="target-tree__group-check" role="checkbox" aria-checked={allSelected ? true : selectedCount > 0 ? "mixed" : false} onClick={toggleGroup}><span className={`target-tree__check${selectedCount > 0 ? " target-tree__check--selected" : ""}`}>{allSelected ? <Check size={12} /> : selectedCount > 0 ? "−" : ""}</span><strong>{label}</strong><span>{selectedCount}/{devices.length}</span></button></div>{expanded ? <div className="target-tree__children">{devices.map((device) => <TreeDevice key={device.id} device={device} selected={selectedDeviceIds.has(device.id)} sessionState={sessionByDeviceId.get(device.id) ?? "UNKNOWN"} onToggle={() => onToggleDevice?.(device.id)} />)}</div> : null}</div>;
+}
+
+function TreeDevice({ device, selected, sessionState, onToggle }: { device: ClassroomDeviceCardData; selected: boolean; sessionState: WindowsSessionState; onToggle: () => void }) { const offline = device.rawStatus !== "ONLINE"; const tone = offline ? "offline" : sessionState === "NO_SESSION" ? "no-session" : sessionState === "UNKNOWN" ? "unknown" : "active"; return <button type="button" className="target-tree__device" role="treeitem" aria-selected={selected} onClick={onToggle}><span className={`target-tree__check${selected ? " target-tree__check--selected" : ""}`} aria-hidden="true">{selected ? <Check size={12} /> : null}</span><span className={`target-tree__state-icon target-tree__state-icon--${tone}`} aria-hidden="true">{offline ? <WifiOff size={14} /> : <UserRound size={14} />}</span><span className="target-tree__identity"><strong>{device.label}</strong><small>{device.studentName}</small></span><span className={`target-tree__status target-tree__status--${tone}`}>{offline ? "Sin comunicación" : sessionStateLabels[sessionState]}</span></button>; }
+function ToastRegion({ toasts }: { toasts: Toast[] }) { return <div className="toast-region" aria-live="polite" aria-atomic="false">{toasts.map((toast) => <div key={toast.id} className={`toast toast--${toast.tone}`}>{toast.tone === "error" ? <ShieldAlert size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}<span><strong>{toast.title}</strong><small>{toast.detail}</small></span></div>)}</div>; }
+function sessionPresentation(context: DeviceSessionContext | null, loading: boolean): { icon: LucideIcon; label: string; sublabel?: string; tone: string } { if (loading) return { icon: LoaderCircle, label: "Consultando sesión", tone: "neutral" }; if (!context) return { icon: UserRound, label: "Sesiones", tone: "neutral" }; if (context.device.rawStatus !== "ONLINE") return { icon: WifiOff, label: "Sin comunicación", tone: "offline" }; if (context.sessionState === "NO_SESSION") return { icon: LogIn, label: "Iniciar sesión", sublabel: "Windows sin sesión", tone: "attention" }; return { icon: UserRound, label: sessionStateLabels[context.sessionState], tone: context.sessionState === "UNKNOWN" ? "warning" : "active" }; }
+function sessionTone(context: DeviceSessionContext) { if (context.device.rawStatus !== "ONLINE") return "offline"; if (context.sessionState === "NO_SESSION") return "no-session"; if (context.sessionState === "UNKNOWN") return "unknown"; return "active"; }
+function validateUrl(value: string) { const trimmed = value.trim(); if (!trimmed) return "Escribe una dirección web."; try { const parsed = new URL(trimmed); if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "La dirección debe comenzar con http:// o https://."; return null; } catch { return "Escribe una dirección web válida."; } }
+function trapFocus(event: React.KeyboardEvent, container: HTMLElement | null) { if (!container) return; const focusable = Array.from(container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')); if (focusable.length === 0) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }

@@ -69,6 +69,46 @@ export type ClassroomDeviceResponse = {
   version: number;
 };
 
+export type ClassroomGroupResponse = {
+  groupId: string;
+  classroomId: string;
+  grade: string | null;
+  section: string | null;
+  displayName: string;
+  active: boolean;
+  activeStudentCount: number;
+  version: number;
+};
+
+export type ClassroomStudentResponse = {
+  studentId: string;
+  classroomId: string;
+  groupId: string | null;
+  groupDisplayName: string | null;
+  displayName: string;
+  active: boolean;
+};
+
+export type ClassroomAssignmentResponse = {
+  assignmentId: string;
+  studentId: string;
+  studentDisplayName: string;
+  deviceId: string;
+  deviceDisplayName: string | null;
+  status: string;
+  current: boolean;
+};
+
+export type ClassroomApplicationResponse = {
+  applicationId: string;
+  displayName: string;
+  type: string;
+  availability: string;
+  launchPolicy: string;
+  active: boolean;
+  version: number;
+};
+
 export type ClassroomSnapshotSummary = {
   groupCount: number;
   studentCount: number;
@@ -82,8 +122,11 @@ export type ClassroomSnapshotSummary = {
 
 export type ClassroomSnapshotResponse = {
   classroom: ClassroomResponse;
+  groups: ClassroomGroupResponse[];
+  students: ClassroomStudentResponse[];
   devices: ClassroomDeviceResponse[];
-  currentAssignments: unknown[];
+  currentAssignments: ClassroomAssignmentResponse[];
+  applications: ClassroomApplicationResponse[];
   summary: ClassroomSnapshotSummary;
 };
 

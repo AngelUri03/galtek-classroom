@@ -13,15 +13,28 @@ export type ClassroomDeviceCardData = {
   label: string;
   studentName: string;
   status: DeviceCardStatus;
+  rawStatus: string;
   statusLabel: string;
   secondaryStatus: string;
   note: string;
+  capabilities: string[];
+  assignedStudentId: string | null;
+  assignedStudentGroupId: string | null;
+  assignedStudentGroupName: string | null;
+  hostname: string | null;
 };
 
 export type ClassroomDashboardData = {
   classroomName: string;
+  groups: ClassroomGroupData[];
   summary: DashboardMetric[];
   devices: ClassroomDeviceCardData[];
+};
+
+export type ClassroomGroupData = {
+  id: string;
+  label: string;
+  active: boolean;
 };
 
 export type ClassroomOption = {

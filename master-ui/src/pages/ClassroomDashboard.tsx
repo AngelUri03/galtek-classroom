@@ -1,8 +1,9 @@
+import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { DeviceCard } from "../components/DeviceCard";
 import { QuickActions } from "../components/QuickActions";
 import { SummaryCard } from "../components/SummaryCard";
-import type { BatchOperationResponse } from "../api/quickActionsApi";
+import type { BatchOperationResponse, WindowsSessionState } from "../api/quickActionsApi";
 import type { ClassroomDashboardData } from "../types/classroom";
 
 type ClassroomDashboardProps = {
@@ -22,6 +23,7 @@ type ClassroomDashboardProps = {
   onOperationStart?: () => void;
   onOperationResult?: (result: BatchOperationResponse) => void;
   onOperationError?: (message: string) => void;
+  onDismissOperationResult?: () => void;
   onToggleDevice?: (deviceId: string) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
@@ -46,6 +48,7 @@ export function ClassroomDashboard({
   onOperationStart,
   onOperationResult,
   onOperationError,
+  onDismissOperationResult,
   onToggleDevice,
   onSelectAll,
   onClearSelection,
@@ -105,6 +108,7 @@ export function ClassroomDashboard({
           onOperationStart={onOperationStart}
           onOperationResult={onOperationResult}
           onOperationError={onOperationError}
+          onDismissOperationResult={onDismissOperationResult}
           onToggleDevice={onToggleDevice}
           onSelectAll={onSelectAll}
           onClearSelection={onClearSelection}
@@ -123,6 +127,7 @@ function ClassroomContent({
   onOperationStart,
   onOperationResult,
   onOperationError,
+  onDismissOperationResult,
   onToggleDevice,
   onSelectAll,
   onClearSelection
@@ -135,10 +140,17 @@ function ClassroomContent({
   onOperationStart?: () => void;
   onOperationResult?: (result: BatchOperationResponse) => void;
   onOperationError?: (message: string) => void;
+  onDismissOperationResult?: () => void;
   onToggleDevice?: (deviceId: string) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
 }) {
+  const [sessionStates, setSessionStates] = useState<Map<string, WindowsSessionState>>(() => new Map());
+  const handleSessionStatesChange = useCallback(
+    (states: Map<string, WindowsSessionState>) => setSessionStates(states),
+    []
+  );
+
   if (data.devices.length === 0) {
     return (
       <>
@@ -154,8 +166,6 @@ function ClassroomContent({
       </>
     );
   }
-
-  const allSelected = data.devices.length > 0 && data.devices.every((device) => selectedDeviceIds.has(device.id));
 
   return (
     <>
@@ -173,26 +183,27 @@ function ClassroomContent({
           <button
             className="selection-action"
             type="button"
-            onClick={allSelected ? onClearSelection : onSelectAll}
+            onClick={selectedDeviceIds.size > 0 ? onClearSelection : onSelectAll}
           >
-            {allSelected ? "Deseleccionar todos" : "Seleccionar todos"}
+            {selectedDeviceIds.size > 0 ? "Limpiar selección" : "Seleccionar todos"}
           </button>
         </div>
         {classroomId && onOperationStart && onOperationResult && onOperationError ? (
           <QuickActions key={classroomId} classroomId={classroomId} classroomName={data.classroomName}
-            devices={data.devices} selectedDeviceIds={selectedDeviceIds} onClearSelection={onClearSelection}
+            groups={data.groups} devices={data.devices} selectedDeviceIds={selectedDeviceIds}
+            operationResult={operationResult} onDismissOperationResult={onDismissOperationResult}
+            onToggleDevice={onToggleDevice} onSelectAll={onSelectAll} onClearSelection={onClearSelection}
+            onSessionStatesChange={handleSessionStatesChange}
             onStart={onOperationStart} onResult={onOperationResult} onError={onOperationError} />
         ) : null}
         {operationError ? <p className="operation-feedback operation-feedback--error" role="alert">{operationError}</p> : null}
-        {operationResult ? <p className="operation-feedback" role="status" aria-live="polite">
-          Operación procesada · {operationResult.status} · {operationResult.successCount} correctos, {operationResult.failedCount} fallidos
-        </p> : null}
         <div className="device-grid">
           {data.devices.map((device) => (
             <DeviceCard
               key={device.id}
               device={device}
               selected={selectedDeviceIds.has(device.id)}
+              sessionState={sessionStates.get(device.id)}
               onToggle={() => onToggleDevice?.(device.id)}
             />
           ))}

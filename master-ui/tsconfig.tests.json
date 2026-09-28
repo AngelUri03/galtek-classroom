@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "build/ui-tests",
+    "rootDir": "src",
+    "noEmit": false
+  },
+  "include": [
+    "src/components/windowsAccountViewModel.ts",
+    "src/components/windowsAccountViewModel.tests.ts"
+  ]
+}
