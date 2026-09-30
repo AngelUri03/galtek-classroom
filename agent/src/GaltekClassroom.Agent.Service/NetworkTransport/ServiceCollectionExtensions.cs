@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRemoteOperationHandler, GetWindowsAccountInventoryOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, SetManagedAccountBindingOperationHandler>();
         services.AddSingleton<IRemoteOperationHandler, RemoveManagedAccountBindingOperationHandler>();
+        services.AddSingleton<IRemoteOperationHandler, RemoveManagedCredentialOperationHandler>();
         services.AddSingleton<TrustedMasterResolver>();
         services.AddSingleton<MasterCertificatePinningPolicy>();
         services.AddSingleton<ClientHelloFactory>();

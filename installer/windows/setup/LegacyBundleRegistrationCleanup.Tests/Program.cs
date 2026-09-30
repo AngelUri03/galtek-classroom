@@ -5,7 +5,7 @@ using GaltekClassroom.LegacyBundleCleanup;
 
 internal static class Program
 {
-    private const string Current004 = "{12345678-1234-4ABC-8DEF-1234567890AB}";
+    private const string Current006 = "{12345678-1234-4ABC-8DEF-1234567890AB}";
     private static int failures;
 
     private static int Main()
@@ -39,10 +39,10 @@ internal static class Program
     {
         var direct = Definition(CleanupPolicy.Bundle001);
         var stable = Definition(CleanupPolicy.Bundle002ProviderKey);
-        Expect("self dependent", DependentClassification.SelfDependent, CleanupPolicy.ClassifyDependent(direct, CleanupPolicy.Bundle001, Current004));
-        Expect("known legacy dependent", DependentClassification.KnownLegacyDependent, CleanupPolicy.ClassifyDependent(stable, CleanupPolicy.Bundle002C183, Current004));
-        Expect("current dependent", DependentClassification.CurrentDependent, CleanupPolicy.ClassifyDependent(stable, Current004, Current004));
-        Expect("unknown dependent", DependentClassification.UnknownDependent, CleanupPolicy.ClassifyDependent(stable, "{11111111-1111-1111-1111-111111111111}", Current004));
+        Expect("self dependent", DependentClassification.SelfDependent, CleanupPolicy.ClassifyDependent(direct, CleanupPolicy.Bundle001, Current006));
+        Expect("known legacy dependent", DependentClassification.KnownLegacyDependent, CleanupPolicy.ClassifyDependent(stable, CleanupPolicy.Bundle002C183, Current006));
+        Expect("current dependent", DependentClassification.CurrentDependent, CleanupPolicy.ClassifyDependent(stable, Current006, Current006));
+        Expect("unknown dependent", DependentClassification.UnknownDependent, CleanupPolicy.ClassifyDependent(stable, "{11111111-1111-1111-1111-111111111111}", Current006));
         Console.WriteLine("DEPENDENT_CLASSIFICATION_FIXTURE_PASS SELF_DEPENDENT KNOWN_LEGACY_DEPENDENT CURRENT_DEPENDENT UNKNOWN_DEPENDENT");
     }
 
@@ -68,7 +68,7 @@ internal static class Program
         Expect("arp before cache", true, environment.Mutations.FindLastIndex(x => x.StartsWith("ARP:", StringComparison.Ordinal)) < environment.Mutations.FindIndex(x => x.StartsWith("CACHE:", StringComparison.Ordinal)));
         var second = new CleanupCoordinator().Run(environment, CleanupPolicy.Bundles.Select(x => x.BundleId));
         Expect("second run no-op", CleanupOutcome.NoOp, second.Outcome);
-        Console.WriteLine("PC14_EXACT_POST_REBOOT_GRAPH_FIXTURE_PASS four-arp six-providers all-known-edges current004-only historical-process-count=0");
+        Console.WriteLine("PC14_EXACT_POST_REBOOT_GRAPH_FIXTURE_PASS four-arp six-providers all-known-edges current006-only historical-process-count=0");
         Console.WriteLine("CLEANUP_IDEMPOTENCY_FIXTURE_PASS");
     }
 
@@ -83,7 +83,7 @@ internal static class Program
     private static void CurrentDependentAttackBlocksBeforeMutation()
     {
         var environment = PhysicalPc14();
-        environment.Providers[CleanupPolicy.Bundle003ProviderKey].Dependents = new[] { CleanupPolicy.Bundle003, Current004 };
+        environment.Providers[CleanupPolicy.Bundle003ProviderKey].Dependents = new[] { CleanupPolicy.Bundle003, Current006 };
         BlockedWithoutMutation("current dependent attack", environment, "CURRENT_DEPENDENT", true);
         Console.WriteLine("CURRENT_EDGE_ATTACK_FIXTURE_PASS current-relationship-protected zero-mutations");
     }
@@ -150,19 +150,21 @@ internal static class Program
         var currentAllowed = PhysicalPc14();
         currentAllowed.CurrentProcessActive = true;
         Expect("current process allowed", CleanupOutcome.Complete, Run(currentAllowed).Outcome);
-        Console.WriteLine("PROCESS_GUARD_FIXTURES_PASS four-historical-rejected current004-allowed");
+        Console.WriteLine("PROCESS_GUARD_FIXTURES_PASS four-historical-rejected current006-allowed");
     }
 
     private static void CurrentAuthorityGuards()
     {
         GuardCurrent("current MSI missing", e => e.CurrentMsiInstalledValue = false, "CURRENT_MSI_MISSING");
         GuardCurrent("old MSI 003 still present", e => e.InstalledMsi.Add(CleanupPolicy.Msi003ProductCode), "OLD_MSI_STILL_INSTALLED");
+        GuardCurrent("old MSI 004 still present", e => e.InstalledMsi.Add(CleanupPolicy.Msi004ProductCode), "OLD_MSI_STILL_INSTALLED");
+        GuardCurrent("old MSI 005 still present", e => e.InstalledMsi.Add(CleanupPolicy.Msi005ProductCode), "OLD_MSI_STILL_INSTALLED");
         GuardCurrent("service unhealthy", e => e.ServiceHealthyValue = false, "CURRENT_SERVICE_UNHEALTHY");
         GuardCurrent("session unhealthy", e => e.SessionHealthyValue = false, "CURRENT_SESSION_UNHEALTHY");
         GuardCurrent("snapshot pending", e => e.SnapshotPendingValue = true, "ROLLBACK_SNAPSHOT_PENDING");
         GuardCurrent("current provider missing", e => e.Providers[CleanupPolicy.CurrentBundleProviderKey].Exists = false, "CURRENT_PROVIDER_MISSING");
         GuardCurrent("current provider owner", e => e.Providers[CleanupPolicy.CurrentBundleProviderKey].OwnerId = CleanupPolicy.Bundle003, "CURRENT_PROVIDER_OWNERSHIP_UNSAFE");
-        Console.WriteLine("CURRENT_004_AUTHORITY_FIXTURES_PASS bundle-provider-msi-runtime-snapshot");
+        Console.WriteLine("CURRENT_006_AUTHORITY_FIXTURES_PASS bundle-provider-msi-runtime-snapshot");
     }
 
     private static void UnknownInputRejected()
@@ -214,7 +216,7 @@ internal static class Program
         foreach (var definition in CleanupPolicy.Providers) result.Providers[definition.Key] = ProviderRecord(definition, false, new string[0]);
         result.Providers[CleanupPolicy.CurrentBundleProviderKey] = new ProviderRecord
         {
-            Key = CleanupPolicy.CurrentBundleProviderKey, Exists = true, OwnerId = Current004,
+            Key = CleanupPolicy.CurrentBundleProviderKey, Exists = true, OwnerId = Current006,
             Version = CleanupPolicy.CurrentVersion, DisplayName = CleanupPolicy.ProductName, Dependents = new string[0]
         };
         return result;
@@ -270,17 +272,17 @@ internal static class Program
         public bool CurrentProcessActive;
         public CurrentBundleRecord Current = new CurrentBundleRecord
         {
-            BundleId = Current004, ProductName = CleanupPolicy.ProductName, Manufacturer = CleanupPolicy.Manufacturer,
+            BundleId = Current006, ProductName = CleanupPolicy.ProductName, Manufacturer = CleanupPolicy.Manufacturer,
             Version = CleanupPolicy.CurrentVersion, UpgradeCodes = new[] { CleanupPolicy.UpgradeCode },
             ProviderKey = CleanupPolicy.CurrentBundleProviderKey, ProviderKeyRegistrationCount = 1,
-            CachePath = @"C:\ProgramData\Package Cache\" + Current004 + @"\GaltekClassroom-Client-Setup-0.0.4.exe",
+            CachePath = @"C:\ProgramData\Package Cache\" + Current006 + @"\GaltekClassroom-Client-Setup-0.0.6.exe",
             CachePathSafe = true, ResumeMode = CleanupPolicy.ResumeModeActive, Installed = 1
         };
         public bool CurrentMsiInstalledValue = true;
         public bool ServiceHealthyValue = true;
         public bool SessionHealthyValue = true;
         public bool SnapshotPendingValue;
-        public string CurrentBundleId => Current004;
+        public string CurrentBundleId => Current006;
         public CurrentBundleRecord GetCurrentBundle() => Current;
         public ProviderRecord GetProvider(string providerKey) => Providers.TryGetValue(providerKey, out var value) ? value : new ProviderRecord { Key = providerKey, Exists = false, Dependents = new string[0] };
         public bool CurrentMsiInstalled => CurrentMsiInstalledValue;

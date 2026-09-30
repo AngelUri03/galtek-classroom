@@ -295,16 +295,26 @@ public sealed class ManagedWindowsCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task RenameWithSameSid_KeepsCredentialUsable()
+    public async Task HostnameRenameWithSameSid_KeepsCredentialUsableWithoutRewritingStores()
     {
-        await SaveBindingsAsync([PrimaryBinding()]);
-        await CreateStore().AddAsync(InstallationId, "PRIMARY", Chars("secret"), CancellationToken.None);
-        _resolver.Sids[PrimarySid] = User(PrimarySid, "PC23\\Primaria2026");
+        await SaveBindingsAsync([PrimaryBinding(accountReference: "ICH11\\Primaria")]);
+        var store = CreateStore();
+        await store.AddAsync(InstallationId, "PRIMARY", Chars("secret"), CancellationToken.None);
+        byte[] bindingsBeforeRename = await File.ReadAllBytesAsync(BindingFilePath());
+        byte[] credentialsBeforeRename = await File.ReadAllBytesAsync(CredentialFilePath());
+        _resolver.Sids[PrimarySid] = User(PrimarySid, "PC14\\Primaria");
 
-        var status = await CreateStore().GetStatusAsync(InstallationId, "PRIMARY", CancellationToken.None);
+        var status = await store.GetStatusAsync(InstallationId, "PRIMARY", CancellationToken.None);
+        var acquire = await store.AcquireAsync(InstallationId, "PRIMARY", CancellationToken.None);
 
         Assert.True(status.CredentialConfigured);
         Assert.Equal(ManagedWindowsCredentialStatus.Usable, status.Status);
+        using var lease = acquire.Lease!;
+        Assert.True(acquire.Succeeded);
+        Assert.Equal(PrimarySid, lease.WindowsSid);
+        Assert.Equal("secret", Encoding.Unicode.GetString(lease.PasswordUtf16LittleEndian.Span));
+        Assert.Equal(bindingsBeforeRename, await File.ReadAllBytesAsync(BindingFilePath()));
+        Assert.Equal(credentialsBeforeRename, await File.ReadAllBytesAsync(CredentialFilePath()));
     }
 
     [Fact]
@@ -643,6 +653,11 @@ public sealed class ManagedWindowsCredentialStoreTests : IDisposable
     private string CredentialFilePath()
     {
         return Path.Combine(_dataDirectory, ManagedWindowsCredentialConstants.FileName);
+    }
+
+    private string BindingFilePath()
+    {
+        return Path.Combine(_dataDirectory, ManagedWindowsAccountBindingConstants.FileName);
     }
 
     private async Task WriteRawCredentialDocumentAsync(object document)

@@ -1,5 +1,13 @@
 # Galtek Classroom Network Protocol v1
 
+## 20F.2-F1 partial execution
+
+`OperationExecutionStatus` agrega `PARTIAL = 4`. Para `SWITCH_MANAGED_ACCOUNT` significa que el Agent confirmo el cierre de la sesion source, pero no pudo iniciar la target; no autoriza retry automatico ni implica rollback. `TIMED_OUT` permanece resultado desconocido. El Credential Provider acepta pending identities `PRIMARY`, `SECONDARY` y `ADMIN`; este contrato requiere Client 0.0.6.
+
+## 20F.2 session/profile additions
+
+`WindowsSessionState` includes `ADMIN_ACTIVE`, emitted only when the physical-console token SID matches the local ADMIN binding. `REMOVE_MANAGED_CREDENTIAL` carries only `ManagedWindowsAccountId` and removes the role's local DPAPI credential without removing its binding. Login, switch, logout and credential operations accept PRIMARY, SECONDARY and ADMIN. `ADMIN_MANAGED_SESSION_V1` distinguishes Clients that support the final ADMIN contract; `OTHER_SESSION_ACTIVE` and `UNKNOWN` are never mutated automatically. These changes require Client 0.0.5; installer 0.0.4 remains frozen.
+
 `galtek-classroom-network-v1.proto` defines the first Master <-> Client transport protocol.
 
 The Client opens one persistent outbound gRPC stream to the Master. TLS/mTLS is mandatory and the peer certificate is pinned to the public key fingerprint persisted by the Prompt 12 pairing trust stores. The protocol never carries private keys, JWTs, shell commands or generic command payloads. `PROVISION_MANAGED_CREDENTIAL` is the only current secret-bearing operation and carries a Windows password as UTF-16LE bytes under the authenticated mTLS operation framework. `GET_MANAGED_ACCOUNT_STATUS` is read-only and carries no functional payload. `LOGON_MANAGED_ACCOUNT` and `LOGOFF_WINDOWS_SESSION` carry only an expected managed account id.

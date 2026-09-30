@@ -9,6 +9,14 @@
   },
   "include": [
     "src/components/windowsAccountViewModel.ts",
+    "src/components/sessionActionResolver.ts",
+    "src/components/quickActionResultViewModel.ts",
+    "src/components/deviceFeatureCompatibility.ts",
+    "src/components/managedSessionEligibility.ts",
+    "src/components/deviceInspectorModel.ts",
+    "src/api/apiClient.ts",
+    "src/app/deviceOperationModel.ts",
+    "src/app/keyedRegistry.ts",
     "src/components/windowsAccountViewModel.tests.ts"
   ]
 }

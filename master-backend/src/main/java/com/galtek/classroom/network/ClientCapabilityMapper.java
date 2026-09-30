@@ -49,6 +49,10 @@ public final class ClientCapabilityMapper {
                     DeviceCapability.WINDOWS_ACCOUNT_INVENTORY_V1;
             case NETWORK_CAPABILITY_MANAGED_ACCOUNT_BINDING_V2 ->
                     DeviceCapability.MANAGED_ACCOUNT_BINDING_V2;
+            case NETWORK_CAPABILITY_MANAGED_CREDENTIAL_REMOVAL_V1 ->
+                    DeviceCapability.MANAGED_CREDENTIAL_REMOVAL_V1;
+            case NETWORK_CAPABILITY_ADMIN_MANAGED_SESSION_V1 ->
+                    DeviceCapability.ADMIN_MANAGED_SESSION_V1;
             case NETWORK_CAPABILITY_UNSPECIFIED, UNRECOGNIZED -> null;
         };
     }

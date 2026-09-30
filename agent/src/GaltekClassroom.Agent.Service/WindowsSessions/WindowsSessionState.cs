@@ -443,6 +443,7 @@ public sealed class WindowsSessionStateService
             {
                 ClassroomManagedWindowsAccountTypes.Primary => ProtoWindowsSessionState.PrimaryActive,
                 ClassroomManagedWindowsAccountTypes.Secondary => ProtoWindowsSessionState.SecondaryActive,
+                ClassroomManagedWindowsAccountTypes.Admin => ProtoWindowsSessionState.AdminActive,
                 _ => ProtoWindowsSessionState.OtherSessionActive
             };
         }

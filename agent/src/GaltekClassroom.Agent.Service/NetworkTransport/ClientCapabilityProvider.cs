@@ -22,7 +22,9 @@ public sealed class ClientCapabilityProvider
         NetworkCapability.ManagedCredentialProvisioningV1,
         NetworkCapability.ManagedAccountStatusV1,
         NetworkCapability.WindowsAccountInventoryV1,
-        NetworkCapability.ManagedAccountBindingV2
+        NetworkCapability.ManagedAccountBindingV2,
+        NetworkCapability.ManagedCredentialRemovalV1,
+        NetworkCapability.AdminManagedSessionV1
     ];
 
     public IReadOnlyList<NetworkCapability> CurrentCapabilities()

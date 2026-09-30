@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using GaltekClassroom.Agent.Service.Identity;
 
 namespace GaltekClassroom.Agent.Service.Diagnostics;
@@ -10,6 +11,9 @@ public static class BootstrapStartupStages
     public const string Configuration = "CONFIG";
     public const string DiBuild = "DI_BUILD";
     public const string HostRun = "HOST_RUN";
+    public const string ScmConnect = "SCM_CONNECT";
+    public const string HostInit = "HOST_INIT";
+    public const string AgentStart = "AGENT_START";
 }
 
 public sealed class BootstrapStartupDiagnostics
@@ -22,6 +26,7 @@ public sealed class BootstrapStartupDiagnostics
     private readonly string? _filePath;
     private readonly long _maximumBytes;
     private readonly object _writeGate = new();
+    private readonly Stopwatch _elapsed = Stopwatch.StartNew();
 
     public BootstrapStartupDiagnostics(string? filePath, long maximumBytes = DefaultMaximumBytes)
     {
@@ -92,7 +97,8 @@ public sealed class BootstrapStartupDiagnostics
             var now = DateTimeOffset.Now;
             var line =
                 $"utc={now.UtcDateTime:yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'} " +
-                $"local={now:O} {payload}{Environment.NewLine}";
+                $"local={now:O} elapsedMs={_elapsed.Elapsed.TotalMilliseconds:F3} " +
+                $"{payload}{Environment.NewLine}";
             var bytes = Utf8WithoutBom.GetBytes(line);
             var directory = Path.GetDirectoryName(_filePath);
             if (string.IsNullOrWhiteSpace(directory))

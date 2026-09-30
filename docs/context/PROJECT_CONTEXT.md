@@ -45,9 +45,9 @@ Permite operar laboratorios con muchas computadoras desde una consola central, r
 - Vista en vivo de un cliente seleccionado.
 - Proyeccion diferenciada por modo: screen share, whiteboard, pointer, media local y apertura local de contenido web.
 - Bloqueo y desbloqueo de teclado/mouse.
-- Cuentas Windows administradas en Clients con slots logicos `PRIMARY` y `SECONDARY`.
-- `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni implican bloqueo automatico.
-- Cambio masivo Master de sesion Windows administrada para Devices explicitos: consulta snapshot remoto, persiste `NO_CHANGE` y despacha `SWITCH_MANAGED_ACCOUNT(PRIMARY|SECONDARY)` con resultados por target.
+- Cuentas Windows administradas en Clients con slots lógicos `PRIMARY`, `SECONDARY` y `ADMIN`.
+- `PRIMARY` y `SECONDARY` son Windows normal por default; no son kiosco ni implican bloqueo automático. `ADMIN` exige una cuenta administradora elegible y step-up Master fresco para login/switch hacia ella.
+- Cambio masivo Master de sesión Windows administrada para Devices explícitos: consulta snapshot remoto, persiste `NO_CHANGE` y despacha `SWITCH_MANAGED_ACCOUNT(PRIMARY|SECONDARY|ADMIN)` con resultados por target y scope exacto.
 - Inicio remoto de aplicaciones autorizadas.
 - Apertura controlada de paginas web y YouTube mediante `OPEN_URL`.
 - Resolucion determinista de una sola politica efectiva para validar `OPEN_URL`, restringir navegacion manual en Chrome/Edge mediante Agent-side `URLBlocklist`/`URLAllowlist` y aplicar policies desde Master mediante dispatch batch.

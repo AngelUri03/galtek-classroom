@@ -1,5 +1,17 @@
 # Credential Provider
 
+Contrato vigente: todos los campos y diagnósticos `accountId` de activation identity, snapshot y `ReportResult` aceptan exactamente `PRIMARY|SECONDARY|ADMIN`. Las referencias cronológicas posteriores a solo `PRIMARY|SECONDARY` describen contratos históricos y no limitan el Client 0.0.6.
+
+## 20F.2-F1 - ADMIN parity
+
+El login fisico ADMIN de Client 0.0.5 fallaba despues de un step-up correcto porque `BridgeClient.cpp::IsValidAccountId` solo aceptaba `PRIMARY|SECONDARY`. El Agent entregaba una pending identity valida, pero el parser nativo la descartaba antes de que LogonUI pudiera enumerar la credential. El contrato acepta ahora exactamente `PRIMARY|SECONDARY|ADMIN`, con roundtrip nativo de activation identity. Session Agent no participa en esta serializacion y no requirio cambio funcional.
+
+Los checkpoints `CP_ACTIVATION_SENT` y `CP_REPORT_RESULT` no incluyen password, SID, vault token ni blob DPAPI. Client 0.0.6 contiene el fix; 0.0.5 permanece congelado.
+
+## 20F.2
+
+ADMIN es target válido de la misma activation efímera role-agnostic usada por PRIMARY/SECONDARY. No existe un segundo provider ni una ruta de autologon alternativa: el Master realiza step-up y el Agent valida binding, SID, enabled, no built-in y membership Administrators live antes de crear la activation. Los providers estándar de Windows permanecen disponibles si Galtek falla.
+
 Prompt 19I1 integra el Credential Provider nativo al lifecycle productivo del Agent: `PUBLISH -> INSTALL -> UPDATE -> VERIFY -> UNINSTALL`. No ejecuta registro real ni validacion de logon/switch en la maquina de desarrollo; el estado queda `PACKAGE_VERIFIED`, `INSTALLER_PREPARED` y `REAL_LOGON_VALIDATION_PENDING`.
 
 Prompt 19G3 completo `LOGON_MANAGED_ACCOUNT` remoto para un Client individual mediante Credential Provider V2 nativo, activation efimera, notification event-driven, auto-submit once y resultado confirmado por `ReportResult`. Fases posteriores agregaron `SWITCH_MANAGED_ACCOUNT` Agent-side y batch/retry Master para switch, sin cambiar el protocolo nativo del provider.
@@ -217,7 +229,7 @@ CredentialProviderActivation {
 }
 ```
 
-`accountId` solo acepta `PRIMARY` o `SECONDARY`.
+`accountId` acepta `PRIMARY`, `SECONDARY` o `ADMIN`.
 
 La activacion:
 

@@ -40,25 +40,14 @@ public class PersistentNetworkClientConnectionService implements NetworkClientCo
                     String agentVersion = emptyToNull(hello.getAgentVersion());
                     bindingRepository.recordConnection(
                             descriptor.clientNetworkIdentityId(),
+                            emptyToNull(hello.getHostname()),
                             agentVersion,
                             capabilities,
                             connectedAtUtc,
                             connectedAtUtc);
-                    return new RegisteredNetworkDevice(
-                            binding.bindingId(),
-                            binding.deviceId(),
-                            binding.classroomId(),
-                            binding.installationId(),
-                            binding.networkIdentityId(),
-                            binding.publicKeyFingerprint(),
-                            binding.displayName(),
-                            binding.hostname(),
-                            agentVersion,
-                            capabilities,
-                            binding.registeredAtUtc(),
-                            connectedAtUtc,
-                            binding.active(),
-                            binding.version() + 1);
+                    return bindingRepository.findCurrentByNetworkIdentityId(descriptor.clientNetworkIdentityId())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Accepted network binding disappeared while recording Client hello."));
                 })
                 .orElse(null);
     }

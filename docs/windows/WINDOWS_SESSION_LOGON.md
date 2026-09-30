@@ -1,5 +1,15 @@
 # Windows Session Logon
 
+## 20F.2-F1
+
+PRIMARY, SECONDARY y ADMIN recorren la misma ruta tipada de binding, SID, credential store, activation payload y `ReportResult`. La divergencia fisica ADMIN estaba despues del Agent, en el parser de accountId del CP nativo, y queda corregida en Client 0.0.6.
+
+La espera normal de listener continua acotada a 750 ms para login directo. El switch puede proporcionar una ventana de 8 s unicamente despues de haber confirmado logout y `NO_SESSION`; esta sobrecarga espera la misma senal real y no cambia el timeout global ni reenvia la activacion.
+
+## 20F.2
+
+Los targets admitidos son PRIMARY, SECONDARY y ADMIN. Target ADMIN requiere step-up fresco Master-side y capability `ADMIN_MANAGED_SESSION_V1`; Agent-side siempre revalida live la estructura administrativa por SID/grupo built-in. Si ADMIN ya está activa el resultado es idempotente. `OTHER_SESSION_ACTIVE` y `UNKNOWN` bloquean toda mutación automática.
+
 Prompt 19G3 implementa `LOGON_MANAGED_ACCOUNT` remoto para un Client individual usando Credential Provider V2 y el flujo soportado de Windows Winlogon/LSA.
 
 ## Contrato Remoto
@@ -12,7 +22,7 @@ LogonManagedAccountOperationParameters {
 }
 ```
 
-`account_id` debe ser `PRIMARY` o `SECONDARY`; `UNSPECIFIED` se rechaza. El Master no envia password, username, domain, SID, `accountReference`, sessionId, credentialId, vault token, command, args, shell, timeout configurable ni payload arbitrario.
+`account_id` debe ser `PRIMARY`, `SECONDARY` o `ADMIN`; `UNSPECIFIED` se rechaza. El Master no envía password, username, domain, SID, master password, `accountReference`, sessionId, credentialId, command, args, shell, timeout configurable ni payload arbitrario.
 
 La capability es especifica:
 

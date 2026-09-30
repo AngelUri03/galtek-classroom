@@ -1,7 +1,7 @@
 import type {
   BatchOperationResult,
   BatchTargetResult,
-  QuickActionType,
+  OperationActionType,
   TargetExecutionStatus
 } from "../api/quickActionsApi";
 import type { ClassroomDeviceCardData } from "../types/classroom";
@@ -19,7 +19,7 @@ export type OperationResultTargetView = {
 };
 
 export type OperationResultView = {
-  actionType: QuickActionType;
+  actionType: OperationActionType;
   actionName: string;
   globalText: string;
   tone: ResultTone;
@@ -50,20 +50,24 @@ type KnownOperationErrorCode =
   | "SESSION_NOT_AVAILABLE"
   | "DEVICE_BUSY";
 
-const actionNames: Record<QuickActionType, string> = {
+const actionNames: Record<OperationActionType, string> = {
   OPEN_URL: "Abrir URL",
   LOCK_INPUT: "Bloquear teclado y mouse",
   UNLOCK_INPUT: "Desbloquear teclado y mouse",
   RESTART: "Reiniciar equipos",
-  SHUTDOWN: "Apagar equipos"
+  SHUTDOWN: "Apagar equipos",
+  SWITCH_MANAGED_ACCOUNT: "Cambiar perfil de Windows",
+  LOGOFF_WINDOWS_SESSION: "Cerrar sesión de Windows"
 };
 
-const successCopy: Record<QuickActionType, string> = {
+const successCopy: Record<OperationActionType, string> = {
   OPEN_URL: "URL abierta.",
   LOCK_INPUT: "Bloqueo de teclado y mouse aplicado.",
   UNLOCK_INPUT: "Desbloqueo de teclado y mouse aplicado.",
   RESTART: "Solicitud de reinicio aceptada.",
-  SHUTDOWN: "Solicitud de apagado aceptada."
+  SHUTDOWN: "Solicitud de apagado aceptada.",
+  SWITCH_MANAGED_ACCOUNT: "Perfil de Windows activado.",
+  LOGOFF_WINDOWS_SESSION: "Cierre de sesión aceptado."
 };
 
 const errorCopy: Record<KnownOperationErrorCode, string> = {
@@ -113,7 +117,7 @@ export function toOperationResultView(
 }
 
 function toTargetView(
-  actionType: QuickActionType,
+  actionType: OperationActionType,
   target: BatchTargetResult,
   devicesById: Map<string, ClassroomDeviceCardData>
 ): OperationResultTargetView {
@@ -167,19 +171,22 @@ function globalResultTone({
 function targetTone(target: BatchTargetResult): TargetResultTone {
   if (target.status === "SUCCESS" || target.status === "NO_CHANGE") return "success";
   if (target.status === "PENDING") return "pending";
-  if (target.errorCode === "OPERATION_RESULT_UNKNOWN" || target.errorCode === "SESSION_COMMAND_RESULT_UNKNOWN") {
+  if (target.status === "UNKNOWN" || target.errorCode === "OPERATION_RESULT_UNKNOWN" || target.errorCode === "SESSION_COMMAND_RESULT_UNKNOWN") {
     return "unknown";
   }
+  if (target.status === "PARTIAL") return "problem";
   if (target.status === "FAILED" || target.status === "CANCELLED" || target.status === "ROLLED_BACK") {
     return "problem";
   }
   return "neutral";
 }
 
-function targetResultText(actionType: QuickActionType, target: BatchTargetResult) {
+function targetResultText(actionType: OperationActionType, target: BatchTargetResult) {
   if (target.status === "SUCCESS") return successCopy[actionType];
   if (target.status === "NO_CHANGE") return "Sin cambios.";
   if (target.status === "PENDING") return "Pendiente.";
+  if (target.status === "PARTIAL") return "La sesión anterior se cerró, pero no se pudo iniciar la nueva.";
+  if (target.status === "UNKNOWN") return "No se pudo confirmar el resultado.";
   if (target.status === "SKIPPED") return "No se ejecuto en este equipo.";
   if (target.status === "CANCELLED") return "Accion cancelada.";
   if (target.status === "ROLLED_BACK") return "Accion revertida.";

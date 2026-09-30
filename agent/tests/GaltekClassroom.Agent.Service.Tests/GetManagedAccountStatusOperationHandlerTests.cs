@@ -25,7 +25,7 @@ public sealed class GetManagedAccountStatusOperationHandlerTests : IDisposable
             ManagedWindowsAccountBinding.Create(
                 ClassroomManagedWindowsAccountTypes.Primary,
                 "S-1-5-21-1007",
-                @"PC14\Primaria",
+                @"ICH11\Primaria",
                 FixedNow)
         ]);
         var credentialStore = new FakeCredentialStore
@@ -49,6 +49,7 @@ public sealed class GetManagedAccountStatusOperationHandlerTests : IDisposable
         Assert.True(primary.CredentialConfigured);
         Assert.Equal(ManagedAccountCredentialStatus.Ready, primary.CredentialStatus);
         Assert.Equal(@"PC14\PrimariaCanonica", primary.WindowsAccountName);
+        Assert.Equal(@"ICH11\Primaria", bindingStore.ReadResult.Bindings![0].AccountReference);
         Assert.Equal(ManagedWindowsAccountId.Secondary, secondary.AccountId);
         Assert.False(secondary.Configured);
         Assert.False(secondary.CredentialConfigured);

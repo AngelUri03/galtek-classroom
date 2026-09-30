@@ -3,6 +3,7 @@ using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.NetworkTransport;
+using GaltekClassroom.Agent.Service.WindowsAccounts;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using ProtoWindowsSessionState = GaltekClassroom.Protocol.Network.V1.WindowsSessionState;
@@ -43,6 +44,7 @@ public sealed class WindowsSessionLogonService
     private readonly IManagedWindowsAccountBindingStore _bindingStore;
     private readonly IWindowsAccountResolver _accountResolver;
     private readonly IManagedWindowsCredentialStore _credentialStore;
+    private readonly IWindowsAccountInventorySource _inventorySource;
     private readonly CredentialProviderActivationService _activationService;
     private readonly WindowsSessionLogonOptions _options;
     private readonly ILogger<WindowsSessionLogonService> _logger;
@@ -53,6 +55,7 @@ public sealed class WindowsSessionLogonService
         IManagedWindowsAccountBindingStore bindingStore,
         IWindowsAccountResolver accountResolver,
         IManagedWindowsCredentialStore credentialStore,
+        IWindowsAccountInventorySource inventorySource,
         CredentialProviderActivationService activationService,
         WindowsSessionLogonOptions options,
         ILogger<WindowsSessionLogonService> logger)
@@ -62,6 +65,7 @@ public sealed class WindowsSessionLogonService
         _bindingStore = bindingStore;
         _accountResolver = accountResolver;
         _credentialStore = credentialStore;
+        _inventorySource = inventorySource;
         _activationService = activationService;
         _options = options;
         _logger = logger;
@@ -70,7 +74,8 @@ public sealed class WindowsSessionLogonService
     public async Task<WindowsSessionLogonServiceResult> LogonAsync(
         string operationId,
         string accountId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? providerAvailabilityWait = null)
     {
         WindowsSessionLogonServiceResult? sessionDecision =
             await ValidateInitialSessionAsync(accountId, cancellationToken).ConfigureAwait(false);
@@ -86,15 +91,16 @@ public sealed class WindowsSessionLogonService
             return Failure(accountPreflight.ErrorCode, accountPreflight.Message);
         }
 
+        TimeSpan listenerWait = providerAvailabilityWait ?? _options.ProviderAvailabilityWait;
         _logger.LogInformation(
             "WAIT_LISTENER_ENTERED operationId={OperationId} accountId={AccountId} timeoutMs={TimeoutMilliseconds}.",
             operationId,
             accountId,
-            (long)_options.ProviderAvailabilityWait.TotalMilliseconds);
+            (long)listenerWait.TotalMilliseconds);
 
         CredentialProviderListenerAvailability listenerAvailability =
             await _activationService.WaitForListenerAvailabilityAsync(
-                _options.ProviderAvailabilityWait,
+                listenerWait,
                 cancellationToken).ConfigureAwait(false);
         if (listenerAvailability == CredentialProviderListenerAvailability.Unavailable)
         {
@@ -102,7 +108,7 @@ public sealed class WindowsSessionLogonService
                 "LISTENER_AVAILABILITY_TIMEOUT operationId={OperationId} accountId={AccountId} timeoutMs={TimeoutMilliseconds}.",
                 operationId,
                 accountId,
-                (long)_options.ProviderAvailabilityWait.TotalMilliseconds);
+                (long)listenerWait.TotalMilliseconds);
 
             return Failure(
                 NetworkOperationErrorCode.CredentialProviderUnavailable,
@@ -146,7 +152,8 @@ public sealed class WindowsSessionLogonService
         }
 
         _logger.LogInformation(
-            "Managed Windows logon activation created for accountId {AccountId}.",
+            "CP_ACTIVATION_SENT operationId={OperationId} accountId={AccountId}.",
+            operationId,
             accountId);
 
         CredentialProviderLogonCompletionOutcome outcome =
@@ -154,6 +161,12 @@ public sealed class WindowsSessionLogonService
                 operationId,
                 activationResult.Activation.ActivationId,
                 cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "CP_REPORT_RESULT operationId={OperationId} accountId={AccountId} outcome={Outcome}.",
+            operationId,
+            accountId,
+            outcome);
 
         return outcome switch
         {
@@ -201,8 +214,11 @@ public sealed class WindowsSessionLogonService
                 Success("Expected managed Windows session is already active."),
             ProtoWindowsSessionState.SecondaryActive when accountId == ClassroomManagedWindowsAccountTypes.Secondary =>
                 Success("Expected managed Windows session is already active."),
+            ProtoWindowsSessionState.AdminActive when accountId == ClassroomManagedWindowsAccountTypes.Admin =>
+                Success("Expected managed Windows session is already active."),
             ProtoWindowsSessionState.PrimaryActive
                 or ProtoWindowsSessionState.SecondaryActive
+                or ProtoWindowsSessionState.AdminActive
                 or ProtoWindowsSessionState.OtherSessionActive =>
                 Failure(NetworkOperationErrorCode.WindowsSessionChanged, "Another Windows session is already active."),
             _ => Failure(
@@ -277,6 +293,57 @@ public sealed class WindowsSessionLogonService
             return AccountPreflightResult.Failure(
                 NetworkOperationErrorCode.AccountNotFound,
                 "Managed Windows account was not found.");
+        }
+
+        IReadOnlyList<WindowsLocalAccountRecord> inventory;
+        try
+        {
+            inventory = _inventorySource.Read(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
+            or InvalidOperationException
+            or PlatformNotSupportedException)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.OperationRejected,
+                "Windows account inventory could not be read.");
+        }
+
+        WindowsLocalAccountRecord? liveAccount = inventory.SingleOrDefault(account =>
+            string.Equals(account.WindowsSid, binding.WindowsSid, StringComparison.OrdinalIgnoreCase));
+        if (liveAccount is null)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.AccountNotFound,
+                "Managed Windows account was not found.");
+        }
+        if (!liveAccount.Enabled)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.WindowsAccountDisabled,
+                "Managed Windows account is disabled.");
+        }
+        if (liveAccount.BuiltIn)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.WindowsAccountBuiltIn,
+                "Built-in Windows accounts cannot be used for managed logon.");
+        }
+        if (accountId == ClassroomManagedWindowsAccountTypes.Admin && !liveAccount.Administrator)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.WindowsAccountAdminRequired,
+                "Managed ADMIN account no longer belongs to the Windows Administrators group.");
+        }
+        if (accountId != ClassroomManagedWindowsAccountTypes.Admin && liveAccount.Administrator)
+        {
+            return AccountPreflightResult.Failure(
+                NetworkOperationErrorCode.WindowsAccountAdminNotAllowed,
+                "PRIMARY and SECONDARY cannot use an administrative Windows account.");
         }
 
         ManagedWindowsCredentialStatusResult credential =
@@ -407,6 +474,7 @@ public sealed class LogonManagedAccountOperationHandler : IRemoteOperationHandle
         {
             ManagedWindowsAccountId.Primary => ClassroomManagedWindowsAccountTypes.Primary,
             ManagedWindowsAccountId.Secondary => ClassroomManagedWindowsAccountTypes.Secondary,
+            ManagedWindowsAccountId.Admin => ClassroomManagedWindowsAccountTypes.Admin,
             _ => null
         };
     }

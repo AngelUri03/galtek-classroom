@@ -1,5 +1,9 @@
 # Managed Account Switch Batch
 
+## 20F.2
+
+La API batch acepta PRIMARY, SECONDARY y ADMIN. Target ADMIN exige autorización `ADMIN_SESSION` fresca, one-time y scoped a actor/aula/lista exacta; el request final solo lleva el token opaco. `ADMIN_ACTIVE` es source managed válido para cambiar a PRIMARY/SECONDARY y es `NO_CHANGE` si el target es ADMIN. `OTHER_SESSION_ACTIVE` y `UNKNOWN` siguen bloqueados; no se genera subset implícito ni cadena Master-side logout + login.
+
 Prompt 19H1 implementa en el Master Backend el batch administrativo para dejar Devices explicitamente seleccionados en `PRIMARY` o `SECONDARY`. Prompt 19H2 agrega retry administrativo explicito y selectivo sobre la misma `BatchOperation`.
 
 ## Endpoint

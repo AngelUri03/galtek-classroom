@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.galtek.classroom.admin.AdminDtos.ClassroomResponse;
 import com.galtek.classroom.admin.MasterAdminRepository;
+import com.galtek.classroom.activity.DeviceActivityRecorder;
 import com.galtek.classroom.api.ApiException;
 import com.galtek.classroom.device.Device;
 import com.galtek.classroom.device.DeviceCapability;
@@ -36,6 +37,8 @@ import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageHealth;
 import com.galtek.classroom.persistence.MasterStorageState;
 import com.galtek.classroom.persistence.MasterStorageStatus;
+import com.galtek.classroom.security.SensitiveActionAuthorizationController;
+import com.galtek.classroom.security.SensitiveActionAuthorizationService;
 import com.galtek.classroom.windows.ManagedAccountSwitchDtos.ManagedAccountSwitchBatchResponse;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -85,6 +88,8 @@ public class ManagedAccountSwitchDispatchService {
     private final ManagedAccountSwitchPlanner switchPlanner;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final SensitiveActionAuthorizationService sensitiveAuthorizationService;
+    private final DeviceActivityRecorder activityRecorder;
 
     public ManagedAccountSwitchDispatchService(
             MasterAccessGuard masterAccessGuard,
@@ -97,7 +102,9 @@ public class ManagedAccountSwitchDispatchService {
             MasterRemoteOperationGateway remoteOperationGateway,
             BatchOperationService batchOperationService,
             ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock,
+            SensitiveActionAuthorizationService sensitiveAuthorizationService,
+            DeviceActivityRecorder activityRecorder) {
         this.masterAccessGuard = masterAccessGuard;
         this.storageState = storageState;
         this.adminRepository = adminRepository;
@@ -110,16 +117,33 @@ public class ManagedAccountSwitchDispatchService {
         this.switchPlanner = new ManagedAccountSwitchPlanner();
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.sensitiveAuthorizationService = sensitiveAuthorizationService;
+        this.activityRecorder = activityRecorder;
     }
 
     public ManagedAccountSwitchBatchResponse dispatch(String classroomId, Map<String, Object> request) {
-        requireAuthorizedAndStorage();
+        return dispatch(classroomId, request, null);
+    }
+
+    public ManagedAccountSwitchBatchResponse dispatch(
+            String classroomId,
+            Map<String, Object> request,
+            String sensitiveAuthorization) {
+        MasterAuthorizationResponse authorization = requireAuthorizedAndStorage();
         ManagedAccountSwitchDispatchRequest dispatchRequest = requestFrom(request);
         ClassroomResponse classroom = classroomOr404(classroomId);
+        if (dispatchRequest.targetAccountType() == ManagedWindowsAccountType.ADMIN) {
+            sensitiveAuthorizationService.consumeAdminSession(
+                    sensitiveAuthorization,
+                    SensitiveActionAuthorizationController.actorId(authorization),
+                    classroom.classroomId(),
+                    dispatchRequest.targetDeviceIds());
+        }
         OffsetDateTime createdAtUtc = nowUtc();
         String operationId = UUID.randomUUID().toString();
 
-        List<TargetPlan> targetPlans = targetPlans(classroom.classroomId(), dispatchRequest.targetDeviceIds());
+        List<TargetPlan> targetPlans = targetPlans(
+                classroom.classroomId(), dispatchRequest.targetDeviceIds(), dispatchRequest.targetAccountType());
         batchOperationService.create(
                 classroom.classroomId(),
                 BatchOperation.fromTargets(
@@ -132,7 +156,9 @@ public class ManagedAccountSwitchDispatchService {
                                 .toList()),
                 payloadFor(dispatchRequest.targetAccountType()));
 
-        List<BatchTargetResult> finalResults = executeTargets(targetPlans, dispatchRequest.targetAccountType());
+        String actor = SensitiveActionAuthorizationController.actorId(authorization);
+        List<BatchTargetResult> finalResults = executeTargets(
+                classroom.classroomId(), actor, targetPlans, dispatchRequest.targetAccountType());
         BatchOperation completed = BatchOperation.fromTargets(
                 operationId,
                 OperationType.SWITCH_MANAGED_ACCOUNT,
@@ -144,7 +170,14 @@ public class ManagedAccountSwitchDispatchService {
     }
 
     public ManagedAccountSwitchBatchResponse retry(String operationId, Map<String, Object> request) {
-        requireAuthorizedAndStorage();
+        return retry(operationId, request, null);
+    }
+
+    public ManagedAccountSwitchBatchResponse retry(
+            String operationId,
+            Map<String, Object> request,
+            String sensitiveAuthorization) {
+        MasterAuthorizationResponse authorization = requireAuthorizedAndStorage();
         String cleanOperationId = required(operationId, "operationId");
         List<String> targetDeviceIds = retryRequestFrom(request);
         StoredBatchOperation stored = batchOperationService.findStoredById(cleanOperationId)
@@ -157,6 +190,13 @@ public class ManagedAccountSwitchDispatchService {
         }
 
         ManagedWindowsAccountType targetAccountType = targetAccountTypeFrom(stored.payload());
+        if (targetAccountType == ManagedWindowsAccountType.ADMIN) {
+            sensitiveAuthorizationService.consumeAdminSession(
+                    sensitiveAuthorization,
+                    SensitiveActionAuthorizationController.actorId(authorization),
+                    stored.classroomId(),
+                    targetDeviceIds);
+        }
         List<BatchTargetResult> selectedTargets = eligibleRetryTargets(stored.operation(), targetDeviceIds);
         StoredBatchOperation claimed = batchOperationService.claimRetryTargets(
                 cleanOperationId,
@@ -173,8 +213,11 @@ public class ManagedAccountSwitchDispatchService {
         List<TargetPlan> retryPlans = targetPlans(
                 claimed.classroomId(),
                 targetDeviceIds,
-                attemptsByDeviceId);
-        List<BatchTargetResult> finalResults = executeTargets(retryPlans, targetAccountType);
+                attemptsByDeviceId,
+                targetAccountType);
+        List<BatchTargetResult> finalResults = executeTargets(
+                claimed.classroomId(), SensitiveActionAuthorizationController.actorId(authorization),
+                retryPlans, targetAccountType);
         StoredBatchOperation finished = batchOperationService.finishRetryTargets(
                 cleanOperationId,
                 finalResults);
@@ -182,6 +225,8 @@ public class ManagedAccountSwitchDispatchService {
     }
 
     private List<BatchTargetResult> executeTargets(
+            String classroomId,
+            String actor,
             List<TargetPlan> targetPlans,
             ManagedWindowsAccountType targetAccountType) {
         Map<String, BatchTargetResult> finalResultsByDeviceId = new java.util.concurrent.ConcurrentHashMap<>();
@@ -191,6 +236,9 @@ public class ManagedAccountSwitchDispatchService {
         for (TargetPlan targetPlan : targetPlans) {
             if (!targetPlan.ready()) {
                 finalResultsByDeviceId.put(targetPlan.deviceId(), targetPlan.finalFailure());
+                activityRecorder.record(classroomId, targetPlan.deviceId(),
+                        "WINDOWS_SESSION_SWITCH_FAILED", actor, targetAccountType.name(), null,
+                        "FAILED", targetPlan.message());
             }
         }
 
@@ -206,7 +254,7 @@ public class ManagedAccountSwitchDispatchService {
                 List<Future<BatchTargetResult>> futures = readyTargets.stream()
                         .map(targetPlan -> executor.submit(() -> finalResultsByDeviceId.put(
                                 targetPlan.deviceId(),
-                                executeReadyTarget(targetPlan, targetAccountType))))
+                                executeReadyTarget(classroomId, actor, targetPlan, targetAccountType))))
                         .toList();
                 for (Future<BatchTargetResult> future : futures) {
                     awaitFuture(future);
@@ -222,12 +270,17 @@ public class ManagedAccountSwitchDispatchService {
     }
 
     private BatchTargetResult executeReadyTarget(
+            String classroomId,
+            String actor,
             TargetPlan targetPlan,
             ManagedWindowsAccountType targetAccountType) {
         String snapshotOperationId = UUID.randomUUID().toString();
         RemoteOperationOutcome snapshotOutcome = dispatchAndAwaitSnapshot(targetPlan, snapshotOperationId);
         if (snapshotOutcome.status() != TargetExecutionStatus.SUCCESS
                 || snapshotOutcome.windowsSessionState() == null) {
+            activityRecorder.record(classroomId, targetPlan.deviceId(),
+                    "WINDOWS_SESSION_SWITCH_FAILED", actor, targetAccountType.name(), null,
+                    "FAILED", snapshotOutcome.message());
             return outcomeResult(targetPlan.target(), snapshotOutcome, targetPlan.attempt());
         }
 
@@ -252,11 +305,21 @@ public class ManagedAccountSwitchDispatchService {
         }
 
         if (plan.status() == com.galtek.classroom.operations.PreflightStatus.BLOCKED) {
+            activityRecorder.record(classroomId, targetPlan.deviceId(),
+                    "WINDOWS_SESSION_SWITCH_FAILED", actor, targetAccountType.name(), null,
+                    "FAILED", plan.message());
             return failed(targetPlan.target(), plan.errorCode(), plan.message(), targetPlan.attempt());
         }
 
+        boolean logon = plan.action() == ManagedAccountSwitchAction.LOGON;
+        String prefix = logon ? "WINDOWS_SESSION_LOGON" : "WINDOWS_SESSION_SWITCH";
+        activityRecorder.record(classroomId, targetPlan.deviceId(), prefix + "_REQUESTED", actor,
+                targetAccountType.name(), null, "REQUESTED", null);
         String switchOperationId = UUID.randomUUID().toString();
         RemoteOperationOutcome switchOutcome = dispatchAndAwaitSwitch(targetPlan, switchOperationId, targetAccountType);
+        activityRecorder.record(classroomId, targetPlan.deviceId(),
+                prefix + (switchOutcome.status() == TargetExecutionStatus.SUCCESS ? "_SUCCEEDED" : "_FAILED"),
+                actor, targetAccountType.name(), null, switchOutcome.status().name(), switchOutcome.message());
         return outcomeResult(targetPlan.target(), switchOutcome, targetPlan.attempt());
     }
 
@@ -309,7 +372,10 @@ public class ManagedAccountSwitchDispatchService {
         }
     }
 
-    private List<TargetPlan> targetPlans(String classroomId, List<String> targetDeviceIds) {
+    private List<TargetPlan> targetPlans(
+            String classroomId,
+            List<String> targetDeviceIds,
+            ManagedWindowsAccountType targetAccountType) {
         return targetPlans(
                 classroomId,
                 targetDeviceIds,
@@ -317,17 +383,19 @@ public class ManagedAccountSwitchDispatchService {
                         Function.identity(),
                         ignored -> 1,
                         (left, right) -> left,
-                        LinkedHashMap::new)));
+                        LinkedHashMap::new)),
+                targetAccountType);
     }
 
     private List<TargetPlan> targetPlans(
             String classroomId,
             List<String> targetDeviceIds,
-            Map<String, Integer> attemptsByDeviceId) {
+            Map<String, Integer> attemptsByDeviceId,
+            ManagedWindowsAccountType targetAccountType) {
         TargetContext context = targetContext(classroomId, targetDeviceIds);
         List<TargetPlan> plans = new ArrayList<>(targetDeviceIds.size());
         for (String deviceId : targetDeviceIds) {
-            plans.add(preflight(deviceId, context, attemptsByDeviceId.getOrDefault(deviceId, 1)));
+            plans.add(preflight(deviceId, context, attemptsByDeviceId.getOrDefault(deviceId, 1), targetAccountType));
         }
         return plans;
     }
@@ -346,7 +414,11 @@ public class ManagedAccountSwitchDispatchService {
         return new TargetContext(devices, bindings, snapshots, knownClients);
     }
 
-    private TargetPlan preflight(String deviceId, TargetContext context, int attempt) {
+    private TargetPlan preflight(
+            String deviceId,
+            TargetContext context,
+            int attempt,
+            ManagedWindowsAccountType targetAccountType) {
         Device device = context.devices().get(deviceId);
         OperationTarget target = new OperationTarget(
                 OperationTargetType.DEVICE,
@@ -401,6 +473,16 @@ public class ManagedAccountSwitchDispatchService {
                     target,
                     ErrorCode.CAPABILITY_NOT_SUPPORTED,
                     "Device does not announce WINDOWS_SESSION_SWITCH_V1.",
+                    attempt);
+        }
+
+        if (targetAccountType == ManagedWindowsAccountType.ADMIN
+                && !snapshot.capabilities().contains(DeviceCapability.ADMIN_MANAGED_SESSION_V1)) {
+            return TargetPlan.blocked(
+                    deviceId,
+                    target,
+                    ErrorCode.CAPABILITY_NOT_SUPPORTED,
+                    "Device does not announce ADMIN_MANAGED_SESSION_V1.",
                     attempt);
         }
 
@@ -460,11 +542,8 @@ public class ManagedAccountSwitchDispatchService {
         ManagedWindowsAccountType targetAccountType;
         try {
             targetAccountType = ManagedWindowsAccountType.valueOf(targetAccountId.trim());
-            if (targetAccountType == ManagedWindowsAccountType.ADMIN) {
-                throw validation("ADMIN remote login and switch are not supported.");
-            }
         } catch (IllegalArgumentException exception) {
-            throw validation("targetAccountId must be PRIMARY or SECONDARY.");
+            throw validation("targetAccountId must be PRIMARY, SECONDARY or ADMIN.");
         }
 
         return new ManagedAccountSwitchDispatchRequest(targetAccountType, targetDeviceIdsFrom(request));
@@ -528,9 +607,6 @@ public class ManagedAccountSwitchDispatchService {
             }
             ManagedWindowsAccountType accountType =
                     ManagedWindowsAccountType.valueOf(targetAccountId.asText().trim());
-            if (accountType == ManagedWindowsAccountType.ADMIN) {
-                throw rejected("ADMIN remote login and switch are not supported.");
-            }
             return accountType;
         } catch (IllegalArgumentException | JsonProcessingException exception) {
             throw rejected("Stored operation target account is invalid.");
@@ -582,7 +658,9 @@ public class ManagedAccountSwitchDispatchService {
     private BatchTargetResult outcomeResult(OperationTarget target, RemoteOperationOutcome outcome, int attempt) {
         return new BatchTargetResult(
                 target,
-                outcome.status(),
+                outcome.errorCode() == ErrorCode.OPERATION_RESULT_UNKNOWN
+                        ? TargetExecutionStatus.UNKNOWN
+                        : outcome.status(),
                 outcome.errorCode(),
                 outcome.message(),
                 attempt);
@@ -602,6 +680,7 @@ public class ManagedAccountSwitchDispatchService {
             case WINDOWS_SESSION_STATE_NO_SESSION -> WindowsSessionState.NO_SESSION;
             case WINDOWS_SESSION_STATE_PRIMARY_ACTIVE -> WindowsSessionState.PRIMARY_ACTIVE;
             case WINDOWS_SESSION_STATE_SECONDARY_ACTIVE -> WindowsSessionState.SECONDARY_ACTIVE;
+            case WINDOWS_SESSION_STATE_ADMIN_ACTIVE -> WindowsSessionState.ADMIN_ACTIVE;
             case WINDOWS_SESSION_STATE_OTHER_SESSION_ACTIVE -> WindowsSessionState.OTHER_SESSION_ACTIVE;
             case WINDOWS_SESSION_STATE_UNKNOWN -> WindowsSessionState.UNKNOWN;
             case WINDOWS_SESSION_STATE_UNSPECIFIED, UNRECOGNIZED -> WindowsSessionState.UNKNOWN;
@@ -612,7 +691,7 @@ public class ManagedAccountSwitchDispatchService {
         return switch (targetAccountType) {
             case PRIMARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY;
             case SECONDARY -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY;
-            case ADMIN -> throw rejected("ADMIN remote login and switch are not supported.");
+            case ADMIN -> ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN;
         };
     }
 

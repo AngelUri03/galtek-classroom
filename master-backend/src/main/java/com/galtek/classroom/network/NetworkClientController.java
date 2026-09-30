@@ -4,6 +4,7 @@ import com.galtek.classroom.network.NetworkDtos.DeviceRegistrationResponse;
 import com.galtek.classroom.network.NetworkDtos.NetworkClientResponse;
 import com.galtek.classroom.network.NetworkDtos.PowerControlBatchResponse;
 import com.galtek.classroom.network.NetworkDtos.RegisterDeviceRequest;
+import com.galtek.classroom.operations.DeviceMutationHttpGuard;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,12 +28,15 @@ public class NetworkClientController {
 
     private final NetworkClientAdminService service;
     private final PowerControlDispatchService powerControlDispatchService;
+    private final DeviceMutationHttpGuard mutationGuard;
 
     public NetworkClientController(
             NetworkClientAdminService service,
-            PowerControlDispatchService powerControlDispatchService) {
+            PowerControlDispatchService powerControlDispatchService,
+            DeviceMutationHttpGuard mutationGuard) {
         this.service = service;
         this.powerControlDispatchService = powerControlDispatchService;
+        this.mutationGuard = mutationGuard;
     }
 
     @GetMapping("/network/clients")
@@ -52,6 +56,12 @@ public class NetworkClientController {
     public PowerControlBatchResponse powerControl(
             @PathVariable String classroomId,
             @RequestBody(required = false) Map<String, Object> request) {
-        return powerControlDispatchService.dispatch(classroomId, request);
+        String type = request != null && request.get("type") instanceof String value ? value : "POWER_CONTROL";
+        return mutationGuard.run(
+                DeviceMutationHttpGuard.targetDeviceIds(request),
+                type,
+                null,
+                () -> powerControlDispatchService.dispatch(classroomId, request),
+                response -> response.targets().stream().map(target -> target.status()).toList());
     }
 }

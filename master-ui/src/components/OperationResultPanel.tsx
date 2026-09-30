@@ -8,15 +8,17 @@ import {
   Minus,
   Power,
   RotateCcw,
+  LogIn,
+  LogOut,
   UnlockKeyhole,
-  X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import type { BatchOperationResult, QuickActionType } from "../api/quickActionsApi";
+import type { BatchOperationResult, OperationActionType } from "../api/quickActionsApi";
 import type { ClassroomDeviceCardData } from "../types/classroom";
 import { toOperationResultView, type OperationResultTargetView } from "./quickActionResultViewModel";
 import { DeviceInspector } from "./DeviceInspector";
+import { GaltekCloseButton } from "./FormControls";
 
 type Props = {
   classroomId: string;
@@ -27,12 +29,14 @@ type Props = {
   onDrawerChange: (open: boolean) => void;
 };
 
-const actionIcons: Record<QuickActionType, LucideIcon> = {
+const actionIcons: Record<OperationActionType, LucideIcon> = {
   OPEN_URL: Link,
   LOCK_INPUT: LockKeyhole,
   UNLOCK_INPUT: UnlockKeyhole,
   RESTART: RotateCcw,
-  SHUTDOWN: Power
+  SHUTDOWN: Power,
+  SWITCH_MANAGED_ACCOUNT: LogIn,
+  LOGOFF_WINDOWS_SESSION: LogOut
 };
 
 export function OperationResultPanel({ classroomId, result, devices, onDismiss, drawerOpen, onDrawerChange }: Props) {
@@ -70,9 +74,7 @@ export function OperationResultPanel({ classroomId, result, devices, onDismiss, 
           </div>
           <div className="operation-result__actions">
             <button ref={detailTriggerRef} type="button" onClick={() => onDrawerChange(true)}>Ver detalle</button>
-            <button className="operation-result__close" type="button" aria-label="Cerrar resultado" onClick={onDismiss}>
-              <X size={16} aria-hidden="true" />
-            </button>
+            <GaltekCloseButton ariaLabel="Cerrar resultado" onClick={onDismiss} />
           </div>
         </div>
       </section>
@@ -93,10 +95,8 @@ export function OperationResultPanel({ classroomId, result, devices, onDismiss, 
                 <p className="operation-result__eyebrow">Detalle</p>
                 <h2 id="result-drawer-title">{view.actionName}</h2>
               </div>
-              <button type="button" aria-label="Cerrar detalle"
-                onClick={() => { onDrawerChange(false); setInspectedDeviceId(null); }}>
-                <X size={17} aria-hidden="true" />
-              </button>
+              <GaltekCloseButton ariaLabel="Cerrar detalle"
+                onClick={() => { onDrawerChange(false); setInspectedDeviceId(null); }} />
             </div>
             {inspectedDevice ? (
               <DeviceInspector classroomId={classroomId} device={inspectedDevice} onBack={() => setInspectedDeviceId(null)} />
@@ -141,7 +141,6 @@ function TargetResultRow({ target }: { target: OperationResultTargetView }) {
         <strong>{target.deviceName}</strong>
         <span>{target.resultText}</span>
       </div>
-      {target.errorCode ? <code>{target.errorCode}</code> : null}
     </div>
   );
 }

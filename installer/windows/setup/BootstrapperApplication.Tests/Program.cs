@@ -35,7 +35,7 @@ internal static class Program
         Expect("state same", ProductState.InstalledSame, Resolve("0.0.1", true, true, null, Legacy("FRESH")).State);
         Expect("state older", ProductState.InstalledOlder, Resolve("0.0.2", false, false, "0.0.1", Legacy("FRESH")).State);
         Expect("state newer", ProductState.InstalledNewer, Resolve("0.0.1", false, false, "0.0.2", Legacy("FRESH")).State);
-        Expect("current registration wins over stale related", ProductState.InstalledSame, Resolve("0.0.4", true, true, "0.0.3", Legacy("FRESH"), true).State);
+        Expect("current registration wins over stale related", ProductState.InstalledSame, Resolve("0.0.6", true, true, "0.0.5", Legacy("FRESH"), true).State);
         Expect("state partial", ProductState.RepairablePartial, Resolve("0.0.1", false, false, null, Legacy("REPAIRABLE_PARTIAL", true, false, false)).State);
         Expect("state external service blocked", ProductState.BlockedConflict, Resolve("0.0.1", false, false, null, Legacy("BLOCKED_CONFLICT", true, false, false, "SERVICE", "PATH_OUTSIDE_GALTEK_ROOT")).State);
         Expect("state other vendor cp blocked", ProductState.BlockedConflict, Resolve("0.0.1", false, false, null, Legacy("BLOCKED_CONFLICT", false, false, true, "CP", "PROVIDER_NAME_MISMATCH")).State);
@@ -181,7 +181,7 @@ internal static class Program
         var stalled = embeddedUninstall.Where(x => x.Name != "APPLY" && x.Name != "APPLY_COMPLETE" && x.Name != "SHUTDOWN").ToList();
         Expect("watchdog rejects detect-plan stall", false, TraceComplete(stalled, TimeSpan.FromSeconds(1)));
         Console.WriteLine("EMBEDDED_UNINSTALL_004_FIXTURE_PASS BA_MODE=EMBEDDED Detect Plan Apply(nonzero-HWND) ApplyComplete Shutdown WPF=false interaction=false deadlock=false");
-        Console.WriteLine("FUTURE_004_TO_005_EMBEDDED_FIXTURE_PASS 004-not-suppressed Detect Plan-Uninstall Apply(nonzero-HWND) ApplyComplete Shutdown");
+        Console.WriteLine("FUTURE_005_TO_006_EMBEDDED_FIXTURE_PASS 005-not-suppressed Detect Plan-Uninstall Apply(nonzero-HWND) ApplyComplete Shutdown");
         Console.WriteLine("TEST_HARNESS_APPLY_WATCHDOG_PASS detect-plan-without-apply=failure production-timeout=false");
     }
 
@@ -211,57 +211,62 @@ internal static class Program
 
     private static void MixedStateRecoveryTests()
     {
-        var initial = Resolve("0.0.4", false, false, "0.0.3", Legacy("LEGACY_SUPPORTED", true, true, true), true);
+        var initial = Resolve("0.0.6", false, false, "0.0.3", Legacy("LEGACY_SUPPORTED", true, true, true), true);
         Expect("mixed initial is older", ProductState.InstalledOlder, initial.State);
         Expect("mixed initial cleanup flag", true, initial.NeedsPredecessorCleanup);
         Expect("mixed initial update intent", InstallerIntent.Update, ActionResolver.PrimaryIntent(initial));
         Expect("mixed initial install plan", EnginePlanAction.Install, ActionResolver.ToEngineAction(initial.State, ActionResolver.PrimaryIntent(initial)));
 
-        var reopened = Resolve("0.0.4", true, true, "0.0.3", Legacy("LEGACY_SUPPORTED", true, true, true), true);
+        var reopened = Resolve("0.0.6", true, true, "0.0.3", Legacy("LEGACY_SUPPORTED", true, true, true), true);
         Expect("reopen product same", ProductState.InstalledSame, reopened.State);
         Expect("reopen cleanup flag", true, reopened.NeedsPredecessorCleanup);
         Expect("reopen maintenance intent", InstallerIntent.CompleteUpdate, ActionResolver.PrimaryIntent(reopened));
-        var presentation = PresentationResolver.Resolve(reopened.State, InstallerIntent.None, "0.0.4", "0.0.4", null, null, null, null, true);
+        var presentation = PresentationResolver.Resolve(reopened.State, InstallerIntent.None, "0.0.6", "0.0.6", null, null, null, null, true);
         Expect("reopen maintenance cta", "Completar actualización", presentation.Primary);
         Expect("reopen maintenance eyebrow", "MANTENIMIENTO PENDIENTE", presentation.Eyebrow);
         Expect("reopen maintenance title", "La actualización está instalada", presentation.Title);
         Expect("reopen no uninstall", null, presentation.Destructive);
-        Contains("reopen current installed", presentation.Body, "0.0.4 ya está instalado");
-        Console.WriteLine("PC14_EXACT_MIXED_STATE_FIXTURE_PASS four-historical=None MSI003-to-004 cleanup=graph historical-process-count=0");
-        Console.WriteLine("CURRENT_004_CLEANUP_PENDING_FIXTURE_PASS installed-same complete-update no-uninstall");
+        Contains("reopen current installed", presentation.Body, "0.0.6 ya está instalado");
+        Console.WriteLine("PC14_EXACT_MIXED_STATE_FIXTURE_PASS four-historical=None MSI003-to-006 cleanup=graph historical-process-count=0");
+        Console.WriteLine("CURRENT_006_CLEANUP_PENDING_FIXTURE_PASS installed-same complete-update no-uninstall");
     }
 
     private static void ReleaseUpgradeFixtures()
     {
         var c183 = Related(LegacyBrokenBundlePolicy.C183002BundleId, "0.0.2", RelationType.Upgrade);
         Expect("clean C183 suppressed", true, LegacyBrokenBundlePolicy.ShouldSuppress(c183));
-        var cleanC183 = Resolve("0.0.4", false, false, "0.0.2", Legacy("LEGACY_SUPPORTED", true, true, true), true);
+        var cleanC183 = Resolve("0.0.6", false, false, "0.0.2", Legacy("LEGACY_SUPPORTED", true, true, true), true);
         Expect("clean C183 update state", ProductState.InstalledOlder, cleanC183.State);
         Expect("clean C183 update plan", EnginePlanAction.Install, ActionResolver.ToEngineAction(cleanC183.State, ActionResolver.PrimaryIntent(cleanC183)));
 
         var old001 = Related(LegacyBrokenBundlePolicy.Validated001BundleId, "0.0.1", RelationType.Upgrade);
         Expect("clean 001 suppressed", true, LegacyBrokenBundlePolicy.ShouldSuppress(old001));
-        var clean001 = Resolve("0.0.4", false, false, "0.0.1", Legacy("LEGACY_SUPPORTED", true, true, true), true);
+        var clean001 = Resolve("0.0.6", false, false, "0.0.1", Legacy("LEGACY_SUPPORTED", true, true, true), true);
         Expect("clean 001 update state", ProductState.InstalledOlder, clean001.State);
 
-        var legacy = Resolve("0.0.4", false, false, null, Legacy("LEGACY_SUPPORTED", true, true, true));
+        var legacy = Resolve("0.0.6", false, false, null, Legacy("LEGACY_SUPPORTED", true, true, true));
         Expect("pre-msi legacy supported", ProductState.LegacySupported, legacy.State);
         Expect("pre-msi legacy install plan", EnginePlanAction.Install, ActionResolver.ToEngineAction(legacy.State, ActionResolver.PrimaryIntent(legacy)));
 
         var old003 = Related(LegacyBrokenBundlePolicy.Failed003BundleId, "0.0.3", RelationType.Upgrade);
         Expect("clean 003 suppressed", true, LegacyBrokenBundlePolicy.ShouldSuppress(old003));
-        var future004 = Related("{55555555-5555-4555-8555-555555555555}", "0.0.4", RelationType.Upgrade);
-        Expect("future release does not suppress 004", false, LegacyBrokenBundlePolicy.ShouldSuppress(future004));
-        var current = Resolve("0.0.4", true, true, null, Legacy("FRESH"));
-        Expect("current 004 same", ProductState.InstalledSame, current.State);
-        Expect("current 004 repair", EnginePlanAction.Repair, ActionResolver.ToEngineAction(current.State, InstallerIntent.Repair));
-        Expect("current 004 uninstall", EnginePlanAction.Uninstall, ActionResolver.ToEngineAction(current.State, InstallerIntent.Uninstall));
+        var predecessor005 = Related("{ED86C4F6-C510-4FB7-B7BF-0359BB1B2898}", "0.0.5", RelationType.Upgrade);
+        Expect("healthy 005 is not suppressed", false, LegacyBrokenBundlePolicy.ShouldSuppress(predecessor005));
+        var normal005Upgrade = Resolve("0.0.6", false, false, "0.0.5", Legacy("FRESH"));
+        Expect("005 to 006 uses normal related upgrade", ProductState.InstalledOlder, normal005Upgrade.State);
+        Expect("005 to 006 does not request legacy cleanup", false, normal005Upgrade.NeedsPredecessorCleanup);
+        Expect("005 to 006 install plan", EnginePlanAction.Install, ActionResolver.ToEngineAction(normal005Upgrade.State, ActionResolver.PrimaryIntent(normal005Upgrade)));
+        var current = Resolve("0.0.6", true, true, null, Legacy("FRESH"));
+        Expect("current 006 same", ProductState.InstalledSame, current.State);
+        Expect("current 006 repair", EnginePlanAction.Repair, ActionResolver.ToEngineAction(current.State, InstallerIntent.Repair));
+        Expect("current 006 uninstall", EnginePlanAction.Uninstall, ActionResolver.ToEngineAction(current.State, InstallerIntent.Uninstall));
 
-        Console.WriteLine("CLEAN_C183_002_TO_004_FIXTURE_PASS suppressed old-ba-process=false cleanup=true");
-        Console.WriteLine("CLEAN_A274_003_TO_004_FIXTURE_PASS suppressed MSI-major-upgrade cleanup=true A274-process-count=0");
-        Console.WriteLine("CLEAN_001_TO_004_FIXTURE_PASS old-ba-process=false cleanup=true no-deadlock");
-        Console.WriteLine("FRESH_004_FIXTURE_PASS no-historical-graph cleanup=false");
-        Console.WriteLine("CURRENT_004_FIXTURE_PASS INSTALLED_SAME repair uninstall cleanup=false");
+        Console.WriteLine("CLEAN_C183_002_TO_006_FIXTURE_PASS suppressed old-ba-process=false cleanup=true");
+        Console.WriteLine("CLEAN_A274_003_TO_006_FIXTURE_PASS suppressed MSI-major-upgrade cleanup=true A274-process-count=0");
+        Console.WriteLine("CLEAN_001_TO_006_FIXTURE_PASS old-ba-process=false cleanup=true no-deadlock");
+        Console.WriteLine("NORMAL_005_TO_006_RELATED_FIXTURE_PASS 005-not-suppressed MSI-major-upgrade cleanup=false");
+        Console.WriteLine("FRESH_006_FIXTURE_PASS no-historical-graph cleanup=false");
+        Console.WriteLine("CURRENT_006_FIXTURE_PASS INSTALLED_SAME repair uninstall cleanup=false");
     }
 
     private sealed class TracePoint

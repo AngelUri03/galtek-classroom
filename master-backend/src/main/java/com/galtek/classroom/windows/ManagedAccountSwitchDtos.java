@@ -40,6 +40,8 @@ public final class ManagedAccountSwitchDtos {
             int total,
             int noChange,
             int success,
+            int partial,
+            int unknown,
             int failed) {
 
         static ManagedAccountSwitchSummaryResponse from(BatchOperation operation) {
@@ -49,10 +51,17 @@ public final class ManagedAccountSwitchDtos {
             int success = (int) operation.targets().stream()
                     .filter(target -> target.status() == TargetExecutionStatus.SUCCESS)
                     .count();
-            int failed = (int) operation.targets().stream()
-                    .filter(BatchTargetResult::failed)
+            int partial = (int) operation.targets().stream()
+                    .filter(target -> target.status() == TargetExecutionStatus.PARTIAL)
                     .count();
-            return new ManagedAccountSwitchSummaryResponse(operation.targetCount(), noChange, success, failed);
+            int unknown = (int) operation.targets().stream()
+                    .filter(target -> target.status() == TargetExecutionStatus.UNKNOWN)
+                    .count();
+            int failed = (int) operation.targets().stream()
+                    .filter(target -> target.status() == TargetExecutionStatus.FAILED)
+                    .count();
+            return new ManagedAccountSwitchSummaryResponse(
+                    operation.targetCount(), noChange, success, partial, unknown, failed);
         }
     }
 

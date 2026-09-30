@@ -1,5 +1,9 @@
 # Windows Session Logoff
 
+## 20F.2
+
+`LOGOFF_WINDOWS_SESSION` acepta PRIMARY, SECONDARY o ADMIN como role esperado. El request contiene únicamente `account_id`; el Agent carga binding/SID local, observa y revalida sessionId + SID inmediatamente antes de `WTSLogoffSession`. `NO_SESSION` es idempotente; otra SID produce `WINDOWS_SESSION_CHANGED`; `OTHER_SESSION_ACTIVE` no se cierra. Master expone `POST /api/classrooms/{classroomId}/windows-session/logoff`, persiste un `BatchOperation` antes de la mutación y conserva resultados por target, sin target implícito ni retry.
+
 Prompt 19F implementa `LOGOFF_WINDOWS_SESSION` como operacion remota tipada, Agent-side y destructiva para cerrar solo una sesion Windows administrada esperada.
 
 ## Contrato
@@ -12,7 +16,7 @@ LogoffWindowsSessionOperationParameters {
 }
 ```
 
-Valores validos: `PRIMARY` y `SECONDARY`. `UNSPECIFIED` se rechaza.
+Valores válidos: `PRIMARY`, `SECONDARY` y `ADMIN`. `UNSPECIFIED` se rechaza.
 
 El contrato no transporta username, domain, SID, `accountReference`, password, sessionId, PID, force, timeout, command, args, shell ni payload arbitrario.
 

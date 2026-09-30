@@ -1,5 +1,11 @@
 # Managed Credential Provisioning
 
+## 20F.2
+
+La UI envía la password como `application/octet-stream` mediante el contrato seguro existente, nunca dentro de JSON. Password y confirmación viven solo en estado local del modal y se limpian en success, failure o cancel. El token de sesión de Vault vive únicamente en memoria React y se pierde en reload/cierre.
+
+PRIMARY, SECONDARY y ADMIN usan el mismo provisioning. El estado combinado distingue Vault+Client (`READY`), Vault sin Client (`PENDING_CLIENT_SYNC`), Client sin Vault (`CLIENT_ONLY_NOT_REVEALABLE`) y ninguna copia (`NO_CREDENTIAL`). Un fallo Client posterior al upsert Vault se muestra como parcial y nunca borra automáticamente la copia Vault.
+
 Prompt 19E1 agrega `PROVISION_MANAGED_CREDENTIAL`, una operacion remota tipada y secret-bearing para cargar o reemplazar en el Client la password Windows almacenada por Galtek para `PRIMARY` o `SECONDARY`. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para usar una credencial `WINDOWS_ACCOUNT` ya almacenada, sin BatchOperation. La ampliacion 2026-09-14 agrega endpoint HTTP Master para provisionar un slot de un Device explicito con password recibida como octet-stream y persistida primero en Credential Vault.
 
 ## Contrato

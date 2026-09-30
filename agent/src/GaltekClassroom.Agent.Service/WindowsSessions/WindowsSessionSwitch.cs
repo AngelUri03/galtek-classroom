@@ -8,11 +8,13 @@ namespace GaltekClassroom.Agent.Service.WindowsSessions;
 
 public sealed record WindowsSessionSwitchOptions(
     TimeSpan PostLogoffWait,
-    TimeSpan PostLogoffPollInterval)
+    TimeSpan PostLogoffPollInterval,
+    TimeSpan PostLogoffProviderAvailabilityWait)
 {
     public static WindowsSessionSwitchOptions Default { get; } = new(
         TimeSpan.FromSeconds(24),
-        TimeSpan.FromMilliseconds(300));
+        TimeSpan.FromMilliseconds(300),
+        TimeSpan.FromSeconds(8));
 }
 
 public interface IWindowsSessionSwitchClock
@@ -50,19 +52,27 @@ public sealed class WindowsSessionSwitchDelay : IWindowsSessionSwitchDelay
 
 public sealed record WindowsSessionSwitchServiceResult(
     bool Succeeded,
+    bool Partial,
     NetworkOperationErrorCode ErrorCode,
     string Message)
 {
     public static WindowsSessionSwitchServiceResult Success(string message)
     {
-        return new WindowsSessionSwitchServiceResult(true, NetworkOperationErrorCode.Unspecified, message);
+        return new WindowsSessionSwitchServiceResult(true, false, NetworkOperationErrorCode.Unspecified, message);
     }
 
     public static WindowsSessionSwitchServiceResult Failure(
         NetworkOperationErrorCode errorCode,
         string message)
     {
-        return new WindowsSessionSwitchServiceResult(false, errorCode, message);
+        return new WindowsSessionSwitchServiceResult(false, false, errorCode, message);
+    }
+
+    public static WindowsSessionSwitchServiceResult PartialFailure(
+        NetworkOperationErrorCode errorCode,
+        string message)
+    {
+        return new WindowsSessionSwitchServiceResult(false, true, errorCode, message);
     }
 }
 
@@ -138,6 +148,11 @@ public sealed class WindowsSessionSwitchService
             return Failure(preflight.ErrorCode, preflight.Message);
         }
 
+        _logger.LogInformation(
+            "SWITCH_TARGET_PREFLIGHT_OK source={SourceAccountId} target={TargetAccountId}.",
+            sourceAccountId,
+            targetAccountId);
+
         WindowsSessionStateServiceResult second =
             await _sessionStateService.GetStateAsync(cancellationToken).ConfigureAwait(false);
         if (!second.Succeeded)
@@ -164,7 +179,7 @@ public sealed class WindowsSessionSwitchService
         }
 
         _logger.LogInformation(
-            "WINDOWS_SWITCH_LOGOFF_ACCEPTED source={SourceAccountId} target={TargetAccountId}",
+            "SWITCH_SOURCE_LOGOFF_ACCEPTED source={SourceAccountId} target={TargetAccountId}.",
             sourceAccountId,
             targetAccountId);
 
@@ -181,10 +196,30 @@ public sealed class WindowsSessionSwitchService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return FromLogon(await _logonService.LogonAsync(
+        _logger.LogInformation(
+            "SWITCH_TARGET_LOGON_BEGIN source={SourceAccountId} target={TargetAccountId}.",
+            sourceAccountId,
+            targetAccountId);
+        WindowsSessionLogonServiceResult targetLogon = await _logonService.LogonAsync(
             operationId,
             targetAccountId,
-            cancellationToken).ConfigureAwait(false));
+            cancellationToken,
+            _options.PostLogoffProviderAvailabilityWait).ConfigureAwait(false);
+        if (!targetLogon.Succeeded)
+        {
+            _logger.LogWarning(
+                "SWITCH_TARGET_LOGON_FAILED source={SourceAccountId} target={TargetAccountId} errorCode={ErrorCode}.",
+                sourceAccountId,
+                targetAccountId,
+                targetLogon.ErrorCode);
+            return WindowsSessionSwitchServiceResult.PartialFailure(targetLogon.ErrorCode, targetLogon.Message);
+        }
+
+        _logger.LogInformation(
+            "SWITCH_COMPLETE source={SourceAccountId} target={TargetAccountId}.",
+            sourceAccountId,
+            targetAccountId);
+        return Success(targetLogon.Message);
     }
 
     private async Task<WindowsSessionSwitchTransitionResult> WaitAfterLogoffAsync(
@@ -222,7 +257,7 @@ public sealed class WindowsSessionSwitchService
             if (state.State == ProtoWindowsSessionState.NoSession)
             {
                 _logger.LogInformation(
-                    "WINDOWS_SWITCH_NO_SESSION_CONFIRMED elapsedMs={ElapsedMilliseconds}",
+                    "SWITCH_NO_SESSION_CONFIRMED elapsedMs={ElapsedMilliseconds}",
                     (long)elapsed.TotalMilliseconds);
                 return WindowsSessionSwitchTransitionResult.NoSession();
             }
@@ -271,6 +306,8 @@ public sealed class WindowsSessionSwitchService
                 accountId == ClassroomManagedWindowsAccountTypes.Primary,
             ProtoWindowsSessionState.SecondaryActive =>
                 accountId == ClassroomManagedWindowsAccountTypes.Secondary,
+            ProtoWindowsSessionState.AdminActive =>
+                accountId == ClassroomManagedWindowsAccountTypes.Admin,
             _ => false
         };
     }
@@ -281,6 +318,7 @@ public sealed class WindowsSessionSwitchService
         {
             ProtoWindowsSessionState.PrimaryActive => ClassroomManagedWindowsAccountTypes.Primary,
             ProtoWindowsSessionState.SecondaryActive => ClassroomManagedWindowsAccountTypes.Secondary,
+            ProtoWindowsSessionState.AdminActive => ClassroomManagedWindowsAccountTypes.Admin,
             _ => null
         };
     }
@@ -376,7 +414,12 @@ public sealed class SwitchManagedAccountOperationHandler : IRemoteOperationHandl
             await _service.SwitchAsync(request.OperationId, targetAccountId, cancellationToken).ConfigureAwait(false);
         if (!result.Succeeded)
         {
-            return Failed(result.ErrorCode, result.Message);
+            return result.Partial
+                ? new RemoteOperationHandlerResult(
+                    OperationExecutionStatus.Partial,
+                    result.ErrorCode,
+                    result.Message)
+                : Failed(result.ErrorCode, result.Message);
         }
 
         _logger.LogInformation(
@@ -392,6 +435,7 @@ public sealed class SwitchManagedAccountOperationHandler : IRemoteOperationHandl
         {
             ManagedWindowsAccountId.Primary => ClassroomManagedWindowsAccountTypes.Primary,
             ManagedWindowsAccountId.Secondary => ClassroomManagedWindowsAccountTypes.Secondary,
+            ManagedWindowsAccountId.Admin => ClassroomManagedWindowsAccountTypes.Admin,
             _ => null
         };
     }

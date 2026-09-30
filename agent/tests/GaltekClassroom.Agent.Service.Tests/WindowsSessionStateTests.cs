@@ -17,6 +17,7 @@ public sealed class WindowsSessionStateTests : IDisposable
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
     private const string PrimarySid = "S-1-5-21-1000000000-1000000000-1000000000-1004";
     private const string SecondarySid = "S-1-5-21-1000000000-1000000000-1000000000-1005";
+    private const string AdminSid = "S-1-5-21-1000000000-1000000000-1000000000-1007";
     private const string OtherSid = "S-1-5-21-1000000000-1000000000-1000000000-1006";
 
     private readonly string _dataDirectory = Path.Combine(
@@ -165,6 +166,50 @@ public sealed class WindowsSessionStateTests : IDisposable
     }
 
     [Fact]
+    public async Task Service_WhenAdminSidMatches_ReturnsAdminActive()
+    {
+        await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding(), AdminBinding()]);
+
+        var result = await CreateService(AdminSid).GetStateAsync(CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(ProtoWindowsSessionState.AdminActive, result.State);
+    }
+
+    [Fact]
+    public async Task HostnameRename_PreservesAllManagedRolesBySidWithoutRewritingBindings()
+    {
+        await SaveBindingsAsync([
+            ManagedWindowsAccountBinding.Create(
+                ClassroomManagedWindowsAccountTypes.Primary,
+                PrimarySid,
+                "ICH11\\Primaria",
+                FixedNow),
+            ManagedWindowsAccountBinding.Create(
+                ClassroomManagedWindowsAccountTypes.Secondary,
+                SecondarySid,
+                "ICH11\\Secundaria",
+                FixedNow),
+            ManagedWindowsAccountBinding.Create(
+                ClassroomManagedWindowsAccountTypes.Admin,
+                AdminSid,
+                "ICH11\\Admin",
+                FixedNow)
+        ]);
+        string bindingsPath = Path.Combine(_dataDirectory, ManagedWindowsAccountBindingConstants.FileName);
+        byte[] beforeRename = await File.ReadAllBytesAsync(bindingsPath);
+
+        var primary = await CreateService(PrimarySid).GetStateAsync(CancellationToken.None);
+        var secondary = await CreateService(SecondarySid).GetStateAsync(CancellationToken.None);
+        var admin = await CreateService(AdminSid).GetStateAsync(CancellationToken.None);
+
+        Assert.Equal(ProtoWindowsSessionState.PrimaryActive, primary.State);
+        Assert.Equal(ProtoWindowsSessionState.SecondaryActive, secondary.State);
+        Assert.Equal(ProtoWindowsSessionState.AdminActive, admin.State);
+        Assert.Equal(beforeRename, await File.ReadAllBytesAsync(bindingsPath));
+    }
+
+    [Fact]
     public async Task Service_WhenSidIsDifferent_ReturnsOtherSessionActive()
     {
         await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding()]);
@@ -181,6 +226,17 @@ public sealed class WindowsSessionStateTests : IDisposable
         await EnsureInstallationIdentityAsync();
 
         var result = await CreateService(OtherSid).GetStateAsync(CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(ProtoWindowsSessionState.OtherSessionActive, result.State);
+    }
+
+    [Fact]
+    public async Task Service_WhenAdminAccountIsNotBound_ReturnsOtherSessionActive()
+    {
+        await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding()]);
+
+        var result = await CreateService(AdminSid).GetStateAsync(CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(ProtoWindowsSessionState.OtherSessionActive, result.State);
@@ -525,6 +581,15 @@ public sealed class WindowsSessionStateTests : IDisposable
             ClassroomManagedWindowsAccountTypes.Secondary,
             SecondarySid,
             "PC23\\Secundaria",
+            FixedNow);
+    }
+
+    private static ManagedWindowsAccountBinding AdminBinding()
+    {
+        return ManagedWindowsAccountBinding.Create(
+            ClassroomManagedWindowsAccountTypes.Admin,
+            AdminSid,
+            "PC23\\Admin",
             FixedNow);
     }
 

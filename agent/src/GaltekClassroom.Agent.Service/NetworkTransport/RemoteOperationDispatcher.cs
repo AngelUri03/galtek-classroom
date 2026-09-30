@@ -339,6 +339,8 @@ public sealed class RemoteOperationDispatcher
                     request.SetManagedAccountBinding),
                 OperationRequest.OperationParametersOneofCase.RemoveManagedAccountBinding => RemoveManagedAccountBindingSignature(
                     request.RemoveManagedAccountBinding),
+                OperationRequest.OperationParametersOneofCase.RemoveManagedCredential => RemoveManagedCredentialSignature(
+                    request.RemoveManagedCredential),
                 OperationRequest.OperationParametersOneofCase.None => string.Empty,
                 _ => "<unknown>"
             };
@@ -408,6 +410,14 @@ public sealed class RemoteOperationDispatcher
 
         private static string RemoveManagedAccountBindingSignature(
             RemoveManagedAccountBindingOperationParameters? parameters)
+        {
+            return parameters is null
+                ? string.Empty
+                : parameters.AccountId.ToString();
+        }
+
+        private static string RemoveManagedCredentialSignature(
+            RemoveManagedCredentialOperationParameters? parameters)
         {
             return parameters is null
                 ? string.Empty

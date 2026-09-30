@@ -74,6 +74,11 @@ public record BatchOperation(
             return BatchOperationStatus.FAILED;
         }
 
+        if (targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.PARTIAL)
+                || targets.stream().anyMatch(target -> target.status() == TargetExecutionStatus.UNKNOWN)) {
+            return BatchOperationStatus.PARTIAL_SUCCESS;
+        }
+
         if (targets.stream().allMatch(target -> target.status() == TargetExecutionStatus.CANCELLED)) {
             return BatchOperationStatus.CANCELLED;
         }

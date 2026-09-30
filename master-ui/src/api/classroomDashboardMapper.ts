@@ -83,7 +83,7 @@ function toDeviceCardData(
     rawStatus: device.status,
     statusLabel: statusLabels[device.status],
     secondaryStatus: formatLastSeen(device.lastSeenUtc),
-    note: hostnameDetail ?? `ID ${shortDeviceId(device.deviceId)}`,
+    note: hostnameDetail ?? `Equipo ${label}`,
     capabilities: [...device.capabilities],
     assignedStudentId: device.assignedStudentId,
     assignedStudentGroupId: assignedStudent?.groupId ?? null,

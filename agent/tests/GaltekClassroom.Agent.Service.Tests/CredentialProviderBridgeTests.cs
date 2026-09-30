@@ -33,6 +33,7 @@ public sealed class CredentialProviderBridgeTests
     [Theory]
     [InlineData(ClassroomManagedWindowsAccountTypes.Primary)]
     [InlineData(ClassroomManagedWindowsAccountTypes.Secondary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Admin)]
     public void ActivationStore_AcceptsManagedAccountIds(string accountId)
     {
         var store = new CredentialProviderActivationStore();

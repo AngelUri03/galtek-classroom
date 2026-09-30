@@ -23,6 +23,7 @@ public static class ClassroomOperationTypes
     public const string ProvisionManagedCredential = "PROVISION_MANAGED_CREDENTIAL";
     public const string SetManagedAccountBinding = "SET_MANAGED_ACCOUNT_BINDING";
     public const string RemoveManagedAccountBinding = "REMOVE_MANAGED_ACCOUNT_BINDING";
+    public const string RemoveManagedCredential = "REMOVE_MANAGED_CREDENTIAL";
     public const string ApplyBrowserNavigationPolicy = "APPLY_BROWSER_NAVIGATION_POLICY";
     public const string ApplyBrowserDownloadPolicy = "APPLY_BROWSER_DOWNLOAD_POLICY";
     public const string AssignStudent = "ASSIGN_STUDENT";
@@ -201,6 +202,7 @@ public static class ClassroomWindowsSessionStates
     public const string PrimaryActive = "PRIMARY_ACTIVE";
     public const string SecondaryActive = "SECONDARY_ACTIVE";
     public const string OtherSessionActive = "OTHER_SESSION_ACTIVE";
+    public const string AdminActive = "ADMIN_ACTIVE";
     public const string Unknown = "UNKNOWN";
 }
 
@@ -327,4 +329,6 @@ public static class ClassroomCapabilities
     public const string ManagedAccountStatusV1 = "MANAGED_ACCOUNT_STATUS_V1";
     public const string WindowsAccountInventoryV1 = "WINDOWS_ACCOUNT_INVENTORY_V1";
     public const string ManagedAccountBindingV2 = "MANAGED_ACCOUNT_BINDING_V2";
+    public const string ManagedCredentialRemovalV1 = "MANAGED_CREDENTIAL_REMOVAL_V1";
+    public const string AdminManagedSessionV1 = "ADMIN_MANAGED_SESSION_V1";
 }

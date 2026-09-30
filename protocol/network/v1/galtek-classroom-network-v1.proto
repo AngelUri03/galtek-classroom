@@ -93,6 +93,7 @@ message OperationRequest {
     SwitchManagedAccountOperationParameters switch_managed_account = 27;
     SetManagedAccountBindingOperationParameters set_managed_account_binding = 28;
     RemoveManagedAccountBindingOperationParameters remove_managed_account_binding = 29;
+    RemoveManagedCredentialOperationParameters remove_managed_credential = 30;
   }
 }
 
@@ -102,6 +103,10 @@ message SetManagedAccountBindingOperationParameters {
 }
 
 message RemoveManagedAccountBindingOperationParameters {
+  ManagedWindowsAccountId account_id = 1;
+}
+
+message RemoveManagedCredentialOperationParameters {
   ManagedWindowsAccountId account_id = 1;
 }
 
@@ -244,6 +249,8 @@ enum NetworkCapability {
   NETWORK_CAPABILITY_MANAGED_ACCOUNT_STATUS_V1 = 15;
   NETWORK_CAPABILITY_WINDOWS_ACCOUNT_INVENTORY_V1 = 16;
   NETWORK_CAPABILITY_MANAGED_ACCOUNT_BINDING_V2 = 17;
+  NETWORK_CAPABILITY_MANAGED_CREDENTIAL_REMOVAL_V1 = 18;
+  NETWORK_CAPABILITY_ADMIN_MANAGED_SESSION_V1 = 19;
 }
 
 enum NetworkOperationType {
@@ -271,6 +278,7 @@ enum NetworkOperationType {
   NETWORK_OPERATION_TYPE_GET_WINDOWS_ACCOUNT_INVENTORY = 21;
   NETWORK_OPERATION_TYPE_SET_MANAGED_ACCOUNT_BINDING = 22;
   NETWORK_OPERATION_TYPE_REMOVE_MANAGED_ACCOUNT_BINDING = 23;
+  NETWORK_OPERATION_TYPE_REMOVE_MANAGED_CREDENTIAL = 24;
 }
 
 enum ManagedWindowsAccountId {
@@ -318,6 +326,7 @@ enum WindowsSessionState {
   WINDOWS_SESSION_STATE_SECONDARY_ACTIVE = 3;
   WINDOWS_SESSION_STATE_OTHER_SESSION_ACTIVE = 4;
   WINDOWS_SESSION_STATE_UNKNOWN = 5;
+  WINDOWS_SESSION_STATE_ADMIN_ACTIVE = 6;
 }
 
 enum BrowserPolicyRuleAction {
@@ -345,6 +354,7 @@ enum OperationExecutionStatus {
   OPERATION_EXECUTION_STATUS_SUCCESS = 1;
   OPERATION_EXECUTION_STATUS_FAILED = 2;
   OPERATION_EXECUTION_STATUS_TIMED_OUT = 3;
+  OPERATION_EXECUTION_STATUS_PARTIAL = 4;
 }
 
 enum OperationStatusKnowledge {

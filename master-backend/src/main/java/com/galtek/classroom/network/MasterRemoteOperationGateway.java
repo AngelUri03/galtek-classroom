@@ -24,6 +24,7 @@ import com.galtek.classroom.network.v1.ProvisionManagedCredentialOperationParame
 import com.galtek.classroom.network.v1.SwitchManagedAccountOperationParameters;
 import com.galtek.classroom.network.v1.SetManagedAccountBindingOperationParameters;
 import com.galtek.classroom.network.v1.RemoveManagedAccountBindingOperationParameters;
+import com.galtek.classroom.network.v1.RemoveManagedCredentialOperationParameters;
 import com.galtek.classroom.network.v1.WindowsSessionState;
 import com.galtek.classroom.network.v1.WindowsAccountInventoryResult;
 import com.galtek.classroom.operations.ErrorCode;
@@ -299,6 +300,21 @@ public class MasterRemoteOperationGateway {
                 null, null, null, null, null, null, null, null, null, parameters);
     }
 
+    public Optional<DispatchHandle> removeManagedCredential(
+            ClientConnectionSnapshot snapshot,
+            String operationId,
+            String targetDeviceId,
+            ManagedWindowsAccountId accountId) {
+        RemoveManagedCredentialOperationParameters parameters =
+                RemoveManagedCredentialOperationParameters.newBuilder()
+                        .setAccountId(accountId == null
+                                ? ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_UNSPECIFIED
+                                : accountId)
+                        .build();
+        return dispatchCore(snapshot, OperationType.REMOVE_MANAGED_CREDENTIAL, operationId, targetDeviceId,
+                null, null, null, null, null, null, null, null, null, null, parameters);
+    }
+
     public Optional<DispatchHandle> switchManagedAccount(
             ClientConnectionSnapshot snapshot,
             String operationId,
@@ -342,6 +358,29 @@ public class MasterRemoteOperationGateway {
             ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters,
             SetManagedAccountBindingOperationParameters setManagedAccountBindingParameters,
             RemoveManagedAccountBindingOperationParameters removeManagedAccountBindingParameters) {
+        return dispatchCore(snapshot, operationType, operationId, targetDeviceId,
+                browserPolicyParameters, browserDownloadPolicyParameters, openApplicationParameters,
+                openUrlParameters, logonManagedAccountParameters, logoffWindowsSessionParameters,
+                switchManagedAccountParameters, provisionManagedCredentialParameters,
+                setManagedAccountBindingParameters, removeManagedAccountBindingParameters, null);
+    }
+
+    private Optional<DispatchHandle> dispatchCore(
+            ClientConnectionSnapshot snapshot,
+            OperationType operationType,
+            String operationId,
+            String targetDeviceId,
+            ApplyBrowserPolicyOperationParameters browserPolicyParameters,
+            ApplyBrowserDownloadPolicyOperationParameters browserDownloadPolicyParameters,
+            OpenApplicationOperationParameters openApplicationParameters,
+            OpenUrlOperationParameters openUrlParameters,
+            LogonManagedAccountOperationParameters logonManagedAccountParameters,
+            LogoffWindowsSessionOperationParameters logoffWindowsSessionParameters,
+            SwitchManagedAccountOperationParameters switchManagedAccountParameters,
+            ProvisionManagedCredentialOperationParameters provisionManagedCredentialParameters,
+            SetManagedAccountBindingOperationParameters setManagedAccountBindingParameters,
+            RemoveManagedAccountBindingOperationParameters removeManagedAccountBindingParameters,
+            RemoveManagedCredentialOperationParameters removeManagedCredentialParameters) {
         if (snapshot == null || snapshot.clientNetworkIdentityId() == null || snapshot.connectionId() == null) {
             return Optional.empty();
         }
@@ -399,6 +438,9 @@ public class MasterRemoteOperationGateway {
             }
             if (removeManagedAccountBindingParameters != null) {
                 request.setRemoveManagedAccountBinding(removeManagedAccountBindingParameters);
+            }
+            if (removeManagedCredentialParameters != null) {
+                request.setRemoveManagedCredential(removeManagedCredentialParameters);
             }
             session.send(MasterEnvelope.newBuilder()
                     .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
@@ -620,6 +662,16 @@ public class MasterRemoteOperationGateway {
             }
 
             return RemoteOperationOutcome.success("Agent reported operation success.");
+        }
+
+        if (result.getStatus() == OperationExecutionStatus.OPERATION_EXECUTION_STATUS_PARTIAL) {
+            return RemoteOperationOutcome.partial(
+                    errorCodeFrom(result.getErrorCode()),
+                    messageFor(result.getErrorCode(), result.getStatus()));
+        }
+
+        if (result.getStatus() == OperationExecutionStatus.OPERATION_EXECUTION_STATUS_TIMED_OUT) {
+            return RemoteOperationOutcome.unknown("Agent could not confirm the operation result.");
         }
 
         return RemoteOperationOutcome.failed(
@@ -881,6 +933,8 @@ public class MasterRemoteOperationGateway {
                     NetworkOperationType.NETWORK_OPERATION_TYPE_SET_MANAGED_ACCOUNT_BINDING;
             case REMOVE_MANAGED_ACCOUNT_BINDING ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_REMOVE_MANAGED_ACCOUNT_BINDING;
+            case REMOVE_MANAGED_CREDENTIAL ->
+                    NetworkOperationType.NETWORK_OPERATION_TYPE_REMOVE_MANAGED_CREDENTIAL;
             case APPLY_BROWSER_NAVIGATION_POLICY ->
                     NetworkOperationType.NETWORK_OPERATION_TYPE_APPLY_BROWSER_NAVIGATION_POLICY;
             case APPLY_BROWSER_DOWNLOAD_POLICY ->
@@ -964,6 +1018,10 @@ public class MasterRemoteOperationGateway {
 
         public static RemoteOperationOutcome failed(ErrorCode errorCode, String message) {
             return new RemoteOperationOutcome(TargetExecutionStatus.FAILED, errorCode, message);
+        }
+
+        public static RemoteOperationOutcome partial(ErrorCode errorCode, String message) {
+            return new RemoteOperationOutcome(TargetExecutionStatus.PARTIAL, errorCode, message);
         }
 
         public static RemoteOperationOutcome unknown(String message) {

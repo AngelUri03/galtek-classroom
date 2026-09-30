@@ -1,12 +1,14 @@
 package com.galtek.classroom.windows;
 
 import com.galtek.classroom.windows.ManagedAccountSwitchDtos.ManagedAccountSwitchBatchResponse;
+import com.galtek.classroom.operations.DeviceMutationHttpGuard;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -19,22 +21,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class ManagedAccountSwitchController {
 
     private final ManagedAccountSwitchDispatchService dispatchService;
+    private final DeviceMutationHttpGuard mutationGuard;
 
-    public ManagedAccountSwitchController(ManagedAccountSwitchDispatchService dispatchService) {
+    public ManagedAccountSwitchController(
+            ManagedAccountSwitchDispatchService dispatchService,
+            DeviceMutationHttpGuard mutationGuard) {
         this.dispatchService = dispatchService;
+        this.mutationGuard = mutationGuard;
     }
 
     @PostMapping("/classrooms/{classroomId}/managed-accounts/switch")
     public ManagedAccountSwitchBatchResponse switchManagedAccount(
             @PathVariable String classroomId,
+            @RequestHeader(value = com.galtek.classroom.security.SensitiveActionAuthorizationService.HEADER,
+                    required = false) String sensitiveAuthorization,
             @RequestBody(required = false) Map<String, Object> request) {
-        return dispatchService.dispatch(classroomId, request);
+        String target = request != null && request.get("targetAccountId") instanceof String value ? value : null;
+        return mutationGuard.run(
+                DeviceMutationHttpGuard.targetDeviceIds(request),
+                "SWITCH_MANAGED_ACCOUNT",
+                target,
+                () -> dispatchService.dispatch(classroomId, request, sensitiveAuthorization),
+                response -> response.targets().stream().map(targetResult -> targetResult.status()).toList());
     }
 
     @PostMapping("/operations/{operationId}/retry")
     public ManagedAccountSwitchBatchResponse retryManagedAccountSwitch(
             @PathVariable String operationId,
+            @RequestHeader(value = com.galtek.classroom.security.SensitiveActionAuthorizationService.HEADER,
+                    required = false) String sensitiveAuthorization,
             @RequestBody(required = false) Map<String, Object> request) {
-        return dispatchService.retry(operationId, request);
+        // Retry has its own durable claim and authorization must run before the
+        // stored operation is read. The normal switch endpoint remains guarded
+        // by the per-device coordinator.
+        return dispatchService.retry(operationId, request, sensitiveAuthorization);
     }
 }

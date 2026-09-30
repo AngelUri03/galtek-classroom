@@ -1,5 +1,9 @@
 # Windows Session State
 
+## 20F.2
+
+Estados productivos: `NO_SESSION`, `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE`, `ADMIN_ACTIVE`, `OTHER_SESSION_ACTIVE` y `UNKNOWN`. `ADMIN_ACTIVE` requiere igualdad exacta entre la SID obtenida de `WTSQueryUserToken`/`TokenUser` para la consola física y la SID del binding ADMIN. Nombre, grupo, profile path, explorer, Registry y RDP no son autoridad. Una cuenta administrativa sin binding ADMIN es `OTHER_SESSION_ACTIVE`; SID nunca cruza Protobuf de resultado, HTTP, UI o logs humanos.
+
 Prompt 19C implementa `GET_WINDOWS_SESSION_STATE` productivo del lado Client como operacion remota read-only y on-demand.
 
 ## Autoridad
@@ -48,7 +52,7 @@ Si `managed-windows-accounts.json` existe pero es invalido, corrupto o de otra i
 
 ## Privacidad
 
-El resultado remoto no contiene SID, username, domain, `accountReference`, `sessionId`, token handle, path de perfil ni passwords. El Master solo necesita el significado logico `PRIMARY`/`SECONDARY`.
+El resultado remoto no contiene SID, username, domain, `accountReference`, `sessionId`, token handle, path de perfil ni passwords. El Master solo necesita el significado lógico `PRIMARY`/`SECONDARY`/`ADMIN`.
 
 ## Relacion Con Credenciales
 
@@ -74,7 +78,7 @@ La operation result de logon tampoco contiene SID, username, domain, `accountRef
 
 ## Relacion Con Switch
 
-Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` usa este estado para decidir localmente. El Master no envia source account; el Agent lo deriva solo cuando el estado real es `PRIMARY_ACTIVE` o `SECONDARY_ACTIVE`.
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` usa este estado para decidir localmente. El Master no envía source account; el Agent lo deriva cuando el estado real es `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE` o `ADMIN_ACTIVE`.
 
 Target ya activo devuelve `SUCCESS` idempotente. `NO_SESSION` reutiliza logon. Opposite managed activo permite el tramo compuesto despues de preflight target y revalidacion source. `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente y devuelve `WINDOWS_SESSION_CHANGED`; `UNKNOWN` devuelve `WINDOWS_SESSION_UNKNOWN`.
 

@@ -1,5 +1,9 @@
 # Managed Windows Accounts
 
+## 20F.2
+
+Los slots permanecen exactamente PRIMARY, SECONDARY y ADMIN sobre cuentas locales ya existentes. PRIMARY/SECONDARY exigen enabled, no built-in y no administradora; ADMIN exige enabled, no built-in y miembro real del grupo Administrators identificado por SID built-in. Una SID no ocupa dos roles. Cambiar binding nunca transfiere la credential anterior; unbind elimina binding + credential, se bloquea si la sesión correspondiente está activa y nunca elimina la cuenta Windows.
+
 Prompt 19B agrega la fuente de verdad local del Client para vincular dos slots logicos Galtek con cuentas Windows reales:
 
 ```text
@@ -157,7 +161,7 @@ La comparacion no usa `accountReference` ni username. Si una cuenta se renombra 
 
 Desde Prompt 19F, `LOGOFF_WINDOWS_SESSION` usa estos bindings como expected account para cerrar la sesion de consola fisica actual solo si el SID real del `TokenUser` coincide con el `windowsSid` del slot solicitado.
 
-El request remoto transporta solo `accountId` `PRIMARY` o `SECONDARY`. No acepta username, domain, SID, `accountReference`, password, sessionId, force, timeout ni comandos. Sin binding para el slot solicitado devuelve `ACCOUNT_NOT_CONFIGURED`; binding corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
+El request remoto transporta solo `accountId` `PRIMARY`, `SECONDARY` o `ADMIN`. No acepta username, domain, SID, `accountReference`, password, sessionId, force, timeout ni comandos. Sin binding para el slot solicitado devuelve `ACCOUNT_NOT_CONFIGURED`; binding corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
 
 Para logoff, el SID del token activo es suficiente aunque `LookupAccountSid` ya no resuelva la cuenta porque fue borrada mientras la sesion sigue viva. Galtek no adopta otro SID por username y no exige credencial almacenada para cerrar sesion.
 
@@ -175,7 +179,7 @@ Con activation + identity valida, el provider enumera una sola credential Galtek
 
 ## Uso Desde Windows Session Logon
 
-Desde Prompt 19G3, `LOGON_MANAGED_ACCOUNT(accountId)` usa estos bindings como expected account remoto. El Master envia solo `PRIMARY` o `SECONDARY`; el Agent deriva todo lo demas localmente.
+Desde Prompt 19G3, `LOGON_MANAGED_ACCOUNT(accountId)` usa estos bindings como expected account remoto. 20F.2 amplía el target a ADMIN; el Agent deriva identidad y SID localmente.
 
 Antes de activation, el Agent exige que el binding exista, que el `windowsSid` sea valido y resuelva como `SidTypeUser`, y que exista una credencial DPAPI usable ligada al mismo SID. Sin binding devuelve `ACCOUNT_NOT_CONFIGURED`; SID no resoluble devuelve `ACCOUNT_NOT_FOUND`; falta de credential devuelve `MANAGED_CREDENTIAL_NOT_CONFIGURED`; archivo corrupto/schema/mismatch devuelve `MANAGED_ACCOUNT_BINDINGS_INVALID`.
 
@@ -183,7 +187,7 @@ La consola fisica debe estar en `NO_SESSION` inmediatamente antes de activar. Si
 
 ## Uso Desde Windows Session Switch
 
-Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` tambien envia solo `PRIMARY` o `SECONDARY`. El source nunca viene del Master: el Agent lo deriva desde `WindowsSessionState` y por tanto desde el SID real del token de la consola fisica.
+Desde Prompt 19G4, `SWITCH_MANAGED_ACCOUNT(target)` envía `PRIMARY`, `SECONDARY` o `ADMIN`. El source nunca viene del Master: el Agent lo deriva desde `WindowsSessionState` y por tanto desde el SID real del token de la consola física.
 
 Si target ya esta activo, SWITCH no consulta DPAPI ni cierra nada. Si una source managed distinta esta activa, el Agent valida primero el target binding/SID/credential; si falla, la source no se cierra. Luego revalida que la source siga activa y llama internamente el logoff expected-account. La disponibilidad real de LogonUI/Credential Provider se comprueba al ejecutar LOGON despues de `NO_SESSION`; `OTHER_SESSION_ACTIVE` nunca se cierra automaticamente.
 

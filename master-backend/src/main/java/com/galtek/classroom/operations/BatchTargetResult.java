@@ -12,8 +12,10 @@ public record BatchTargetResult(
     public BatchTargetResult {
         requireNonNull(target, "target");
         requireNonNull(status, "status");
-        if (status == TargetExecutionStatus.FAILED && errorCode == null) {
-            throw new IllegalArgumentException("errorCode is required for failed targets.");
+        if ((status == TargetExecutionStatus.FAILED
+                || status == TargetExecutionStatus.PARTIAL
+                || status == TargetExecutionStatus.UNKNOWN) && errorCode == null) {
+            throw new IllegalArgumentException("errorCode is required for failed, partial, and unknown targets.");
         }
         if (attempt < 1) {
             throw new IllegalArgumentException("attempt must be at least 1.");
@@ -21,10 +23,12 @@ public record BatchTargetResult(
     }
 
     public boolean failed() {
-        return status == TargetExecutionStatus.FAILED;
+        return status == TargetExecutionStatus.FAILED
+                || status == TargetExecutionStatus.PARTIAL
+                || status == TargetExecutionStatus.UNKNOWN;
     }
 
     public boolean retryable() {
-        return failed() && errorCode != null && errorCode.retryable();
+        return status == TargetExecutionStatus.FAILED && errorCode != null && errorCode.retryable();
     }
 }

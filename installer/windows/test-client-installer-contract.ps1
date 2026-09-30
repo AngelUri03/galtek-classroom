@@ -45,14 +45,16 @@ $logoContractPath = Join-Path $setupRoot 'theme\official-logo.sha256'
 [xml]$versionProps = Get-Content -LiteralPath $versionPropsPath -Raw
 $productVersion = [string]$versionProps.Project.PropertyGroup.ProductVersion
 $wixVersion = [string]$versionProps.Project.PropertyGroup.WixToolsetVersion
-Assert-Contract ($productVersion -eq '0.0.4') 'ProductVersion must be the definitive 0.0.4 bridge release candidate.'
+Assert-Contract ($productVersion -eq '0.0.6') 'ProductVersion must be the 0.0.6 physical-session regression release candidate.'
 Assert-Contract ($wixVersion -eq '5.0.2') 'WiX must remain pinned to 5.0.2.'
 Assert-Contract ([Guid]::TryParse([string]$versionProps.Project.PropertyGroup.ProductUpgradeCode, [ref]([Guid]::Empty))) 'Product UpgradeCode is invalid.'
 Assert-Contract ([Guid]::TryParse([string]$versionProps.Project.PropertyGroup.BundleUpgradeCode, [ref]([Guid]::Empty))) 'Bundle UpgradeCode is invalid.'
-Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -eq '{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}') '0.0.4 ProductCode changed or is not pinned.'
+Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -eq '{C9698974-44A1-4751-A914-D70152A28B5B}') '0.0.6 ProductCode changed or is not pinned.'
+Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -ne '{078A1C16-27EB-4031-96C8-342EC1CA47EB}') '0.0.5 ProductCode was reused.'
+Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -ne '{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}') '0.0.4 ProductCode was reused.'
 Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -ne '{2BA4D6A0-9492-484E-A27B-9EAE40C886A9}') '0.0.3 ProductCode was reused.'
 Assert-Contract ([string]$versionProps.Project.PropertyGroup.ProductCode -ne '{DCF26CE0-A601-489B-B32A-E14095CC50C0}') '0.0.2 ProductCode was reused.'
-Assert-Contract ([string]$versionProps.Project.PropertyGroup.BundleProviderKey -eq 'GaltekSolution.GaltekClassroom.Client.Bundle.0.0.4') '0.0.4 ProviderKey is not exact.'
+Assert-Contract ([string]$versionProps.Project.PropertyGroup.BundleProviderKey -eq 'GaltekSolution.GaltekClassroom.Client.Bundle.0.0.6') '0.0.6 ProviderKey is not exact.'
 
 $expectedLogoHash = ((Get-Content -LiteralPath $logoContractPath -Raw) -split '\s+')[0].ToLowerInvariant()
 Assert-Contract (Test-Path -LiteralPath $logoPath -PathType Leaf) 'Official logo.png is missing.'

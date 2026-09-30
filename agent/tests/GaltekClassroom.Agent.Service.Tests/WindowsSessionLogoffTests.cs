@@ -16,6 +16,7 @@ public sealed class WindowsSessionLogoffTests : IDisposable
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
     private const string PrimarySid = "S-1-5-21-1000000000-1000000000-1000000000-1004";
     private const string SecondarySid = "S-1-5-21-1000000000-1000000000-1000000000-1005";
+    private const string AdminSid = "S-1-5-21-1000000000-1000000000-1000000000-1007";
     private const string OtherSid = "S-1-5-21-1000000000-1000000000-1000000000-1006";
 
     private readonly string _dataDirectory = Path.Combine(
@@ -26,11 +27,12 @@ public sealed class WindowsSessionLogoffTests : IDisposable
     [Theory]
     [InlineData(ManagedWindowsAccountId.Primary, ClassroomManagedWindowsAccountTypes.Primary)]
     [InlineData(ManagedWindowsAccountId.Secondary, ClassroomManagedWindowsAccountTypes.Secondary)]
-    public async Task Handler_AcceptsPrimaryAndSecondaryOnly(
+    [InlineData(ManagedWindowsAccountId.Admin, ClassroomManagedWindowsAccountTypes.Admin)]
+    public async Task Handler_AcceptsManagedProfileRoles(
         ManagedWindowsAccountId networkAccountId,
         string expectedAccountId)
     {
-        await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding()]);
+        await SaveBindingsAsync([PrimaryBinding(), SecondaryBinding(), AdminBinding()]);
         var logoff = new RecordingLogoffController();
         var handler = CreateHandler(
             new SequenceResolver([
@@ -427,7 +429,13 @@ public sealed class WindowsSessionLogoffTests : IDisposable
     {
         return ConsoleSessionIdentityObservation.User(
             sessionId,
-            accountId == ClassroomManagedWindowsAccountTypes.Primary ? PrimarySid : SecondarySid);
+            accountId switch
+            {
+                ClassroomManagedWindowsAccountTypes.Primary => PrimarySid,
+                ClassroomManagedWindowsAccountTypes.Secondary => SecondarySid,
+                ClassroomManagedWindowsAccountTypes.Admin => AdminSid,
+                _ => OtherSid
+            });
     }
 
     private static ManagedWindowsAccountBinding PrimaryBinding(
@@ -447,6 +455,15 @@ public sealed class WindowsSessionLogoffTests : IDisposable
             ClassroomManagedWindowsAccountTypes.Secondary,
             SecondarySid,
             "PC23\\Secundaria",
+            FixedNow);
+    }
+
+    private static ManagedWindowsAccountBinding AdminBinding()
+    {
+        return ManagedWindowsAccountBinding.Create(
+            ClassroomManagedWindowsAccountTypes.Admin,
+            AdminSid,
+            "PC23\\Admin",
             FixedNow);
     }
 

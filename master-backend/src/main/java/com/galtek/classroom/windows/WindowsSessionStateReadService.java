@@ -278,6 +278,7 @@ public class WindowsSessionStateReadService {
             case WINDOWS_SESSION_STATE_NO_SESSION -> WindowsSessionState.NO_SESSION;
             case WINDOWS_SESSION_STATE_PRIMARY_ACTIVE -> WindowsSessionState.PRIMARY_ACTIVE;
             case WINDOWS_SESSION_STATE_SECONDARY_ACTIVE -> WindowsSessionState.SECONDARY_ACTIVE;
+            case WINDOWS_SESSION_STATE_ADMIN_ACTIVE -> WindowsSessionState.ADMIN_ACTIVE;
             case WINDOWS_SESSION_STATE_OTHER_SESSION_ACTIVE -> WindowsSessionState.OTHER_SESSION_ACTIVE;
             case WINDOWS_SESSION_STATE_UNKNOWN -> WindowsSessionState.UNKNOWN;
             case WINDOWS_SESSION_STATE_UNSPECIFIED, UNRECOGNIZED -> WindowsSessionState.UNKNOWN;

@@ -1,5 +1,11 @@
 # Managed Windows Credentials
 
+## 20F.2
+
+`REMOVE_MANAGED_CREDENTIAL` es una operación tipada con solo `account_id` para PRIMARY, SECONDARY o ADMIN. Exige binding, elimina exclusivamente la entrada DPAPI del role y trata credential ausente como éxito idempotente. No elimina el binding. `READY` significa que la copia está protegida y disponible para el SID vigente; no significa que Windows haya validado la password. Galtek almacena una copia de la password existente y no cambia la password real.
+
+El reveal humano sale exclusivamente del Credential Vault del Master tras step-up fresco por Device. No se agregó operación Client de lectura/export de password. Desvincular elimina binding, credential DPAPI y la entrada Vault asociada; la cuenta Windows real permanece intacta.
+
 Prompt 19E1 agrega provisioning remoto seguro para este store mediante `PROVISION_MANAGED_CREDENTIAL`. La operacion recibe solo `PRIMARY`/`SECONDARY` y `password_utf16le` como bytes UTF-16LE sobre gRPC/mTLS autenticado, valida el binding local y persiste inmediatamente por DPAPI. Prompt 19E2 agrega el bridge interno Master Credential Vault -> gateway para tomar una credencial `WINDOWS_ACCOUNT` ya almacenada y provisionarla en un Client explicito. Prompt 19G2 agrega el unico reveal productivo local permitido: one-time acquisition desde Agent Service hacia Galtek Credential Provider validado por `GaltekClassroom.CredentialProvider.v1`, sin JSON/Base64/string de password. Prompt 19G3 usa ese camino para `LOGON_MANAGED_ACCOUNT` remoto individual sin enviar password desde el Master. La ampliacion 2026-09-14 agrega `GET_MANAGED_ACCOUNT_STATUS` y endpoints HTTP Master para consultar/provisionar un Device explicito, sin exponer password, SID, `protectedData`, credentialId ni vault token.
 
 Prompt 19D agrega el almacenamiento local seguro del Client para las passwords Windows de los slots administrados:

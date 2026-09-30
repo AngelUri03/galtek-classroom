@@ -2,6 +2,7 @@ package com.galtek.classroom.windows;
 
 import com.galtek.classroom.admin.AdminDtos.ClassroomResponse;
 import com.galtek.classroom.admin.MasterAdminRepository;
+import com.galtek.classroom.activity.DeviceActivityRecorder;
 import com.galtek.classroom.api.ApiException;
 import com.galtek.classroom.credentialvault.CredentialType;
 import com.galtek.classroom.credentialvault.CredentialVaultEntryDraft;
@@ -32,6 +33,8 @@ import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageHealth;
 import com.galtek.classroom.persistence.MasterStorageState;
 import com.galtek.classroom.persistence.MasterStorageStatus;
+import com.galtek.classroom.security.SensitiveActionAuthorizationController;
+import com.galtek.classroom.security.SensitiveActionAuthorizationService;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountCredentialProvisionResponse;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountSlotResponse;
 import com.galtek.classroom.windows.ManagedAccountAdminDtos.ManagedAccountStatusResponse;
@@ -68,6 +71,8 @@ public class ManagedAccountAdminService {
     private final MasterRemoteOperationGateway remoteOperationGateway;
     private final CredentialVaultService credentialVaultService;
     private final ManagedCredentialProvisioningBridge provisioningBridge;
+    private final SensitiveActionAuthorizationService sensitiveAuthorizationService;
+    private final DeviceActivityRecorder activityRecorder;
 
     public ManagedAccountAdminService(
             MasterAccessGuard masterAccessGuard,
@@ -79,7 +84,9 @@ public class ManagedAccountAdminService {
             ClientConnectionRegistry connectionRegistry,
             MasterRemoteOperationGateway remoteOperationGateway,
             CredentialVaultService credentialVaultService,
-            ManagedCredentialProvisioningBridge provisioningBridge) {
+            ManagedCredentialProvisioningBridge provisioningBridge,
+            SensitiveActionAuthorizationService sensitiveAuthorizationService,
+            DeviceActivityRecorder activityRecorder) {
         this.masterAccessGuard = masterAccessGuard;
         this.storageState = storageState;
         this.adminRepository = adminRepository;
@@ -90,13 +97,28 @@ public class ManagedAccountAdminService {
         this.remoteOperationGateway = remoteOperationGateway;
         this.credentialVaultService = credentialVaultService;
         this.provisioningBridge = provisioningBridge;
+        this.sensitiveAuthorizationService = sensitiveAuthorizationService;
+        this.activityRecorder = activityRecorder;
     }
 
     public ManagedAccountStatusResponse status(String classroomId, String deviceId) {
+        return status(classroomId, deviceId, null);
+    }
+
+    public ManagedAccountStatusResponse status(
+            String classroomId,
+            String deviceId,
+            String vaultSessionToken) {
         requireAuthorizedAndStorage();
         TargetPlan target = preflightStatusTarget(classroomId, deviceId);
         ManagedAccountStatusResult status = queryManagedAccountStatus(target);
-        return ManagedAccountStatusResponse.from(status);
+        ManagedAccountStatusResponse response = ManagedAccountStatusResponse.from(status);
+        if (vaultSessionToken == null || vaultSessionToken.isBlank()) return response;
+        List<CredentialVaultEntryMetadata> vaultEntries = credentialVaultService.list(vaultSessionToken);
+        return new ManagedAccountStatusResponse(response.accounts().stream()
+                .map(account -> account.withVaultCredential(vaultEntries.stream().anyMatch(entry ->
+                        matchesManagedCredential(entry, target.deviceId(), account.windowsAccountName()))))
+                .toList());
     }
 
     public ManagedAccountMutationResponse bind(
@@ -104,7 +126,7 @@ public class ManagedAccountAdminService {
             String deviceId,
             String accountId,
             String windowsAccountName) {
-        requireAuthorizedAndStorage();
+        MasterAuthorizationResponse actor = requireAuthorizedAndStorage();
         ManagedWindowsAccountType accountType = parseAccountId(accountId);
         String cleanAccountName = required(windowsAccountName, "windowsAccountName");
         if (cleanAccountName.length() > 256 || cleanAccountName.chars().anyMatch(Character::isISOControl)) {
@@ -122,16 +144,24 @@ public class ManagedAccountAdminService {
         if (outcome.status() == TargetExecutionStatus.SUCCESS) {
             observed = ManagedAccountAdminDtos.requireAccount(queryManagedAccountStatus(target), accountType);
         }
+        record(classroomId, target.deviceId(), "MANAGED_PROFILE_BOUND", actor, accountType,
+                cleanAccountName, outcome);
         return mutationResponse(accountType, operationId, outcome, observed);
     }
 
     public ManagedAccountMutationResponse unbind(
             String classroomId,
             String deviceId,
-            String accountId) {
-        requireAuthorizedAndStorage();
+            String accountId,
+            String vaultSessionToken) {
+        MasterAuthorizationResponse actor = requireAuthorizedAndStorage();
         ManagedWindowsAccountType accountType = parseAccountId(accountId);
         TargetPlan target = preflightBindingTarget(classroomId, deviceId);
+        ManagedAccountSlotResponse before = ManagedAccountAdminDtos.requireAccount(
+                queryManagedAccountStatus(target), accountType);
+        String vaultCredentialId = before.configured()
+                ? findVaultCredential(vaultSessionToken, target.deviceId(), before.windowsAccountName())
+                : null;
         String operationId = UUID.randomUUID().toString();
         RemoteOperationOutcome outcome = remoteOperationGateway.removeManagedAccountBinding(
                         target.snapshot(), operationId, target.deviceId(), toNetworkAccountId(accountType))
@@ -139,8 +169,13 @@ public class ManagedAccountAdminService {
                 .orElseGet(() -> RemoteOperationOutcome.failed(ErrorCode.DEVICE_OFFLINE, "Device is offline."));
         ManagedAccountSlotResponse observed = null;
         if (outcome.status() == TargetExecutionStatus.SUCCESS) {
+            if (vaultCredentialId != null) {
+                credentialVaultService.remove(vaultSessionToken, vaultCredentialId);
+            }
             observed = ManagedAccountAdminDtos.requireAccount(queryManagedAccountStatus(target), accountType);
         }
+        record(classroomId, target.deviceId(), "MANAGED_PROFILE_UNBOUND", actor, accountType,
+                before.windowsAccountName(), outcome);
         return mutationResponse(accountType, operationId, outcome, observed);
     }
 
@@ -150,7 +185,7 @@ public class ManagedAccountAdminService {
             String accountId,
             String vaultSessionToken,
             String password) {
-        requireAuthorizedAndStorage();
+        MasterAuthorizationResponse actor = requireAuthorizedAndStorage();
         ManagedWindowsAccountType accountType = parseAccountId(accountId);
         TargetPlan target = preflightStatusTarget(classroomId, deviceId);
         if (!target.snapshot().capabilities().contains(DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1)) {
@@ -175,6 +210,8 @@ public class ManagedAccountAdminService {
                     "Managed Windows account name is not available on the target device.");
         }
 
+        boolean updating = findVaultCredential(
+                vaultSessionToken, target.deviceId(), beforeAccount.windowsAccountName()) != null;
         String credentialId = upsertVaultCredential(
                 vaultSessionToken,
                 target.deviceId(),
@@ -194,6 +231,9 @@ public class ManagedAccountAdminService {
             observedAccount = ManagedAccountAdminDtos.requireAccount(refreshed, accountType);
         }
 
+        record(classroomId, target.deviceId(),
+                updating ? "MANAGED_CREDENTIAL_UPDATED" : "MANAGED_CREDENTIAL_REGISTERED",
+                actor, accountType, beforeAccount.windowsAccountName(), provisioning);
         return new ManagedAccountCredentialProvisionResponse(
                 accountType.name(),
                 provisioningStatus(provisioning),
@@ -203,6 +243,114 @@ public class ManagedAccountAdminService {
                 observedAccount);
     }
 
+    public ManagedAccountMutationResponse removeCredential(
+            String classroomId,
+            String deviceId,
+            String accountId,
+            String vaultSessionToken) {
+        MasterAuthorizationResponse actor = requireAuthorizedAndStorage();
+        ManagedWindowsAccountType accountType = parseAccountId(accountId);
+        TargetPlan target = preflightStatusTarget(classroomId, deviceId);
+        if (!target.snapshot().capabilities().contains(DeviceCapability.MANAGED_CREDENTIAL_REMOVAL_V1)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.CAPABILITY_NOT_SUPPORTED,
+                    "Device does not announce MANAGED_CREDENTIAL_REMOVAL_V1.");
+        }
+
+        ManagedAccountSlotResponse before = ManagedAccountAdminDtos.requireAccount(
+                queryManagedAccountStatus(target), accountType);
+        if (!before.configured()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.ACCOUNT_NOT_CONFIGURED,
+                    "Managed Windows account is not configured on the target device.");
+        }
+        String vaultCredentialId = findVaultCredential(
+                vaultSessionToken, target.deviceId(), before.windowsAccountName());
+
+        String operationId = UUID.randomUUID().toString();
+        RemoteOperationOutcome outcome = remoteOperationGateway.removeManagedCredential(
+                        target.snapshot(), operationId, target.deviceId(), toNetworkAccountId(accountType))
+                .map(handle -> awaitOutcome(handle, remoteOperationGateway.resultTimeout()))
+                .orElseGet(() -> RemoteOperationOutcome.failed(ErrorCode.DEVICE_OFFLINE, "Device is offline."));
+
+        ManagedAccountSlotResponse observed = before;
+        if (outcome.status() == TargetExecutionStatus.SUCCESS) {
+            if (vaultCredentialId != null) {
+                credentialVaultService.remove(vaultSessionToken, vaultCredentialId);
+            }
+            observed = ManagedAccountAdminDtos.requireAccount(queryManagedAccountStatus(target), accountType);
+        }
+        record(classroomId, target.deviceId(), "MANAGED_CREDENTIAL_REMOVED", actor, accountType,
+                before.windowsAccountName(), outcome);
+        return mutationResponse(accountType, operationId, outcome, observed);
+    }
+
+    public CredentialReveal revealCredential(
+            String classroomId,
+            String deviceId,
+            String accountId,
+            String sensitiveAuthorization) {
+        MasterAuthorizationResponse actor = requireAuthorizedAndStorage();
+        ManagedWindowsAccountType accountType = parseAccountId(accountId);
+        TargetPlan target = preflightStatusTarget(classroomId, deviceId);
+        ManagedAccountSlotResponse account = ManagedAccountAdminDtos.requireAccount(
+                queryManagedAccountStatus(target), accountType);
+        if (!account.configured() || account.windowsAccountName() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.ACCOUNT_NOT_CONFIGURED,
+                    "Managed Windows account is not configured on the target device.");
+        }
+        String displayNamePrefix = REQUESTED_DISPLAY_PREFIX + target.deviceId() + " / ";
+        try {
+            var revealed = sensitiveAuthorizationService.revealManagedCredential(
+                    sensitiveAuthorization,
+                    SensitiveActionAuthorizationController.actorId(actor),
+                    classroomOr404(classroomId).classroomId(),
+                    target.deviceId(),
+                    displayNamePrefix,
+                    account.windowsAccountName());
+            return new CredentialReveal(
+                    revealed.password(), revealed.credentialId(),
+                    SensitiveActionAuthorizationController.actorId(actor), accountType,
+                    account.windowsAccountName());
+        } catch (RuntimeException exception) {
+            activityRecorder.record(classroomId, target.deviceId(), "MANAGED_CREDENTIAL_REVEALED",
+                    SensitiveActionAuthorizationController.actorId(actor), accountType.name(),
+                    account.windowsAccountName(), "FAILED", "Credential reveal was rejected.");
+            throw exception;
+        }
+    }
+
+    public void recordCredentialRevealDelivered(
+            String classroomId,
+            String deviceId,
+            CredentialReveal reveal) {
+        sensitiveAuthorizationService.auditDeliveredCredentialReveal(reveal.credentialId());
+        activityRecorder.record(classroomId, deviceId, "MANAGED_CREDENTIAL_REVEALED",
+                reveal.actor(), reveal.accountType().name(), reveal.accountReference(), "SUCCESS", null);
+    }
+
+    public void recordCredentialRevealDeliveryFailed(
+            String classroomId,
+            String deviceId,
+            CredentialReveal reveal) {
+        activityRecorder.record(classroomId, deviceId, "MANAGED_CREDENTIAL_REVEALED",
+                reveal.actor(), reveal.accountType().name(), reveal.accountReference(), "FAILED",
+                "Credential response delivery failed.");
+    }
+
+    private String findVaultCredential(String vaultSessionToken, String deviceId, String windowsAccountName) {
+        if (windowsAccountName == null || windowsAccountName.isBlank()) {
+            credentialVaultService.list(vaultSessionToken);
+            return null;
+        }
+        List<CredentialVaultEntryMetadata> matches = credentialVaultService.list(vaultSessionToken).stream()
+                .filter(entry -> matchesManagedCredential(entry, deviceId, windowsAccountName))
+                .toList();
+        if (matches.size() > 1) {
+            throw new ApiException(HttpStatus.CONFLICT, ErrorCode.CREDENTIAL_NOT_PROVISIONABLE,
+                    "Multiple vault credentials match the managed Windows account.");
+        }
+        return matches.isEmpty() ? null : matches.getFirst().credentialId();
+    }
+
     private String upsertVaultCredential(
             String vaultSessionToken,
             String deviceId,
@@ -210,9 +358,7 @@ public class ManagedAccountAdminService {
             String password) {
         String displayName = REQUESTED_DISPLAY_PREFIX + deviceId + " / " + windowsAccountName;
         List<CredentialVaultEntryMetadata> matches = credentialVaultService.list(vaultSessionToken).stream()
-                .filter(entry -> entry.credentialType() == CredentialType.WINDOWS_ACCOUNT)
-                .filter(entry -> windowsAccountName.equals(entry.loginIdentifier()))
-                .filter(entry -> displayName.equals(entry.displayName()))
+                .filter(entry -> matchesManagedCredential(entry, deviceId, windowsAccountName))
                 .toList();
         if (matches.size() > 1) {
             throw new ApiException(
@@ -260,6 +406,23 @@ public class ManagedAccountAdminService {
                     outcome.message());
         }
         return outcome.managedAccountStatus();
+    }
+
+    private boolean matchesManagedCredential(
+            CredentialVaultEntryMetadata entry,
+            String deviceId,
+            String windowsAccountName) {
+        if (windowsAccountName == null || windowsAccountName.isBlank()) return false;
+        String displayPrefix = REQUESTED_DISPLAY_PREFIX + deviceId + " / ";
+        return entry.credentialType() == CredentialType.WINDOWS_ACCOUNT
+                && entry.displayName().startsWith(displayPrefix)
+                && localAccountName(entry.loginIdentifier())
+                        .equalsIgnoreCase(localAccountName(windowsAccountName));
+    }
+
+    private String localAccountName(String accountName) {
+        int separator = accountName.lastIndexOf('\\');
+        return separator >= 0 ? accountName.substring(separator + 1) : accountName;
     }
 
     private RemoteOperationOutcome awaitOutcome(DispatchHandle handle, java.time.Duration timeout) {
@@ -404,6 +567,19 @@ public class ManagedAccountAdminService {
         return outcome.status().name();
     }
 
+    private void record(
+            String classroomId,
+            String deviceId,
+            String eventType,
+            MasterAuthorizationResponse actor,
+            ManagedWindowsAccountType role,
+            String accountReference,
+            RemoteOperationOutcome outcome) {
+        activityRecorder.record(classroomId, deviceId, eventType,
+                SensitiveActionAuthorizationController.actorId(actor), role.name(), accountReference,
+                outcome.status().name(), outcome.message());
+    }
+
     private ClassroomResponse classroomOr404(String classroomId) {
         String cleanId = required(classroomId, "classroomId");
         return adminRepository.findClassroom(cleanId)
@@ -442,5 +618,13 @@ public class ManagedAccountAdminService {
     private record TargetPlan(
             String deviceId,
             ClientConnectionSnapshot snapshot) {
+    }
+
+    public record CredentialReveal(
+            String password,
+            String credentialId,
+            String actor,
+            ManagedWindowsAccountType accountType,
+            String accountReference) {
     }
 }

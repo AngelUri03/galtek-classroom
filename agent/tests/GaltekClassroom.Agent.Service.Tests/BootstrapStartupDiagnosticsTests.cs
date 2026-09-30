@@ -117,7 +117,7 @@ public sealed class BootstrapStartupDiagnosticsTests : IDisposable
 
         var contents = File.ReadAllText(path);
         Assert.Matches(
-            @"^utc=\d{4}-\d{2}-\d{2}T.+Z local=\d{4}-\d{2}-\d{2}T.+[+-]\d{2}:\d{2} BOOTSTRAP_PROCESS_ENTER",
+            @"^utc=\d{4}-\d{2}-\d{2}T.+Z local=\d{4}-\d{2}-\d{2}T.+[+-]\d{2}:\d{2} elapsedMs=\d+\.\d{3} BOOTSTRAP_PROCESS_ENTER",
             contents);
     }
 

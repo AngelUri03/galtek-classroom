@@ -191,7 +191,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
         if (!ManagedWindowsAccountBinding.IsValidAccountId(accountId))
         {
             return CredentialProviderActivationSetResult.Rejected(
-                "Credential Provider activation accountId must be PRIMARY or SECONDARY.");
+                "Credential Provider activation accountId must be PRIMARY, SECONDARY or ADMIN.");
         }
 
         if (ttl <= TimeSpan.Zero || ttl > MaximumTtl)
@@ -235,7 +235,7 @@ public sealed class CredentialProviderActivationStore : ICredentialProviderActiv
         if (!ManagedWindowsAccountBinding.IsValidAccountId(accountId))
         {
             return CredentialProviderActivationSetResult.Rejected(
-                "Credential Provider activation accountId must be PRIMARY or SECONDARY.");
+                "Credential Provider activation accountId must be PRIMARY, SECONDARY or ADMIN.");
         }
 
         if (ttl <= TimeSpan.Zero || ttl > MaximumTtl)

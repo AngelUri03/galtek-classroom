@@ -85,7 +85,7 @@ public sealed class ManagedAccountBindingMutationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task BindRejectsDuplicateRoleWithoutReplacingExistingBinding()
+    public async Task BindReplacesRoleAndDoesNotTransferPreviousCredential()
     {
         TestContext context = await CreateAsync(
             Account("First", admin: false, sid: "S-1-5-21-1000"),
@@ -93,13 +93,35 @@ public sealed class ManagedAccountBindingMutationServiceTests : IDisposable
         await context.Service.BindAsync(
             ManagedWindowsAccountId.Primary, "First", "device-14", CancellationToken.None);
 
-        RemoteOperationHandlerResult duplicate = await context.Service.BindAsync(
+        RemoteOperationHandlerResult replacement = await context.Service.BindAsync(
             ManagedWindowsAccountId.Primary, "Second", "device-14", CancellationToken.None);
 
-        Assert.Equal(NetworkOperationErrorCode.ManagedRoleAlreadyAssigned, duplicate.ErrorCode);
+        Assert.Equal(OperationExecutionStatus.Success, replacement.Status);
+        ManagedWindowsAccountBinding binding = Assert.Single((await context.Bindings.ListAsync(
+            InstallationId, CancellationToken.None)).Bindings);
+        Assert.Equal("Second", binding.AccountReference);
+        Assert.Equal("S-1-5-21-2000", binding.WindowsSid);
+        Assert.Equal(1, context.Credentials.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task BindDoesNotReplaceRoleWhileCurrentBindingSessionIsActive()
+    {
+        TestContext context = await CreateAsync(
+            Account("First", admin: false, sid: "S-1-5-21-1000"),
+            Account("Second", admin: false, sid: "S-1-5-21-2000"));
+        await context.Service.BindAsync(
+            ManagedWindowsAccountId.Primary, "First", "device-14", CancellationToken.None);
+        context.Session.Observation = ConsoleSessionIdentityObservation.User(4, "S-1-5-21-1000");
+
+        RemoteOperationHandlerResult result = await context.Service.BindAsync(
+            ManagedWindowsAccountId.Primary, "Second", "device-14", CancellationToken.None);
+
+        Assert.Equal(NetworkOperationErrorCode.ManagedAccountSessionActive, result.ErrorCode);
         ManagedWindowsAccountBinding binding = Assert.Single((await context.Bindings.ListAsync(
             InstallationId, CancellationToken.None)).Bindings);
         Assert.Equal("First", binding.AccountReference);
+        Assert.Equal(0, context.Credentials.RemoveCalls);
     }
 
     [Fact]

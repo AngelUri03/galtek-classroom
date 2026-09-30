@@ -345,7 +345,8 @@ public sealed class MasterNetworkTransportTests : IDisposable
             NetworkOperationType.GetWindowsAccountInventory,
             NetworkOperationType.ProvisionManagedCredential,
             NetworkOperationType.SetManagedAccountBinding,
-            NetworkOperationType.RemoveManagedAccountBinding
+            NetworkOperationType.RemoveManagedAccountBinding,
+            NetworkOperationType.RemoveManagedCredential
         ];
         var services = new ServiceCollection();
         services.AddMasterNetworkTransportServices(new ConfigurationBuilder().Build());
@@ -367,7 +368,8 @@ public sealed class MasterNetworkTransportTests : IDisposable
             [typeof(GetWindowsAccountInventoryOperationHandler)] = NetworkOperationType.GetWindowsAccountInventory,
             [typeof(ProvisionManagedCredentialOperationHandler)] = NetworkOperationType.ProvisionManagedCredential,
             [typeof(SetManagedAccountBindingOperationHandler)] = NetworkOperationType.SetManagedAccountBinding,
-            [typeof(RemoveManagedAccountBindingOperationHandler)] = NetworkOperationType.RemoveManagedAccountBinding
+            [typeof(RemoveManagedAccountBindingOperationHandler)] = NetworkOperationType.RemoveManagedAccountBinding,
+            [typeof(RemoveManagedCredentialOperationHandler)] = NetworkOperationType.RemoveManagedCredential
         };
         ServiceDescriptor[] descriptors = services
             .Where(descriptor => descriptor.ServiceType == typeof(IRemoteOperationHandler))

@@ -86,6 +86,28 @@ class ManagedAccountSwitchPlannerTest {
     }
 
     @Test
+    void adminActiveSwitchesToAcademicProfile() {
+        var plan = planner.planSwitch(
+                "OP-WIN-5A",
+                ManagedWindowsAccountType.PRIMARY,
+                List.of(target("DEV-PC04A", DeviceStatus.ONLINE, WindowsSessionState.ADMIN_ACTIVE)));
+
+        assertThat(plan.status()).isEqualTo(PreflightStatus.READY);
+        assertThat(plan.executableTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.SWITCH);
+    }
+
+    @Test
+    void primaryActiveSwitchesToAdminAndAdminActiveIsNoChangeForAdminTarget() {
+        var switchPlan = planner.planSwitch("OP-WIN-5B", ManagedWindowsAccountType.ADMIN,
+                List.of(target("DEV-PC04B", DeviceStatus.ONLINE, WindowsSessionState.PRIMARY_ACTIVE)));
+        var noChangePlan = planner.planSwitch("OP-WIN-5C", ManagedWindowsAccountType.ADMIN,
+                List.of(target("DEV-PC04C", DeviceStatus.ONLINE, WindowsSessionState.ADMIN_ACTIVE)));
+
+        assertThat(switchPlan.executableTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.SWITCH);
+        assertThat(noChangePlan.noChangeTargets().getFirst().action()).isEqualTo(ManagedAccountSwitchAction.NO_CHANGE);
+    }
+
+    @Test
     void unknownSessionBlocksAsWindowsSessionUnknown() {
         var plan = planner.planSwitch(
                 "OP-WIN-6",

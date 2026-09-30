@@ -3,6 +3,7 @@ package com.galtek.classroom.inputcontrol;
 import com.galtek.classroom.master.MasterAccessGuard;
 import com.galtek.classroom.master.MasterUnlockAccessGuard;
 import com.galtek.classroom.operations.OperationDtos.OperationBatchResponse;
+import com.galtek.classroom.operations.DeviceMutationHttpGuard;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,14 +24,17 @@ public class InputControlController {
     private final MasterAccessGuard masterAccessGuard;
     private final MasterUnlockAccessGuard masterUnlockAccessGuard;
     private final InputControlDispatchService dispatchService;
+    private final DeviceMutationHttpGuard mutationGuard;
 
     public InputControlController(
             MasterAccessGuard masterAccessGuard,
             MasterUnlockAccessGuard masterUnlockAccessGuard,
-            InputControlDispatchService dispatchService) {
+            InputControlDispatchService dispatchService,
+            DeviceMutationHttpGuard mutationGuard) {
         this.masterAccessGuard = masterAccessGuard;
         this.masterUnlockAccessGuard = masterUnlockAccessGuard;
         this.dispatchService = dispatchService;
+        this.mutationGuard = mutationGuard;
     }
 
     @PostMapping("/classrooms/{classroomId}/input-control/lock")
@@ -38,7 +42,12 @@ public class InputControlController {
             @PathVariable String classroomId,
             @RequestBody(required = false) Map<String, Object> request) {
         masterAccessGuard.requireAuthorized();
-        return dispatchService.dispatchLock(classroomId, request);
+        return mutationGuard.run(
+                DeviceMutationHttpGuard.targetDeviceIds(request),
+                "LOCK_INPUT",
+                null,
+                () -> dispatchService.dispatchLock(classroomId, request),
+                response -> response.targets().stream().map(target -> target.status()).toList());
     }
 
     @PostMapping("/classrooms/{classroomId}/input-control/unlock")
@@ -46,6 +55,11 @@ public class InputControlController {
             @PathVariable String classroomId,
             @RequestBody(required = false) Map<String, Object> request) {
         masterUnlockAccessGuard.requireUnlockAuthorized();
-        return dispatchService.dispatchUnlock(classroomId, request);
+        return mutationGuard.run(
+                DeviceMutationHttpGuard.targetDeviceIds(request),
+                "UNLOCK_INPUT",
+                null,
+                () -> dispatchService.dispatchUnlock(classroomId, request),
+                response -> response.targets().stream().map(target -> target.status()).toList());
     }
 }

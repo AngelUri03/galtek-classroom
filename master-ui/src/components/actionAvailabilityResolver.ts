@@ -27,12 +27,14 @@ export type DeviceSessionContext = {
 const interactiveStates: WindowsSessionState[] = [
   "PRIMARY_ACTIVE",
   "SECONDARY_ACTIVE",
+  "ADMIN_ACTIVE",
   "OTHER_SESSION_ACTIVE"
 ];
 
 export const sessionStateLabels: Record<WindowsSessionState, string> = {
   PRIMARY_ACTIVE: "Primaria activa",
   SECONDARY_ACTIVE: "Secundaria activa",
+  ADMIN_ACTIVE: "Administración activa",
   OTHER_SESSION_ACTIVE: "Otra sesión activa",
   NO_SESSION: "Sin sesión iniciada",
   UNKNOWN: "Sesión no disponible"

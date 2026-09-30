@@ -17,6 +17,9 @@ export type ManagedAccountCardView = {
   credentialLabel: string;
   active: boolean;
   remoteLoginSupported: boolean;
+  credentialConfigured: boolean;
+  enabled: boolean | null;
+  administrator: boolean | null;
 };
 
 export type WindowsAccountInventoryView = {
@@ -76,9 +79,9 @@ export function toWindowsAccountInventoryView(
 
   return {
     managed,
-    administrators: inventory.accounts.filter((account) => account.administrator && !account.builtIn),
+    administrators: unmanaged.filter((account) => account.administrator && !account.builtIn),
     others: unmanaged.filter((account) => !account.administrator && !account.builtIn),
-    system: inventory.accounts.filter((account) => account.builtIn && !account.administrator)
+    system: inventory.accounts.filter((account) => account.builtIn)
   };
 }
 
@@ -100,9 +103,16 @@ function managedCard(
     existsInWindows,
     statusLabel,
     credentialLabel: credentialLabel(slot),
-    active: role !== "ADMIN" && sessionState === `${role}_ACTIVE`,
-    remoteLoginSupported: role !== "ADMIN"
+    active: sessionState === `${role}_ACTIVE`,
+    remoteLoginSupported: true,
+    credentialConfigured: slot?.credentialConfigured ?? false,
+    enabled: windowsAccount?.enabled ?? null,
+    administrator: windowsAccount?.administrator ?? null
   };
+}
+
+export function credentialsMatch(secret: string, confirmation: string) {
+  return secret.length > 0 && secret === confirmation;
 }
 
 function managedStatusLabel(slot: ManagedAccountSlot | undefined, existsInWindows: boolean) {
@@ -111,11 +121,15 @@ function managedStatusLabel(slot: ManagedAccountSlot | undefined, existsInWindow
     return "Cuenta no encontrada en Windows";
   }
   if (slot.credentialStatus === "CREDENTIAL_NOT_CONFIGURED") return "Falta contraseña";
-  return "Credencial lista";
+  return "Lista para iniciar sesión";
 }
 
 function credentialLabel(slot: ManagedAccountSlot | undefined) {
   if (!slot || !slot.configured || slot.credentialStatus === "NOT_CONFIGURED") return "Sin administrar";
   if (slot.credentialStatus === "ACCOUNT_NOT_FOUND") return "Requiere atención";
-  return slot.credentialConfigured ? "Guardada de forma protegida" : "Guardar contraseña para completar";
+  if (slot.combinedCredentialState === "READY") return "Guardada en bóveda y equipo";
+  if (slot.combinedCredentialState === "PENDING_CLIENT_SYNC") return "Pendiente de sincronizar con el equipo";
+  if (slot.combinedCredentialState === "CLIENT_ONLY_NOT_REVEALABLE") return "Disponible en equipo, no revelable";
+  if (slot.combinedCredentialState === "NO_CREDENTIAL") return "Sin contraseña";
+  return slot.credentialConfigured ? "Contraseña guardada de forma segura" : "Guardar contraseña para completar";
 }

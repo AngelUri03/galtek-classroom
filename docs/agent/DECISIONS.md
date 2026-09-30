@@ -1,5 +1,64 @@
 # Decisiones vigentes
 
+## 2026-09-29 - 20F.2-F2.1: frontera de reveal y estados UI
+
+- Un reveal exitoso conserva `application/octet-stream` UTF-8 y headers no-cache. El frontend rechaza respuestas success con media type distinto, no usa JSON/Base64 y no representa un secreto hasta haber leído bytes válidos.
+- La identidad de una credential Windows del Vault combina `deviceId` estable y nombre local de cuenta; el prefijo hostname de `HOST\usuario` es metadata mutable. Cero o múltiples matches fallan cerrado.
+- La actividad `MANAGED_CREDENTIAL_REVEALED/SUCCESS` se registra después de escribir y hacer flush de la respuesta. Preparar o leer internamente la entry no equivale a entrega; un fallo conserva semántica `FAILED` sin secreto.
+- Fetch inicial, refresh con snapshot válido y mutation pending de sesión son estados distintos. Un refresh no reemplaza un snapshot autoritativo por “Consultando sesión”; una mutación muestra su operación específica.
+- `MANAGED_ACCOUNT_SESSION_ACTIVE` es un rechazo determinista: no requiere reconciliación, mantiene el modal y produce feedback humano. Backend y lease persistente siguen siendo autoridad aunque el frontend deshabilite preventivamente.
+- `disabled` HTML y reserva frontend síncrona son defensas complementarias. El scope sigue siendo por `deviceId`; no se bloquean otros Devices ni se habilitan retries automáticos.
+
+## 2026-09-29 - Serialización de mutaciones por Device
+
+- Toda mutación remota exclusiva adquiere una autoridad backend por `deviceId`; el frontend deshabilitado es una segunda defensa, no la autoridad.
+- La adquisición batch es atómica y determinista. Un Device ocupado produce `409 DEVICE_OPERATION_IN_PROGRESS` sin dispatch parcial ni cola posterior.
+- Los leases viven en SQLite para sobrevivir reload, otra pestaña y restart del Master. Solo guardan metadata no secreta.
+- `PARTIAL` y `UNKNOWN` pasan a `RECONCILIATION_REQUIRED`; no se liberan por tiempo. Una lectura autoritativa estable confirma solo su familia: sesión no libera energía/input/contenido y perfiles no libera sesión.
+- El frontend usa una sola colección keyed por `deviceId`; Aula, command bar e inspector consumen el mismo estado pending.
+- El contrato vigente de perfiles administrados es exactamente `PRIMARY`, `SECONDARY` y `ADMIN`.
+
+## 2026-09-29 - 20F.2-F1: resultado parcial, readiness por senal y Client 0.0.6
+
+- `NO_SESSION` confirma estado WTS, no readiness de LogonUI/Credential Provider. En un switch, despues de cerrar el source y observar `NO_SESSION`, el logon target usa una espera acotada de 8 s sobre la senal de listener existente; no usa sleep fijo, dispatch duplicado, retry automatico ni rollback.
+- Cerrar el source y no iniciar el target es `PARTIAL`, no `FAILED` generico ni `SUCCESS`. Timeout sin resultado confirmado es `UNKNOWN`. Ambos estados se preservan Agent -> protobuf -> Backend -> SQLite -> UI.
+- ADMIN tiene paridad de serializacion con PRIMARY/SECONDARY en el Credential Provider nativo. Toda validacion de accountId en esta ruta debe aceptar exactamente `PRIMARY|SECONDARY|ADMIN`.
+- La UI usa `SessionActionAvailability` tipado como autoridad de readiness y siempre presenta feedback inmediato para login, switch, logout y step-up. Un retry manual de partial solo se habilita tras refresh fresco que confirme `NO_SESSION` y ejecuta login, no switch.
+- Hostname es metadata mutable: un hello autenticado del binding current puede actualizar `devices.hostname`, pero no deviceId, installationId, network identity, fingerprint, licencia ni pairing.
+- Como Agent, Credential Provider y protobuf cambiaron, 0.0.5 permanece congelado y el Client avanza a 0.0.6 con ProductCode nuevo. El BundleId 0.0.5 `{ED86C4F6-C510-4FB7-B7BF-0359BB1B2898}` es predecessor healthy normal y queda fuera de toda supresion legacy.
+
+## 2026-09-29 - 20E.0B4: la frontera SCM precede al Generic Host
+
+- Un rename Windows no cambia installation/network identity, trust, licencia, bindings SID ni credenciales. Hostname y `accountReference` son observacion/display, nunca autoridad de seguridad.
+- El modo Service usa `DeferredWindowsService` minimo y conecta con SCM antes de crear el Generic Host. El modo consola y comandos administrativos conservan su ruta normal.
+- SCM `Running` y readiness funcional son estados distintos. `AGENT_READY` requiere Installation Identity local; Network Identity, DNS y Master quedan fuera del handshake y del gate SCM.
+- No se aumenta `ServicesPipeTimeout` ni se usan sleeps, watchdog, Scheduled Task sustituto o retries externos. `RequestAdditionalTime` solo se usa durante Stop despues de conectar.
+- `e0434352` se documenta unicamente como excepcion CLR administrada de tipo desconocido. Los diagnostics tempranos siguen opt-in y sanitizados.
+- La evidencia fisica no prueba que el rename causara el fallo: el mismo hostname/configuracion paso un start manual posterior y otro servicio tambien sufrio timeout durante el boot.
+
+## 2026-09-28 - 20F.2 FINAL: ADMIN completo y reveal humano con step-up
+
+- Esta decisión reemplaza expresamente la exclusión de ADMIN de `LOGON_MANAGED_ACCOUNT`/`SWITCH_MANAGED_ACCOUNT` y la política de Vault sin reveal humano. La decisión reemplazada se conserva debajo como historia.
+- PRIMARY, SECONDARY y ADMIN son tres roles globales estables; cada Device vincula una cuenta local distinta y SID continúa siendo autoridad únicamente Agent-side.
+- ADMIN acepta login, switch, logout, credential register/update/remove y reveal. El Agent revalida en vivo cuenta existente, enabled, no built-in, SID tipo User y membership real de Administrators resuelta por `S-1-5-32-544` antes de activar el Credential Provider.
+- Toda operación cuyo target sea ADMIN requiere contraseña maestra fresca y una autorización `ADMIN_SESSION` opaca, in-memory, de hasta 60 segundos, one-time y scoped al actor, aula, acción y lista exacta de Devices. El request final nunca contiene la master password.
+- El reveal humano se permite únicamente desde Credential Vault del Master tras una autorización fresca `CREDENTIAL_REVEAL`, scoped a actor/aula/Device y con TTL de 60 segundos. Se revela una credencial por endpoint, con `no-store`; nunca se solicita al Client que extraiga DPAPI.
+- OTHER y UNKNOWN nunca se mutan automáticamente. ADMIN -> PRIMARY/SECONDARY reutiliza el switch Agent-side con revalidación de source; no existe rollback automático.
+- Desvincular elimina binding y las copias asociadas de credential en Client/Vault, pero nunca elimina ni modifica la cuenta Windows real.
+- Client 0.0.4 permanece congelado; `ADMIN_MANAGED_SESSION_V1` y `MANAGED_CREDENTIAL_REMOVAL_V1` distinguen el contrato nuevo del Client 0.0.5.
+- Client 0.0.5 usa ProductCode nuevo `{078A1C16-27EB-4031-96C8-342EC1CA47EB}` y ProviderKey versionado `.0.0.5`; conserva los UpgradeCodes de familia. 0.0.4 se procesa como related bundle normal y queda expresamente fuera de la allowlist histórica de supresión/cleanup.
+
+## 2026-09-28 - Decisión reemplazada de 20F.2: ADMIN observable sin elevación remota
+
+- `ADMIN_ACTIVE` se deriva exclusivamente de SID de token de la consola física contra binding local ADMIN.
+- ADMIN nunca es target de `LOGON_MANAGED_ACCOUNT` ni `SWITCH_MANAGED_ACCOUNT`; solo puede cerrarse explícitamente con `LOGOFF_WINDOWS_SESSION(ADMIN)`.
+- `OTHER_SESSION_ACTIVE` nunca se cierra ni se cambia automáticamente.
+- No existe composición invisible ADMIN/OTHER -> logout -> login; son gestos separados y se exige observar `NO_SESSION` antes de mostrar login académico.
+- Eliminar una credential es una operación remota tipada distinta del unbind. Conserva la cuenta Windows y el binding Galtek.
+- Guardar una password copia la password Windows ya existente; no crea usuario, no modifica password/grupos y `READY` no prueba autenticación.
+- El token de Vault no se persiste en storage del navegador. Las passwords no entran en JSON, URL, logs, auditoría ni resultados batch.
+- El protocolo nuevo se desplegará en un futuro Client 0.0.5; 0.0.4 permanece inmutable.
+
 ## 2026-09-27 - Cierre fisico 0.0.4 y reanudacion de 20F.1B
 
 - Se acepta como evidencia fisica final el artefacto `0.0.4` de SHA-256 `1ED72A03E659C42CA37F08D4326A32730B96A28534F02F8C3834A4CE59BC7EEB`, BundleId `{C44D76A6-0183-4179-B45E-9123A4584B29}` y MSI ProductCode `{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}`.

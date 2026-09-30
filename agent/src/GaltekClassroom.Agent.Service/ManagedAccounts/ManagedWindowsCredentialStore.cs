@@ -1273,7 +1273,7 @@ public sealed class ManagedWindowsCredentialStore : IManagedWindowsCredentialSto
                 StringComparison.Ordinal))
         {
             return ManagedWindowsCredentialValidationResult.Invalid(
-                "managed-windows-credentials.dat accountId must be canonical PRIMARY or SECONDARY.");
+                "managed-windows-credentials.dat accountId must be canonical PRIMARY, SECONDARY or ADMIN.");
         }
 
         if (string.IsNullOrWhiteSpace(entry.ProtectedData))

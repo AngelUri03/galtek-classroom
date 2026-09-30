@@ -936,6 +936,21 @@ class MasterRemoteOperationGatewayTest {
     }
 
     @Test
+    void operationResultPreservesPartialSessionSwitchOutcome() {
+        RemoteOperationOutcome outcome = MasterRemoteOperationGateway.outcomeFromResult(OperationResult.newBuilder()
+                .setOperationId("batch-switch-partial")
+                .setOperationType(NetworkOperationType.NETWORK_OPERATION_TYPE_SWITCH_MANAGED_ACCOUNT)
+                .setTargetDeviceId("PC14")
+                .setProtocolVersion(MasterNetworkTransportConstants.PROTOCOL_VERSION)
+                .setStatus(OperationExecutionStatus.OPERATION_EXECUTION_STATUS_PARTIAL)
+                .setErrorCode(NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_CREDENTIAL_PROVIDER_UNAVAILABLE)
+                .build());
+
+        assertThat(outcome.status()).isEqualTo(TargetExecutionStatus.PARTIAL);
+        assertThat(outcome.errorCode()).isEqualTo(ErrorCode.CREDENTIAL_PROVIDER_UNAVAILABLE);
+    }
+
+    @Test
     void operationResultMapsManagedCredentialProvisioningErrorsWithoutTextParsing() {
         assertManagedCredentialError(
                 NetworkOperationErrorCode.NETWORK_OPERATION_ERROR_CODE_ACCOUNT_NOT_CONFIGURED,

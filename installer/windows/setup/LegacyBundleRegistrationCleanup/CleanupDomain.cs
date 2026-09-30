@@ -121,14 +121,16 @@ namespace GaltekClassroom.LegacyBundleCleanup
         public const string Msi001ProductCode = "{BB52C90B-304C-42DD-8E02-D4B3B1173BA6}";
         public const string Msi002ProductCode = "{DCF26CE0-A601-489B-B32A-E14095CC50C0}";
         public const string Msi003ProductCode = "{2BA4D6A0-9492-484E-A27B-9EAE40C886A9}";
+        public const string Msi004ProductCode = "{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}";
+        public const string Msi005ProductCode = "{078A1C16-27EB-4031-96C8-342EC1CA47EB}";
         public const string Msi002ProviderKey = "{DCF26CE0-A601-489B-B32A-E14095CC50C0}_v0.0.2";
         public const string Msi003ProviderKey = "{2BA4D6A0-9492-484E-A27B-9EAE40C886A9}_v0.0.3";
         public const string Bundle002ProviderKey = "GaltekSolution.GaltekClassroom.Client.Bundle.0.0.2";
         public const string Bundle003ProviderKey = "GaltekSolution.GaltekClassroom.Client.Bundle.0.0.3";
-        public const string CurrentVersion = "0.0.4";
-        public const string CurrentMsiProductCode = "{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}";
-        public const string CurrentBundleProviderKey = "GaltekSolution.GaltekClassroom.Client.Bundle.0.0.4";
-        public const string CurrentBundleExecutableName = "GaltekClassroom-Client-Setup-0.0.4.exe";
+        public const string CurrentVersion = "0.0.6";
+        public const string CurrentMsiProductCode = "{C9698974-44A1-4751-A914-D70152A28B5B}";
+        public const string CurrentBundleProviderKey = "GaltekSolution.GaltekClassroom.Client.Bundle.0.0.6";
+        public const string CurrentBundleExecutableName = "GaltekClassroom-Client-Setup-0.0.6.exe";
         public const int ResumeModeActive = 1;
         public const int ResumeModeArp = 3;
 
@@ -177,7 +179,7 @@ namespace GaltekClassroom.LegacyBundleCleanup
 
         public static IEnumerable<CleanupCheck> ValidateHost(ICleanupEnvironment environment, CurrentBundleRecord current, ProviderRecord currentProvider)
         {
-            yield return Check("CURRENT_BUNDLE_AUTHORITY", IsValidCurrentBundleId(environment.CurrentBundleId), "CURRENT_BUNDLE_ID_INVALID", "GENERATED_0.0.4_ID", environment.CurrentBundleId);
+            yield return Check("CURRENT_BUNDLE_AUTHORITY", IsValidCurrentBundleId(environment.CurrentBundleId), "CURRENT_BUNDLE_ID_INVALID", "GENERATED_0.0.6_ID", environment.CurrentBundleId);
             yield return Check("CURRENT_BUNDLE_REGISTRATION", current != null, "CURRENT_BUNDLE_REGISTRATION_MISSING", environment.CurrentBundleId, current?.BundleId ?? "MISSING");
             if (current != null)
             {
@@ -204,6 +206,8 @@ namespace GaltekClassroom.LegacyBundleCleanup
             yield return Check("OLD_MSI_001", !environment.IsMsiInstalled(Msi001ProductCode), "OLD_MSI_STILL_INSTALLED", "ABSENT", environment.IsMsiInstalled(Msi001ProductCode) ? "PRESENT" : "ABSENT");
             yield return Check("OLD_MSI_002", !environment.IsMsiInstalled(Msi002ProductCode), "OLD_MSI_STILL_INSTALLED", "ABSENT", environment.IsMsiInstalled(Msi002ProductCode) ? "PRESENT" : "ABSENT");
             yield return Check("OLD_MSI_003", !environment.IsMsiInstalled(Msi003ProductCode), "OLD_MSI_STILL_INSTALLED", "ABSENT", environment.IsMsiInstalled(Msi003ProductCode) ? "PRESENT" : "ABSENT");
+            yield return Check("OLD_MSI_004", !environment.IsMsiInstalled(Msi004ProductCode), "OLD_MSI_STILL_INSTALLED", "ABSENT", environment.IsMsiInstalled(Msi004ProductCode) ? "PRESENT" : "ABSENT");
+            yield return Check("OLD_MSI_005", !environment.IsMsiInstalled(Msi005ProductCode), "OLD_MSI_STILL_INSTALLED", "ABSENT", environment.IsMsiInstalled(Msi005ProductCode) ? "PRESENT" : "ABSENT");
             yield return Check("CURRENT_SERVICE", environment.ServiceHealthy, "CURRENT_SERVICE_UNHEALTHY", "RUNNING_AUTOMATIC_DELAYED_LOCALSYSTEM", environment.ServiceHealthy ? "HEALTHY" : "OTHER");
             yield return Check("CURRENT_SESSION", environment.SessionHealthy, "CURRENT_SESSION_UNHEALTHY", "ENABLED_READY_OR_RUNNING_EXACT_PATH", environment.SessionHealthy ? "HEALTHY" : "OTHER");
             yield return Check("ROLLBACK_SNAPSHOT", !environment.SnapshotPending, "ROLLBACK_SNAPSHOT_PENDING", "ABSENT", environment.SnapshotPending ? "PRESENT" : "ABSENT");

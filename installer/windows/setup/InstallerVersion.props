@@ -1,13 +1,13 @@
 <Project>
   <PropertyGroup>
     <!-- Single source of truth for the installer product version. -->
-    <ProductVersion>0.0.4</ProductVersion>
+    <ProductVersion>0.0.6</ProductVersion>
     <WixToolsetVersion>5.0.2</WixToolsetVersion>
     <ProductUpgradeCode>{2D9C681B-F7A8-4C5F-97C8-C5EACB2F31D6}</ProductUpgradeCode>
-    <!-- Stable identity for the 0.0.4 release candidate. Never regenerate it for this ProductVersion. -->
-    <ProductCode>{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}</ProductCode>
+    <!-- Stable identity for the 0.0.6 release candidate. Never regenerate it for this ProductVersion. -->
+    <ProductCode>{C9698974-44A1-4751-A914-D70152A28B5B}</ProductCode>
     <BundleUpgradeCode>{A67E1418-0AD4-4DA1-915A-1098091D23E7}</BundleUpgradeCode>
     <!-- WiX generates BundleId at final bind; the pipeline records it from BootstrapperApplicationData.xml. -->
-    <BundleProviderKey>GaltekSolution.GaltekClassroom.Client.Bundle.0.0.4</BundleProviderKey>
+    <BundleProviderKey>GaltekSolution.GaltekClassroom.Client.Bundle.0.0.6</BundleProviderKey>
   </PropertyGroup>
 </Project>

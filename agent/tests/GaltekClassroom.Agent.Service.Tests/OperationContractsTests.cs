@@ -27,6 +27,7 @@ public sealed class OperationContractsTests
         Assert.Contains(ClassroomOperationTypes.GetManagedAccountStatus, operations);
         Assert.Contains(ClassroomOperationTypes.GetWindowsAccountInventory, operations);
         Assert.Contains(ClassroomOperationTypes.ProvisionManagedCredential, operations);
+        Assert.Contains(ClassroomOperationTypes.RemoveManagedCredential, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserNavigationPolicy, operations);
         Assert.Contains(ClassroomOperationTypes.ApplyBrowserDownloadPolicy, operations);
     }

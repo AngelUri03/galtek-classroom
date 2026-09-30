@@ -113,12 +113,12 @@ public sealed class ManagedAccountBindingMutationService
                 return Failed(NetworkOperationErrorCode.ManagedAccountBindingsInvalid,
                     "Managed Windows account bindings are invalid.");
             }
-            if (current.Bindings.Any(binding => string.Equals(binding.AccountId, role, StringComparison.Ordinal)))
-            {
-                return Failed(NetworkOperationErrorCode.ManagedRoleAlreadyAssigned,
-                    "The requested managed role is already assigned.");
-            }
+            ManagedWindowsAccountBinding? existingRole = current.Bindings.SingleOrDefault(binding =>
+                string.Equals(binding.AccountId, role, StringComparison.Ordinal));
             if (current.Bindings.Any(binding => string.Equals(
+                binding.AccountId,
+                role,
+                StringComparison.Ordinal) is false && string.Equals(
                 binding.WindowsSid,
                 account.WindowsSid,
                 StringComparison.OrdinalIgnoreCase)))
@@ -127,19 +127,66 @@ public sealed class ManagedAccountBindingMutationService
                     "The selected Windows account is already assigned to another Galtek role.");
             }
 
+            if (existingRole is not null
+                && string.Equals(existingRole.WindowsSid, account.WindowsSid, StringComparison.OrdinalIgnoreCase))
+            {
+                return RemoteOperationHandlerResult.Success("Managed Windows account binding is already current.");
+            }
+
+            if (existingRole is not null)
+            {
+                ConsoleSessionIdentityObservation session =
+                    await _sessionResolver.ObserveAsync(cancellationToken).ConfigureAwait(false);
+                if (!session.Succeeded || session.Status == ConsoleSessionIdentityObservationStatus.Unknown)
+                {
+                    return Failed(NetworkOperationErrorCode.WindowsSessionUnknown,
+                        "Windows session state could not be confirmed before replacing the binding.");
+                }
+                if (session.Status == ConsoleSessionIdentityObservationStatus.User
+                    && string.Equals(session.WindowsSid, existingRole.WindowsSid, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Failed(NetworkOperationErrorCode.ManagedAccountSessionActive,
+                        "The managed profile cannot be changed while its Windows session is active.");
+                }
+            }
+
             ManagedWindowsAccountBinding candidate = ManagedWindowsAccountBinding.Create(
                 role,
                 account.WindowsSid,
                 account.AccountName,
                 _clock.UtcNow);
-            ManagedWindowsAccountBindingStoreWriteResult write = await _bindingStore.AddAsync(
-                identity.Identity.InstallationId,
-                candidate,
-                cancellationToken).ConfigureAwait(false);
+            ManagedWindowsAccountBindingStoreWriteResult write = existingRole is null
+                ? await _bindingStore.AddAsync(
+                    identity.Identity.InstallationId,
+                    candidate,
+                    cancellationToken).ConfigureAwait(false)
+                : await _bindingStore.ReplaceAsync(
+                    identity.Identity.InstallationId,
+                    candidate,
+                    cancellationToken).ConfigureAwait(false);
             if (!write.Succeeded)
             {
                 return Failed(MapBindingError(write),
                     write.ErrorMessage ?? "Managed account binding failed.");
+            }
+
+            if (existingRole is not null)
+            {
+                ManagedWindowsCredentialWriteResult cleanup = await _credentialStore.RemoveAsync(
+                    identity.Identity.InstallationId,
+                    role,
+                    cancellationToken).ConfigureAwait(false);
+                if (!cleanup.Succeeded && cleanup.Status != ManagedWindowsCredentialWriteStatus.NotFound)
+                {
+                    ManagedWindowsAccountBindingStoreWriteResult rollback = await _bindingStore.ReplaceAsync(
+                        identity.Identity.InstallationId,
+                        existingRole,
+                        cancellationToken).ConfigureAwait(false);
+                    return Failed(NetworkOperationErrorCode.ManagedCredentialCleanupFailed,
+                        rollback.Succeeded
+                            ? "Protected credential cleanup failed; the previous binding was restored."
+                            : "Protected credential cleanup failed and binding recovery requires attention.");
+                }
             }
 
             _logger.LogInformation(
@@ -147,7 +194,9 @@ public sealed class ManagedAccountBindingMutationService
                 deviceId,
                 role,
                 account.AccountName);
-            return RemoteOperationHandlerResult.Success("Managed Windows account was bound.");
+            return RemoteOperationHandlerResult.Success(existingRole is null
+                ? "Managed Windows account was bound."
+                : "Managed Windows account binding was replaced; a new credential is required.");
         }
         finally
         {

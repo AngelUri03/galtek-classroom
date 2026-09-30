@@ -2,6 +2,8 @@ import { LoaderCircle, MonitorCheck, MonitorOff, TriangleAlert, WifiOff } from "
 import type { WindowsSessionState } from "../api/quickActionsApi";
 import type { ClassroomDeviceCardData, DeviceCardStatus } from "../types/classroom";
 import { sessionStateLabels } from "./actionAvailabilityResolver";
+import type { DeviceOperation } from "../app/DeviceOperationState";
+import { deviceOperationLabel } from "../app/deviceOperationModel";
 
 const statusIcon: Record<DeviceCardStatus, typeof MonitorCheck> = {
   online: MonitorCheck,
@@ -16,10 +18,11 @@ type DeviceCardProps = {
   device: ClassroomDeviceCardData;
   selected: boolean;
   sessionState?: WindowsSessionState;
+  operation?: DeviceOperation;
   onToggle: () => void;
 };
 
-export function DeviceCard({ device, selected, sessionState, onToggle }: DeviceCardProps) {
+export function DeviceCard({ device, selected, sessionState, operation, onToggle }: DeviceCardProps) {
   const Icon = statusIcon[device.status];
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -59,7 +62,9 @@ export function DeviceCard({ device, selected, sessionState, onToggle }: DeviceC
           {device.statusLabel}
         </span>
         <small>{device.secondaryStatus}</small>
-        {sessionState && device.rawStatus === "ONLINE" ? (
+        {operation ? <small className="device-card__session device-card__session--pending">
+          {deviceOperationLabel(operation)}
+        </small> : sessionState && device.rawStatus === "ONLINE" ? (
           <small className={`device-card__session device-card__session--${sessionState.toLowerCase().replace(/_/g, "-")}`}>
             {sessionStateLabels[sessionState]}
           </small>

@@ -33,11 +33,11 @@ if (-not [string]::IsNullOrWhiteSpace($MsiPath)) {
     Assert-SameVersion (Test-Path -LiteralPath $MsiPath -PathType Leaf) "MSI is missing: $MsiPath"
     $fullMsiPath = [IO.Path]::GetFullPath($MsiPath)
     $replacementMode = Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Target` FROM `CustomAction` WHERE `Action`='SetREINSTALLMODE'"
-    Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Value` FROM `Property` WHERE `Property`='ProductVersion'") -eq '0.0.4') 'MSI ProductVersion is not 0.0.4.'
-    Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Value` FROM `Property` WHERE `Property`='ProductCode'") -eq '{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}') 'MSI 0.0.4 ProductCode is not the pinned identity.'
+    Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Value` FROM `Property` WHERE `Property`='ProductVersion'") -eq '0.0.6') 'MSI ProductVersion is not 0.0.6.'
+    Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Value` FROM `Property` WHERE `Property`='ProductCode'") -eq '{C9698974-44A1-4751-A914-D70152A28B5B}') 'MSI 0.0.6 ProductCode is not the pinned identity.'
     Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `Value` FROM `Property` WHERE `Property`='UpgradeCode'") -eq '{2D9C681B-F7A8-4C5F-97C8-C5EACB2F31D6}') 'MSI UpgradeCode changed.'
     Assert-SameVersion ((Get-MsiScalar -Path $fullMsiPath -Query "SELECT `ActionProperty` FROM `Upgrade` WHERE `UpgradeCode`='{2D9C681B-F7A8-4C5F-97C8-C5EACB2F31D6}'") -eq 'WIX_UPGRADE_DETECTED') 'MSI MajorUpgrade row is missing.'
-    Write-Output 'MSI_003_TO_004_MAJOR_UPGRADE_CONTRACT_PASS old-product={2BA4D6A0-9492-484E-A27B-9EAE40C886A9} new-product={A544ED43-3AAA-4B47-8EE7-0A3807C94D59}'
+    Write-Output 'MSI_005_TO_006_MAJOR_UPGRADE_CONTRACT_PASS old-product={078A1C16-27EB-4031-96C8-342EC1CA47EB} new-product={C9698974-44A1-4751-A914-D70152A28B5B}'
 }
 Assert-SameVersion ($replacementMode -eq 'emus') "Expected MSI REINSTALLMODE=emus, actual '$replacementMode'."
 Assert-SameVersion ($replacementMode.Contains('e')) 'Equal-version replacement mode is not active.'

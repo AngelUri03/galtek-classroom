@@ -29,16 +29,16 @@ Assert-Smoke (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if ([string]::IsNullOrWhiteSpace($BundlePath)) {
-    $BundlePath = Join-Path $repositoryRoot 'artifacts\windows\installer\GaltekClassroom-Client-Setup-0.0.4.exe'
+    $BundlePath = Join-Path $repositoryRoot 'artifacts\windows\installer\GaltekClassroom-Client-Setup-0.0.6.exe'
 }
 $resolvedBundle = [IO.Path]::GetFullPath($BundlePath)
 Assert-Smoke (Test-Path -LiteralPath $resolvedBundle -PathType Leaf) "Bundle does not exist: $resolvedBundle"
-Assert-Smoke ([IO.Path]::GetFileName($resolvedBundle) -eq 'GaltekClassroom-Client-Setup-0.0.4.exe') 'Smoke accepts only the 0.0.4 Client bundle.'
+Assert-Smoke ([IO.Path]::GetFileName($resolvedBundle) -eq 'GaltekClassroom-Client-Setup-0.0.6.exe') 'Smoke accepts only the 0.0.6 Client bundle.'
 
 $logRoot = Join-Path $repositoryRoot 'artifacts\windows\installer\runtime-smoke'
 [IO.Directory]::CreateDirectory($logRoot) | Out-Null
 $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
-$logPath = Join-Path $logRoot "GaltekClassroom-Client-Setup-0.0.4-custom-ba-smoke-$timestamp.log"
+$logPath = Join-Path $logRoot "GaltekClassroom-Client-Setup-0.0.6-custom-ba-smoke-$timestamp.log"
 $startedAt = [DateTime]::UtcNow
 $process = Start-Process -FilePath $resolvedBundle -ArgumentList @('-l', $logPath) -PassThru
 $baProcess = $null

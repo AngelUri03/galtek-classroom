@@ -453,6 +453,11 @@ namespace
                 SetEvent(_stopEvent);
             }
 
+            if (_thread.joinable())
+            {
+                CancelSynchronousIo(_thread.native_handle());
+            }
+
             HANDLE client = CreateFileW(
                 _pipeName.c_str(),
                 GENERIC_READ | GENERIC_WRITE,
@@ -532,6 +537,14 @@ namespace
                 if (pipe == INVALID_HANDLE_VALUE)
                 {
                     return;
+                }
+
+                // Stop can be signaled between the loop condition and pipe
+                // creation. Recheck before entering the blocking connect.
+                if (WaitForSingleObject(_stopEvent, 0) != WAIT_TIMEOUT)
+                {
+                    CloseHandle(pipe);
+                    break;
                 }
 
                 if (!readySignaled)
@@ -1141,6 +1154,25 @@ int wmain()
 
         bridgeProviderInterface->Release();
         bridgeProvider->Release();
+        scriptedServer.SetIdentityResponseJson(
+            "{\"protocolVersion\":1,\"requestId\":\"11111111-2222-3333-4444-555555555555\","
+            "\"status\":\"SUCCESS\",\"activationStatus\":\"PENDING\","
+            "\"pendingIdentity\":{\"activationId\":\"11111111-2222-3333-4444-555555555555\","
+            "\"accountId\":\"ADMIN\","
+            "\"userSid\":\"S-1-5-21-1000000000-1000000000-1000000000-1007\","
+            "\"domain\":\"AULA\",\"username\":\"Admin\",\"autoSubmitRequested\":true}}");
+        BridgeActivationIdentity adminIdentity;
+        if (!bridge.GetPendingActivationIdentity(1000, &adminIdentity)
+            || adminIdentity.accountId != "ADMIN"
+            || adminIdentity.username != L"Admin"
+            || !adminIdentity.autoSubmitRequested)
+        {
+            scriptedServer.Stop();
+            providerInterface->Release();
+            provider->Release();
+            return Fail(L"ADMIN pendingIdentity must roundtrip through the Credential Provider");
+        }
+
         scriptedServer.Stop();
     }
 
@@ -1691,6 +1723,22 @@ int wmain()
             return Fail(L"retry worker should cancel before identity snapshot check");
         }
 
+        // The scripted long-poll server has a single pipe instance. Replace it
+        // after worker cancellation so the identity request models the Agent's
+        // independent bridge listener instead of racing a test-only blocked pipe.
+        scriptedServer.Stop();
+        ScriptedBridgeServer identityServer(pipeName);
+        identityServer.SetIdentityAvailable(true);
+        if (!identityServer.Start())
+        {
+            events->Release();
+            retryInterface->Release();
+            retryProvider->Release();
+            providerInterface->Release();
+            provider->Release();
+            return Fail(L"identity server should start after callback worker cancellation");
+        }
+
         DWORD count = 0;
         DWORD defaultCredential = CREDENTIAL_PROVIDER_NO_DEFAULT;
         BOOL autoLogon = FALSE;
@@ -1703,7 +1751,7 @@ int wmain()
             events->Release();
             retryInterface->Release();
             retryProvider->Release();
-            scriptedServer.Stop();
+            identityServer.Stop();
             providerInterface->Release();
             provider->Release();
             return Fail(L"existing activation should survive callback/rearm race");
@@ -1717,7 +1765,7 @@ int wmain()
             events->Release();
             retryInterface->Release();
             retryProvider->Release();
-            scriptedServer.Stop();
+            identityServer.Stop();
             providerInterface->Release();
             provider->Release();
             return Fail(L"successful callback should allow identity snapshot credential");
@@ -1727,7 +1775,7 @@ int wmain()
         events->Release();
         retryInterface->Release();
         retryProvider->Release();
-        scriptedServer.Stop();
+        identityServer.Stop();
     }
 
     {

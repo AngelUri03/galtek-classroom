@@ -51,6 +51,27 @@ public sealed class InstallationIdentityTests : IDisposable
     }
 
     [Fact]
+    public async Task HostnameRename_ChangesOnlyMachineCodeDisplayAndDoesNotRewriteInstallationIdentity()
+    {
+        var resolver = CreateResolver(_dataDirectory);
+        var first = await resolver.ResolveAsync(CancellationToken.None);
+        string identityPath = Path.Combine(_dataDirectory, InstallationIdentityConstants.FileName);
+        byte[] persistedBeforeRename = await File.ReadAllBytesAsync(identityPath);
+
+        string oldMachineCode = new MachineCodeGenerator(new FakeHostNameProvider("ICH11"))
+            .Generate(first.Identity!);
+        var afterRename = await resolver.ResolveAsync(CancellationToken.None);
+        string newMachineCode = new MachineCodeGenerator(new FakeHostNameProvider("PC14"))
+            .Generate(afterRename.Identity!);
+
+        Assert.False(afterRename.Created);
+        Assert.Equal(first.Identity, afterRename.Identity);
+        Assert.Equal(persistedBeforeRename, await File.ReadAllBytesAsync(identityPath));
+        Assert.Equal("ICH11", DecodeMachineCode(oldMachineCode).GetProperty("hostname").GetString());
+        Assert.Equal("PC14", DecodeMachineCode(newMachineCode).GetProperty("hostname").GetString());
+    }
+
+    [Fact]
     public async Task ResolveAsync_WhenIdentityFileIsCorrupt_ReturnsControlledErrorWithoutRegenerating()
     {
         Directory.CreateDirectory(_dataDirectory);
@@ -160,6 +181,12 @@ public sealed class InstallationIdentityTests : IDisposable
             store,
             provider ?? new FakeHardwareFingerprintProvider(CreateFakeFingerprint()),
             new FakeClock(FixedCreatedAtUtc));
+    }
+
+    private static JsonElement DecodeMachineCode(string machineCode)
+    {
+        using var document = JsonDocument.Parse(Convert.FromBase64String(machineCode));
+        return document.RootElement.Clone();
     }
 
     private static HardwareFingerprint CreateFakeFingerprint(string suffix = "1")

@@ -1,5 +1,52 @@
 # Historial
 
+## 2026-09-30 - Paso 20F.2-F2.2
+
+- Homologados los estados masked/visible/failed/missing/loading del reveal con botones PrimeReact pequeños, iconos eye/eye-slash, copy explícito y el mismo componente para Primaria, Secundaria y Administración.
+- Unificadas las X y la política de foco: click de mouse sin halo persistente y `focus-visible` accesible para teclado en close, reveal, cards, administrar perfil, tabs y accordions.
+- Validado el layout local en 1366x768, 1600x900, 1920x1080 y 2560x1440, incluyendo drawer, tres cards, sesión, modales y scroll de Funciones, sin overflow horizontal, controles cortados ni texto superpuesto.
+- Validación: UI tests, typecheck, production build y `git diff --check` PASS; solo permanecen las tres advertencias webpack de presupuesto conocidas. Client 0.0.6 y las superficies congeladas permanecen sin cambios; PC14 no fue tocada. Sin commit ni push. Estado listo para aceptación física final por el operador, todavía no cerrada.
+
+## 2026-09-29 - Paso 20F.2-F2.1
+
+- Corregido el root cause del reveal posterior a rename: Vault comparaba `HOST\usuario` completo; ahora resuelve dentro del `deviceId` estable por nombre local de cuenta y conserva fallo cerrado ante duplicados. La UI consume estrictamente `application/octet-stream`, usa estados de fila explícitos, retry manual, feedback Toast y no dibuja bullets/placeholder sin respuesta válida.
+- Movida la auditoría exitosa de reveal a la frontera posterior a escritura/flush HTTP; los intentos fallidos ya no se presentan como “visualizada”.
+- Corregido unbind activo silencioso con copy humano por perfil/Device y Toast; backend continúa siendo autoridad y conserva binding, credential y cuenta Windows.
+- Separados snapshot/fetch/refresh de sesión y mutation pending; eliminado el ciclo causado por callback inline inestable.
+- Endurecidos los `disabled` HTML de acciones incompatibles en inspector, cuentas y Command Center, conservando batch atómico, reserva síncrona, dedupe Toast y aislamiento entre Devices.
+- Validación: Maven 390/390; UI tests, typecheck y production build PASS con solo tres warnings webpack conocidos; `git diff --check` PASS. Sin cambios de Client 0.0.6/Agent/CP/protobuf/installer, sin PC14, commit ni push.
+
+## 2026-09-29 - Paso 20F.2-F2
+
+- Agregada autoridad backend persistente por `deviceId` para serializar mutaciones de sesion, perfiles/credenciales, energia, input y contenido abierto desde el Master.
+- La adquisicion multi-equipo es atomica y fail-closed: cualquier conflicto devuelve `409 DEVICE_OPERATION_IN_PROGRESS` para todo el lote, sin despachos parciales ni retries automaticos.
+- `PARTIAL`, `UNKNOWN`, `PENDING` y fallos inesperados requieren reconciliacion; una lectura autoritativa estable libera solo la familia que realmente puede confirmar. El estado sobrevive reinicios del backend y se consulta sin exponer secretos.
+- Unificada la autoridad frontend entre cards, Command Center e inspector, con recuperacion tras reload/segunda pestana, bloqueo por equipo y refresh coordinado de sesion, perfiles, resumen y actividad.
+- Sustituido el feedback local por un host PrimeReact Toast global con deduplicacion/reemplazo; se consolidaron Password y estados visibles de input, foco, error, disabled y reveal por fila.
+- Validacion local final: Maven 387/387; UI tests, typecheck y build PASS, con tres categorias conocidas de warnings webpack de presupuesto. Sin cambios de Client/Agent/CP/proto/installer, sin tocar PC14 y sin commit/push.
+
+## 2026-09-29 - Paso 20F.2-F1
+
+- Se incorporo la evidencia fisica 0.0.5 de PC14: upgrade/cold boot/ADMIN_ACTIVE/SECONDARY login PASS; ADMIN login fallo despues de step-up; ADMIN -> PRIMARY dejo `NO_SESSION`; audit persistio y solo faltaba refresh/feedback inmediato.
+- Se demostro el root cause ADMIN en `BridgeClient.cpp`: el CP nativo rechazaba `ADMIN` por una allowlist historica `PRIMARY || SECONDARY`. Se agrego ADMIN y un roundtrip nativo completo de pending identity.
+- Se demostro por test la carrera independiente post-logout: el listener CP puede aparecer despues de confirmar `NO_SESSION`. Switch usa readiness por senal hasta 8 s y emite checkpoints sanitizados; no se agrego retry, sleep ni rollback.
+- Se agrego `PARTIAL` al wire contract y estados `PARTIAL/UNKNOWN` persistentes en Backend; la UI presenta resultado humano y refresh dirigido.
+- Se unifico disponibilidad de acciones, se pulieron master password/reveal/cards/copy/actividad y se actualiza hostname desde hello preservando identidad y trust.
+- Validacion local final: Agent 728 Service + 70 Session; CP nativo PASS; Maven 382; UI test/typecheck/build PASS; pipeline installer PASS.
+- Se publico localmente Client 0.0.6: ProductCode `{C9698974-44A1-4751-A914-D70152A28B5B}`, BundleId `{0E4AC26D-2578-4748-A8E1-46063EBAB97E}`, SHA-256 `2AF8A6B924C55543037323DA8BD1C6562024FF2C5BC9F1E52F30FDE7DE6F7696`. 0.0.5 conserva bytes/hash y es predecessor normal. PC14 no fue tocada; no hubo commit ni push.
+
+## 2026-09-29 - Paso 20E.0B4
+
+Se reemplazo la ruta WindowsServiceLifetime tardia por un bootstrap `ServiceBase` minimo: SCM se conecta antes de construir el Generic Host y toda inicializacion Galtek se agenda despues de `OnStart`. Se agregaron markers opt-in con elapsed, readiness local real, fallo temprano sanitizado, parada acotada y pruebas de init post-conexion artificial de 45 s. El retorno local del callback midio 0.111 ms.
+
+Los fixtures de rename `ICH11 -> PC14` demuestran que Installation Identity, Network Identity, authorized masters, licencia, bindings PRIMARY/SECONDARY/ADMIN y credenciales permanecen estables, con bindings/uso de credenciales gobernados por SID, mientras el display live puede reflejar PC14. Pasaron 727 pruebas Agent Service y 70 Session. El Client 0.0.5 integrado se genero sin reconstruir 0.0.4: BundleId `{ED86C4F6-C510-4FB7-B7BF-0359BB1B2898}`, PackageCode `{9B8B41B4-8D95-46CF-B39A-73A37C2F157B}`, 31,813,526 bytes y SHA-256 `CB4035B57CD98D661FAA4247790A5C4E9D07E3FDF88C5A22360BE3F7D338CC19`. No se toco PC14, no hubo commit/push y la validacion fisica cold-boot A-D permanece pendiente.
+
+## 2026-09-28 - Paso 20F.2
+
+La implementación inicial que dejaba ADMIN fuera de login/switch y Vault sin reveal fue reemplazada por el contrato final: ADMIN tiene paridad de sesión con step-up fresco, autorización `ADMIN_SESSION` one-time/exact-target, reveal humano Master-only con `CREDENTIAL_REVEAL`, estados combinados Vault+Client, remove/unbind coordinados, actividad persistente y UX final individual/masiva. Agent revalida estructura ADMIN en vivo y anuncia capability específica para que 0.0.4 muestre copy de actualización.
+
+Se generó un candidato intermedio Client 0.0.5 sin reconstruir 0.0.4. Su BundleId `{4B35DAEA-1F58-4023-9D95-726BE9A53410}`, PackageCode `{65173865-6766-469C-AD27-2A29EA7F59D4}` y SHA-256 `E988C5052620A50A1910D8D6EB6AD4E6606E2A58E501B9E7B70120ABDE26FBD5` quedaron **sustituidos** por el build integrado 20E.0B4 del 2026-09-29, antes de iniciar validacion fisica. Pasaron el pipeline/ICE y el fixture normal 0.0.4 -> 0.0.5; la supresión siguio limitada a 2DCF/43F6/C183/A274. No hubo acciones físicas, commit ni push.
+
 ## 2026-09-27 - Installer 0.0.4 cerrado con upgrade real en PC14
 
 - Se valido fisicamente el artefacto SHA-256 `1ED72A03E659C42CA37F08D4326A32730B96A28534F02F8C3834A4CE59BC7EEB`, BundleId `{C44D76A6-0183-4179-B45E-9123A4584B29}` y MSI ProductCode `{A544ED43-3AAA-4B47-8EE7-0A3807C94D59}`.

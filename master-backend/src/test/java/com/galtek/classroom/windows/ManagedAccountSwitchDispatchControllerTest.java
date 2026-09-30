@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -49,6 +51,8 @@ import com.galtek.classroom.operations.OperationTarget;
 import com.galtek.classroom.operations.OperationTargetType;
 import com.galtek.classroom.operations.OperationType;
 import com.galtek.classroom.operations.TargetExecutionStatus;
+import com.galtek.classroom.api.ApiException;
+import com.galtek.classroom.security.SensitiveActionAuthorizationService;
 import com.galtek.classroom.persistence.MasterStorageState;
 import com.galtek.classroom.persistence.MasterStorageStatus;
 import java.nio.file.Path;
@@ -137,6 +141,9 @@ class ManagedAccountSwitchDispatchControllerTest {
     @MockitoBean
     private MasterRemoteOperationGateway remoteOperationGateway;
 
+    @MockitoBean
+    private SensitiveActionAuthorizationService sensitiveAuthorizationService;
+
     @BeforeEach
     void authorizeMaster() {
         resetEndpointMocks();
@@ -202,6 +209,53 @@ class ManagedAccountSwitchDispatchControllerTest {
                     "targetDeviceIds", List.of("d1"),
                     unsupported, "not-accepted"));
         }
+    }
+
+    @Test
+    void adminRequiresFreshOneTimeAuthorizationAndNewClientCapability() throws Exception {
+        String classroomId = createClassroom("Aula admin switch " + id());
+        RegisteredClient current = registerClient(classroomId, "PC-ADMIN", adminSwitchCapabilities());
+        resetEndpointMocks();
+        whenSnapshot(current, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_PRIMARY_ACTIVE);
+        whenSwitchSuccess(current);
+
+        doThrow(new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,
+                ErrorCode.SENSITIVE_AUTHORIZATION_REQUIRED,
+                "Fresh sensitive authorization is required."))
+                .when(sensitiveAuthorizationService).consumeAdminSession(
+                        eq(null), anyString(), eq(classroomId), eq(List.of(current.deviceId())));
+
+        Map<String, Object> body = Map.of(
+                "targetAccountId", "ADMIN",
+                "targetDeviceIds", List.of(current.deviceId()));
+        mockMvc.perform(post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(body)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ErrorCode.SENSITIVE_AUTHORIZATION_REQUIRED.name()));
+
+        String token = "fresh-admin-token";
+        doNothing().doThrow(new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,
+                ErrorCode.SENSITIVE_AUTHORIZATION_USED,
+                "Sensitive authorization has already been used."))
+                .when(sensitiveAuthorizationService).consumeAdminSession(
+                        eq(token), anyString(), eq(classroomId), eq(List.of(current.deviceId())));
+
+        mockMvc.perform(post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
+                        .header(SensitiveActionAuthorizationService.HEADER, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetAccountId").value("ADMIN"))
+                .andExpect(jsonPath("$.summary.success").value(1));
+
+        mockMvc.perform(post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
+                        .header(SensitiveActionAuthorizationService.HEADER, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(body)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ErrorCode.SENSITIVE_AUTHORIZATION_USED.name()));
     }
 
     @Test
@@ -362,7 +416,7 @@ class ManagedAccountSwitchDispatchControllerTest {
                                 "targetAccountId", "SECONDARY",
                                 "targetDeviceIds", List.of(other.deviceId(), unknown.deviceId(), snapshotFailed.deviceId())))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.status").value("PARTIAL_SUCCESS"))
                 .andReturn());
 
         assertThat(target(response, other.deviceId()).get("errorCode").asText())
@@ -421,7 +475,8 @@ class ManagedAccountSwitchDispatchControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PARTIAL_SUCCESS"))
                 .andExpect(jsonPath("$.summary.success").value(2))
-                .andExpect(jsonPath("$.summary.failed").value(4))
+                .andExpect(jsonPath("$.summary.unknown").value(1))
+                .andExpect(jsonPath("$.summary.failed").value(3))
                 .andReturn());
 
         assertThat(target(response, missingAccount.deviceId()).get("errorCode").asText())
@@ -738,6 +793,31 @@ class ManagedAccountSwitchDispatchControllerTest {
     }
 
     @Test
+    void switchPartialResultIsPersistedAndExposedWithoutBecomingRetryable() throws Exception {
+        String classroomId = createClassroom("Aula managed switch partial " + id());
+        RegisteredClient target = registerClient(classroomId, "PC14", switchCapabilities());
+        resetEndpointMocks();
+        whenSnapshot(target, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_ADMIN_ACTIVE);
+        whenSwitchPartial(target, ErrorCode.CREDENTIAL_PROVIDER_UNAVAILABLE);
+
+        mockMvc.perform(post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "targetAccountId", "PRIMARY",
+                                "targetDeviceIds", List.of(target.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PARTIAL_SUCCESS"))
+                .andExpect(jsonPath("$.summary.partial").value(1))
+                .andExpect(jsonPath("$.summary.unknown").value(0))
+                .andExpect(jsonPath("$.summary.failed").value(0))
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.PARTIAL.name()))
+                .andExpect(jsonPath("$.targets[0].errorCode")
+                        .value(ErrorCode.CREDENTIAL_PROVIDER_UNAVAILABLE.name()))
+                .andExpect(jsonPath("$.targets[0].retryable").value(false));
+    }
+
+    @Test
     void retryableTargetsReflectFinalRetryStateAndUnknownIsNeverRetryableForSwitch() throws Exception {
         String classroomId = createClassroom("Aula retry final state " + id());
         RegisteredClient target = registerClient(classroomId, "PC26", switchCapabilities());
@@ -776,7 +856,7 @@ class ManagedAccountSwitchDispatchControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("targetDeviceIds", List.of(target.deviceId())))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.FAILED.name()))
+                .andExpect(jsonPath("$.targets[0].status").value(TargetExecutionStatus.UNKNOWN.name()))
                 .andExpect(jsonPath("$.targets[0].errorCode").value(ErrorCode.OPERATION_RESULT_UNKNOWN.name()))
                 .andExpect(jsonPath("$.targets[0].retryable").value(false))
                 .andExpect(jsonPath("$.targets[0].attempt").value(3));
@@ -890,6 +970,19 @@ class ManagedAccountSwitchDispatchControllerTest {
                         invocation.getArgument(2),
                         errorCode,
                         messageFor(errorCode)));
+    }
+
+    private void whenSwitchPartial(RegisteredClient client, ErrorCode errorCode) {
+        when(remoteOperationGateway.switchManagedAccount(
+                any(),
+                anyString(),
+                eq(client.deviceId()),
+                any(ManagedWindowsAccountId.class))).thenAnswer(invocation -> java.util.Optional.of(
+                        new DispatchHandle(
+                                new RemoteOperationKey(invocation.getArgument(2), invocation.getArgument(1)),
+                                CompletableFuture.completedFuture(RemoteOperationOutcome.partial(
+                                        errorCode,
+                                        messageFor(errorCode))))));
     }
 
     private java.util.Optional<DispatchHandle> snapshotHandle(
@@ -1013,6 +1106,15 @@ class ManagedAccountSwitchDispatchControllerTest {
                 NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
                 NetworkCapability.NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1,
                 NetworkCapability.NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1);
+    }
+
+    private List<NetworkCapability> adminSwitchCapabilities() {
+        return List.of(
+                NetworkCapability.NETWORK_CAPABILITY_HEARTBEAT_V1,
+                NetworkCapability.NETWORK_CAPABILITY_OPERATION_FRAMEWORK_V1,
+                NetworkCapability.NETWORK_CAPABILITY_WINDOWS_SESSION_STATE_V1,
+                NetworkCapability.NETWORK_CAPABILITY_WINDOWS_SESSION_SWITCH_V1,
+                NetworkCapability.NETWORK_CAPABILITY_ADMIN_MANAGED_SESSION_V1);
     }
 
     private String connectionId(TestClientIdentity client) {

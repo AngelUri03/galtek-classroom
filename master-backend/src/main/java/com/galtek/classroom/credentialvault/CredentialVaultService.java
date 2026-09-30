@@ -78,6 +78,43 @@ public class CredentialVaultService {
         }
     }
 
+    /** Verifies the existing vault master password without creating or extending a vault session. */
+    public synchronized void verifyMasterPassword(String masterPassword) {
+        CredentialVaultValidator.validateMasterPassword(masterPassword);
+        char[] passwordChars = masterPassword.toCharArray();
+        CredentialVaultCrypto.UnlockResult verified = null;
+        try {
+            verified = crypto.unlock(store.readEnvelope(), passwordChars);
+        } finally {
+            Arrays.fill(passwordChars, '\0');
+            if (verified != null) {
+                Arrays.fill(verified.dek(), (byte) 0);
+            }
+        }
+    }
+
+    public synchronized List<FreshCredentialSnapshot> freshCredentialSnapshot(String masterPassword) {
+        CredentialVaultValidator.validateMasterPassword(masterPassword);
+        char[] passwordChars = masterPassword.toCharArray();
+        CredentialVaultCrypto.UnlockResult verified = null;
+        try {
+            verified = crypto.unlock(store.readEnvelope(), passwordChars);
+            return verified.document().entries().stream()
+                    .map(entry -> new FreshCredentialSnapshot(
+                            entry.credentialId(), entry.credentialType(), entry.displayName(),
+                            entry.loginIdentifier(), entry.password()))
+                    .toList();
+        } finally {
+            Arrays.fill(passwordChars, '\0');
+            if (verified != null) Arrays.fill(verified.dek(), (byte) 0);
+        }
+    }
+
+    public synchronized void auditFreshReveal(String credentialId) {
+        CredentialVaultValidator.validateCredentialId(credentialId);
+        auditSink.credentialRevealed(credentialId);
+    }
+
     public synchronized void lock(String sessionToken) {
         boolean wasUnlocked = sessionManager.hasActiveSession();
         sessionManager.lock(sessionToken);
@@ -235,5 +272,13 @@ public class CredentialVaultService {
     }
 
     public record CredentialVaultStatus(boolean initialized, boolean locked) {
+    }
+
+    public record FreshCredentialSnapshot(
+            String credentialId,
+            CredentialType credentialType,
+            String displayName,
+            String loginIdentifier,
+            String password) {
     }
 }

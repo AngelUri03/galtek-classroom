@@ -1,6 +1,20 @@
 # Windows Session Switch
 
-Prompt 19H1 agrega el batch Master `POST /api/classrooms/{classroomId}/managed-accounts/switch` sobre la primitive remota 19G4. El batch acepta solo `targetAccountId` `PRIMARY|SECONDARY` y `targetDeviceIds` explicitos, se protege con `MasterAccessGuard`, persiste una sola `BatchOperation` antes del primer snapshot, consulta `GET_WINDOWS_SESSION_STATE` por target con operationId propio y solo envia `SWITCH_MANAGED_ACCOUNT(target)` para targets cuyo snapshot permite mutation. Prompt 19H2 agrega `POST /api/operations/{operationId}/retry` para reintentar explicitamente targets `FAILED` retryable de ese mismo batch, sin crear operacion nueva ni cambiar el target account original.
+Contrato vigente: source y target pueden ser `PRIMARY`, `SECONDARY` o `ADMIN`; esto también aplica a la metadata no secreta de observabilidad. Las referencias históricas a solo dos roles conservan la evolución del contrato, no el estado actual.
+
+## 20F.2-F1 - frontera post-logout y resultado parcial
+
+La evidencia `ADMIN_ACTIVE -> PRIMARY` de 0.0.5 confirma logout del source y ausencia de login target. El root cause reproducido es una carrera independiente del bug ADMIN: WTS puede confirmar `NO_SESSION` antes de que el listener Credential Provider de LogonUI este observable; el logon reutilizaba la espera normal de 750 ms y podia devolver `CREDENTIAL_PROVIDER_UNAVAILABLE`.
+
+El switch conserva su timeout total. Tras `SWITCH_NO_SESSION_CONFIRMED`, y solo en esta transicion post-logout, `WindowsSessionLogonService` espera hasta 8 s mediante la senal de disponibilidad existente y despues envia la activacion una sola vez. No hay sleep fijo, polling infinito, doble dispatch, retry automatico ni rollback de source.
+
+Checkpoints sanitizados: `SWITCH_TARGET_PREFLIGHT_OK`, `SWITCH_SOURCE_LOGOFF_ACCEPTED`, `SWITCH_NO_SESSION_CONFIRMED`, `SWITCH_TARGET_LOGON_BEGIN`, `CP_ACTIVATION_SENT`, `CP_REPORT_RESULT`, `SWITCH_TARGET_LOGON_FAILED` y `SWITCH_COMPLETE`. Si source cerro y target falla, el resultado es `PARTIAL`; si el resultado no puede confirmarse es `UNKNOWN`.
+
+## 20F.2
+
+PRIMARY, SECONDARY y ADMIN son targets válidos. Target ADMIN exige step-up Master-side; `ADMIN_ACTIVE` es source managed válido para PRIMARY/SECONDARY y `NO_CHANGE` para ADMIN. El Agent usa el mismo preflight/revalidation/WTS logoff/wait-NO_SESSION/logon y no hace rollback automático. `OTHER_SESSION_ACTIVE` y `UNKNOWN` permanecen protegidos.
+
+Prompt 19H1 agrega el batch Master `POST /api/classrooms/{classroomId}/managed-accounts/switch` sobre la primitive remota 19G4. 20F.2 FINAL amplía `targetAccountId` a `PRIMARY|SECONDARY|ADMIN`, manteniendo targets explícitos, `MasterAccessGuard`, una sola `BatchOperation`, snapshot fresco y dispatch únicamente a targets válidos. Prompt 19H2 agrega retry explícito; reintentar ADMIN requiere una nueva autorización exact-target.
 
 `NO_CHANGE` se persiste cuando el snapshot ya coincide con el target y no envia mutation. `OTHER_SESSION_ACTIVE` se bloquea como `WINDOWS_SESSION_CHANGED`; `UNKNOWN` como `WINDOWS_SESSION_UNKNOWN`. Aunque el plan conceptual sea `LOGON` para `NO_SESSION`, el Master no envia `LOGON_MANAGED_ACCOUNT`: usa siempre `SWITCH_MANAGED_ACCOUNT(target)` porque el Agent vuelve a observar y revalidar ante races.
 
@@ -18,7 +32,7 @@ SwitchManagedAccountOperationParameters {
 }
 ```
 
-Valores validos: `PRIMARY` y `SECONDARY`. `UNSPECIFIED` se rechaza. El Master declara unicamente la cuenta objetivo; no envia source account, username, domain, SID, `accountReference`, `sessionId`, password, `credentialId`, vault token, `force`, timeout, comandos, argumentos, shell ni payload arbitrario.
+Valores válidos: `PRIMARY`, `SECONDARY` y `ADMIN`. `UNSPECIFIED` se rechaza. El Master declara únicamente la cuenta objetivo; no envía source account, username, domain, SID, `accountReference`, `sessionId`, password, `credentialId`, master password, `force`, timeout, comandos, argumentos, shell ni payload arbitrario.
 
 La capability especifica es:
 
@@ -32,7 +46,7 @@ No autoriza por si misma. La operacion entra por el `RemoteOperationDispatcher` 
 
 `SWITCH_MANAGED_ACCOUNT(target)` significa dejar la consola fisica en la cuenta administrada objetivo sin tocar sesiones no administradas.
 
-El source se deriva localmente desde `WindowsSessionState` real: solo `PRIMARY_ACTIVE` y `SECONDARY_ACTIVE` pueden ser source. El Master no puede enviarlo y el Agent no lo infiere por username, `accountReference`, PID, foreground window, RDP ni `sessionId`.
+El source se deriva localmente desde `WindowsSessionState` real: `PRIMARY_ACTIVE`, `SECONDARY_ACTIVE` y `ADMIN_ACTIVE` pueden ser source. El Master no puede enviarlo y el Agent no lo infiere por username, `accountReference`, PID, foreground window, RDP ni `sessionId`.
 
 Matriz inicial:
 

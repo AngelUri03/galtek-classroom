@@ -5,6 +5,7 @@ using GaltekClassroom.Agent.Service.ManagedAccounts;
 using GaltekClassroom.Agent.Service.Master;
 using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.WindowsSessions;
+using GaltekClassroom.Agent.Service.WindowsAccounts;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using Microsoft.Extensions.Configuration;
@@ -19,6 +20,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 5, 15, 0, 0, TimeSpan.Zero);
     private const string PrimarySid = "S-1-5-21-1000000000-1000000000-1000000000-1004";
     private const string SecondarySid = "S-1-5-21-1000000000-1000000000-1000000000-1005";
+    private const string AdminSid = "S-1-5-21-1000000000-1000000000-1000000000-1007";
     private const string OtherSid = "S-1-5-21-1000000000-1000000000-1000000000-1006";
 
     private readonly string _dataDirectory = Path.Combine(
@@ -33,7 +35,8 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     [Theory]
     [InlineData(ManagedWindowsAccountId.Primary, ClassroomManagedWindowsAccountTypes.Primary)]
     [InlineData(ManagedWindowsAccountId.Secondary, ClassroomManagedWindowsAccountTypes.Secondary)]
-    public async Task Handler_AcceptsPrimaryAndSecondaryOnly(
+    [InlineData(ManagedWindowsAccountId.Admin, ClassroomManagedWindowsAccountTypes.Admin)]
+    public async Task Handler_AcceptsEveryManagedProfile(
         ManagedWindowsAccountId networkAccountId,
         string targetAccountId)
     {
@@ -67,6 +70,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     [Theory]
     [InlineData(ClassroomManagedWindowsAccountTypes.Primary)]
     [InlineData(ClassroomManagedWindowsAccountTypes.Secondary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Admin)]
     public async Task Service_WhenTargetAlreadyActive_ReturnsSuccessWithoutLogoffLogonOrDpapi(string targetAccountId)
     {
         await ConfigureReadyAccountsAsync();
@@ -87,6 +91,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     [Theory]
     [InlineData(ClassroomManagedWindowsAccountTypes.Primary)]
     [InlineData(ClassroomManagedWindowsAccountTypes.Secondary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Admin)]
     public async Task Service_WhenNoSession_UsesLogonFlow(string targetAccountId)
     {
         await ConfigureReadyAccountsAsync();
@@ -112,6 +117,10 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     [Theory]
     [InlineData(ClassroomManagedWindowsAccountTypes.Primary, ClassroomManagedWindowsAccountTypes.Secondary)]
     [InlineData(ClassroomManagedWindowsAccountTypes.Secondary, ClassroomManagedWindowsAccountTypes.Primary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Admin, ClassroomManagedWindowsAccountTypes.Primary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Admin, ClassroomManagedWindowsAccountTypes.Secondary)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Primary, ClassroomManagedWindowsAccountTypes.Admin)]
+    [InlineData(ClassroomManagedWindowsAccountTypes.Secondary, ClassroomManagedWindowsAccountTypes.Admin)]
     public async Task Service_WhenOppositeManagedActive_PreflightsLogsOffWaitsAndLogsOn(
         string targetAccountId,
         string sourceAccountId)
@@ -261,6 +270,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         await logoff.WaitForCallAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(1, logoff.Calls);
         Assert.Equal(0, _activationStore.ListenerCount);
+        await Task.Delay(TimeSpan.FromMilliseconds(20));
         Task<long> listener = StartListener();
         await listener.WaitAsync(TimeSpan.FromSeconds(2));
         CompleteCurrentActivation(CredentialProviderLogonCompletionOutcome.Success);
@@ -289,6 +299,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
             await service.SwitchAsync("switch-provider-unavailable", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
 
         Assert.False(result.Succeeded);
+        Assert.True(result.Partial);
         Assert.Equal(NetworkOperationErrorCode.CredentialProviderUnavailable, result.ErrorCode);
         Assert.Equal(1, logoff.Calls);
         Assert.Null(_activationStore.GetPending(FixedNow));
@@ -560,6 +571,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         WindowsSessionSwitchServiceResult result = await operation.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(result.Succeeded);
+        Assert.True(result.Partial);
         Assert.Equal(expectedError, result.ErrorCode);
         Assert.Equal(1, logoff.Calls);
     }
@@ -573,7 +585,10 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         WindowsSessionSwitchService service = CreateService(new StickyResolver(
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4)),
             logoff,
-            options: new WindowsSessionSwitchOptions(TimeSpan.FromMilliseconds(2), TimeSpan.FromMilliseconds(1)));
+            options: new WindowsSessionSwitchOptions(
+                TimeSpan.FromMilliseconds(2),
+                TimeSpan.FromMilliseconds(1),
+                TimeSpan.FromMilliseconds(50)));
 
         WindowsSessionSwitchServiceResult result =
             await service.SwitchAsync("switch-not-confirmed", ClassroomManagedWindowsAccountTypes.Primary, CancellationToken.None);
@@ -597,7 +612,10 @@ public sealed class WindowsSessionSwitchTests : IDisposable
             ObservationFor(ClassroomManagedWindowsAccountTypes.Secondary, 4)),
             logoff,
             delay,
-            options: new WindowsSessionSwitchOptions(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(1)));
+            options: new WindowsSessionSwitchOptions(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(1),
+                TimeSpan.FromMilliseconds(50)));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             service.SwitchAsync("switch-cancelled", ClassroomManagedWindowsAccountTypes.Primary, cts.Token));
@@ -697,6 +715,12 @@ public sealed class WindowsSessionSwitchTests : IDisposable
             BindingStore(),
             _resolver,
             CredentialStore(),
+            new FixedInventory([
+                new("Primaria", "Primaria", true, false, false, PrimarySid),
+                new("Secundaria", "Secundaria", true, false, false, SecondarySid),
+                new("Admin", "Admin", true, true, false, AdminSid),
+                new("Otra", "Otra", true, false, false, OtherSid)
+            ]),
             ActivationService(),
             logonOptions ?? new WindowsSessionLogonOptions(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1)),
             NullLogger<WindowsSessionLogonService>.Instance);
@@ -710,7 +734,10 @@ public sealed class WindowsSessionSwitchTests : IDisposable
                 BindingStore(),
                 NullLogger<WindowsSessionLogoffService>.Instance),
             logonService,
-            options ?? new WindowsSessionSwitchOptions(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(1)),
+            options ?? new WindowsSessionSwitchOptions(
+                TimeSpan.FromMilliseconds(50),
+                TimeSpan.FromMilliseconds(1),
+                TimeSpan.FromMilliseconds(50)),
             clock ?? new WindowsSessionSwitchClock(),
             delay ?? new WindowsSessionSwitchDelay(),
             NullLogger<WindowsSessionSwitchService>.Instance);
@@ -749,6 +776,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
     {
         await ConfigureReadyAccountAsync(ClassroomManagedWindowsAccountTypes.Primary);
         await ConfigureReadyAccountAsync(ClassroomManagedWindowsAccountTypes.Secondary);
+        await ConfigureReadyAccountAsync(ClassroomManagedWindowsAccountTypes.Admin);
     }
 
     private async Task ConfigureReadyAccountAsync(string accountId)
@@ -768,6 +796,7 @@ public sealed class WindowsSessionSwitchTests : IDisposable
         await EnsureInstallationIdentityAsync();
         _resolver.Add(PrimarySid, "AULA", "Primaria", WindowsAccountSidNameUse.User);
         _resolver.Add(SecondarySid, "AULA", "Secundaria", WindowsAccountSidNameUse.User);
+        _resolver.Add(AdminSid, "AULA", "Admin", WindowsAccountSidNameUse.User);
         _resolver.Add(OtherSid, "AULA", "Otra", WindowsAccountSidNameUse.User);
         ManagedWindowsAccountBindingStoreWriteResult write = await BindingStore().AddAsync(
             InstallationId,
@@ -832,7 +861,12 @@ public sealed class WindowsSessionSwitchTests : IDisposable
 
     private static string SidFor(string accountId)
     {
-        return accountId == ClassroomManagedWindowsAccountTypes.Primary ? PrimarySid : SecondarySid;
+        return accountId switch
+        {
+            ClassroomManagedWindowsAccountTypes.Primary => PrimarySid,
+            ClassroomManagedWindowsAccountTypes.Secondary => SecondarySid,
+            _ => AdminSid
+        };
     }
 
     private static HardwareFingerprint ValidFingerprint()
@@ -1045,6 +1079,12 @@ public sealed class WindowsSessionSwitchTests : IDisposable
                 ? WindowsAccountResolution.Resolved(identity)
                 : WindowsAccountResolution.NotFound("not found");
         }
+    }
+
+    private sealed class FixedInventory(IReadOnlyList<WindowsLocalAccountRecord> accounts)
+        : IWindowsAccountInventorySource
+    {
+        public IReadOnlyList<WindowsLocalAccountRecord> Read(CancellationToken cancellationToken) => accounts;
     }
 
     private sealed class FakeCredentialProtector : IManagedWindowsCredentialProtector

@@ -48,7 +48,9 @@ public final class ManagedAccountAdminDtos {
             boolean configured,
             boolean credentialConfigured,
             String credentialStatus,
-            String windowsAccountName) {
+            String windowsAccountName,
+            Boolean vaultCredentialConfigured,
+            String combinedCredentialState) {
 
         static ManagedAccountSlotResponse from(ManagedAccountStatus account) {
             return new ManagedAccountSlotResponse(
@@ -56,7 +58,17 @@ public final class ManagedAccountAdminDtos {
                     account.getConfigured(),
                     account.getCredentialConfigured(),
                     ManagedAccountAdminDtos.credentialStatus(account.getCredentialStatus()),
-                    emptyToNull(account.getWindowsAccountName()));
+                    emptyToNull(account.getWindowsAccountName()),
+                    null,
+                    "UNKNOWN");
+        }
+
+        ManagedAccountSlotResponse withVaultCredential(boolean vaultConfigured) {
+            String combined = vaultConfigured
+                    ? (credentialConfigured ? "READY" : "PENDING_CLIENT_SYNC")
+                    : (credentialConfigured ? "CLIENT_ONLY_NOT_REVEALABLE" : "NO_CREDENTIAL");
+            return new ManagedAccountSlotResponse(accountId, configured, credentialConfigured,
+                    credentialStatus, windowsAccountName, vaultConfigured, combined);
         }
     }
 

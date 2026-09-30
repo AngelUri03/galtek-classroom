@@ -12,6 +12,7 @@ using GaltekClassroom.Agent.Service.NetworkTransport;
 using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Service.WindowsSessions;
+using GaltekClassroom.Agent.Service.WindowsAccounts;
 using GaltekClassroom.Agent.Shared;
 using GaltekClassroom.Protocol.Network.V1;
 using Microsoft.Extensions.Configuration;
@@ -27,6 +28,7 @@ public sealed class WindowsSessionLogonTests : IDisposable
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 5, 13, 0, 0, TimeSpan.Zero);
     private const string PrimarySid = "S-1-5-21-1000000000-1000000000-1000000000-1004";
     private const string SecondarySid = "S-1-5-21-1000000000-1000000000-1000000000-1005";
+    private const string AdminSid = "S-1-5-21-1000000000-1000000000-1000000000-1007";
     private const string OtherSid = "S-1-5-21-1000000000-1000000000-1000000000-1006";
 
     private readonly string _dataDirectory = Path.Combine(
@@ -41,11 +43,15 @@ public sealed class WindowsSessionLogonTests : IDisposable
     [Theory]
     [InlineData(ManagedWindowsAccountId.Primary)]
     [InlineData(ManagedWindowsAccountId.Secondary)]
-    public async Task Handler_AcceptsPrimaryAndSecondaryOnly(ManagedWindowsAccountId networkAccountId)
+    [InlineData(ManagedWindowsAccountId.Admin)]
+    public async Task Handler_AcceptsEveryManagedProfile(ManagedWindowsAccountId networkAccountId)
     {
-        string accountId = networkAccountId == ManagedWindowsAccountId.Primary
-            ? ClassroomManagedWindowsAccountTypes.Primary
-            : ClassroomManagedWindowsAccountTypes.Secondary;
+        string accountId = networkAccountId switch
+        {
+            ManagedWindowsAccountId.Primary => ClassroomManagedWindowsAccountTypes.Primary,
+            ManagedWindowsAccountId.Secondary => ClassroomManagedWindowsAccountTypes.Secondary,
+            _ => ClassroomManagedWindowsAccountTypes.Admin
+        };
         await ConfigureReadyAccountAsync(accountId);
         Task<long> listener = StartListener();
         var handler = CreateHandler(new SequenceResolver([
@@ -152,6 +158,45 @@ public sealed class WindowsSessionLogonTests : IDisposable
 
         Assert.False(result.Succeeded);
         Assert.Equal(NetworkOperationErrorCode.ManagedCredentialNotConfigured, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Service_WhenAdminAlreadyActive_IsIdempotent()
+    {
+        await ConfigureReadyAccountAsync(ClassroomManagedWindowsAccountTypes.Admin);
+        WindowsSessionLogonService service = CreateService(
+            new SequenceResolver([ConsoleSessionIdentityObservation.User(4, AdminSid)]));
+
+        WindowsSessionLogonServiceResult result = await service.LogonAsync(
+            "operation-admin-active", ClassroomManagedWindowsAccountTypes.Admin, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(_activationStore.GetPending(FixedNow));
+    }
+
+    [Theory]
+    [InlineData(false, true, false, NetworkOperationErrorCode.WindowsAccountAdminRequired)]
+    [InlineData(true, false, false, NetworkOperationErrorCode.WindowsAccountDisabled)]
+    [InlineData(true, true, true, NetworkOperationErrorCode.WindowsAccountBuiltIn)]
+    public async Task Service_AdminStructuralPreflightRejectsUnsafeLiveAccount(
+        bool administrator,
+        bool enabled,
+        bool builtIn,
+        NetworkOperationErrorCode expectedError)
+    {
+        await ConfigureReadyAccountAsync(ClassroomManagedWindowsAccountTypes.Admin);
+        WindowsSessionLogonService service = CreateService(
+            new SequenceResolver([ConsoleSessionIdentityObservation.NoSession(4)]),
+            inventory: new FixedInventory([
+                new("Admin", "Admin", enabled, administrator, builtIn, AdminSid)
+            ]));
+
+        WindowsSessionLogonServiceResult result = await service.LogonAsync(
+            "operation-admin-invalid", ClassroomManagedWindowsAccountTypes.Admin, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(expectedError, result.ErrorCode);
+        Assert.Null(_activationStore.GetPending(FixedNow));
     }
 
     [Fact]
@@ -373,7 +418,8 @@ public sealed class WindowsSessionLogonTests : IDisposable
 
     private WindowsSessionLogonService CreateService(
         IWindowsConsoleSessionResolver sessionResolver,
-        WindowsSessionLogonOptions? options = null)
+        WindowsSessionLogonOptions? options = null,
+        IWindowsAccountInventorySource? inventory = null)
     {
         return new WindowsSessionLogonService(
             new WindowsSessionStateService(
@@ -384,6 +430,12 @@ public sealed class WindowsSessionLogonTests : IDisposable
             BindingStore(),
             _resolver,
             CredentialStore(),
+            inventory ?? new FixedInventory([
+                new("Primaria", "Primaria", true, false, false, PrimarySid),
+                new("Secundaria", "Secundaria", true, false, false, SecondarySid),
+                new("Admin", "Admin", true, true, false, AdminSid),
+                new("Otra", "Otra", true, false, false, OtherSid)
+            ]),
             ActivationService(),
             options ?? new WindowsSessionLogonOptions(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1)),
             NullLogger<WindowsSessionLogonService>.Instance);
@@ -420,7 +472,12 @@ public sealed class WindowsSessionLogonTests : IDisposable
 
     private async Task ConfigureReadyAccountAsync(string accountId)
     {
-        string sid = accountId == ClassroomManagedWindowsAccountTypes.Primary ? PrimarySid : SecondarySid;
+        string sid = accountId switch
+        {
+            ClassroomManagedWindowsAccountTypes.Primary => PrimarySid,
+            ClassroomManagedWindowsAccountTypes.Secondary => SecondarySid,
+            _ => AdminSid
+        };
         await SaveBindingAsync(accountId, sid);
         ManagedWindowsCredentialWriteResult write = await CredentialStore().ReplaceUtf16LittleEndianAsync(
             InstallationId,
@@ -435,6 +492,7 @@ public sealed class WindowsSessionLogonTests : IDisposable
         await EnsureInstallationIdentityAsync();
         _resolver.Add(PrimarySid, "AULA", "Primaria", WindowsAccountSidNameUse.User);
         _resolver.Add(SecondarySid, "AULA", "Secundaria", WindowsAccountSidNameUse.User);
+        _resolver.Add(AdminSid, "AULA", "Admin", WindowsAccountSidNameUse.User);
         _resolver.Add(OtherSid, "AULA", "Otra", WindowsAccountSidNameUse.User);
         ManagedWindowsAccountBindingStoreWriteResult write = await BindingStore().AddAsync(
             InstallationId,
@@ -564,6 +622,12 @@ public sealed class WindowsSessionLogonTests : IDisposable
                 ? WindowsAccountResolution.Resolved(identity)
                 : WindowsAccountResolution.NotFound("not found");
         }
+    }
+
+    private sealed class FixedInventory(IReadOnlyList<WindowsLocalAccountRecord> accounts)
+        : IWindowsAccountInventorySource
+    {
+        public IReadOnlyList<WindowsLocalAccountRecord> Read(CancellationToken cancellationToken) => accounts;
     }
 
     private sealed class FakeCredentialProtector : IManagedWindowsCredentialProtector

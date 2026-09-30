@@ -1,5 +1,27 @@
 # Master API v1
 
+## Device mutation serialization
+
+Las mutaciones remotas exclusivas se serializan por `deviceId` mediante leases persistidos en SQLite. La adquisición de un lote es ordenada y atómica: si un target ya está `IN_PROGRESS` o `RECONCILIATION_REQUIRED`, el Master responde `409 DEVICE_OPERATION_IN_PROGRESS` y no despacha ningún subset. Equipos distintos siguen operando en paralelo. La metadata del lease contiene únicamente `deviceId`, tipo de operación, perfil target opcional y fecha de inicio; nunca secretos.
+
+`GET /api/device-operations?deviceId=...` permite reconstruir el bloqueo tras reload u otra pestaña. `PARTIAL`, `UNKNOWN` o una excepción posterior a una frontera incierta conservan `RECONCILIATION_REQUIRED`; una lectura autoritativa estable permite retirarlo únicamente si confirma la misma familia de operación. Una lectura de sesión no libera energía/input/contenido inciertos y una lectura de perfiles no libera una transición de sesión. No existe retry automático ni cola silenciosa.
+
+## 20F.2-F1 session results and hostname refresh
+
+Los targets de switch pueden devolver `PARTIAL` cuando la sesion source ya cerro pero la target no inicio, y `UNKNOWN` cuando no se conoce el resultado final. El resumen batch expone `partial` y `unknown` separados de `failed`; ninguno es retryable automaticamente. Estos estados se persisten mediante SQLite V8. La UI realiza un unico refresh dirigido de session-state tras partial/unknown y solo ofrece login manual si el estado fresco es `NO_SESSION`.
+
+Un `ClientHello` autenticado para el binding current actualiza la metadata `devices.hostname` si cambio. Esta escritura no crea Device, no cambia deviceId, installationId, network identity, fingerprint, trust, pairing ni licencia.
+
+## Windows session/profile management (20F.2)
+
+`POST /api/classrooms/{classroomId}/windows-session/logoff` accepts the strict JSON body `{ "accountId": "PRIMARY|SECONDARY|ADMIN", "targetDeviceIds": ["..."] }`. Targets are explicit; Master performs authorization, classroom/network/trust/online/capability checks and a fresh session-state read before dispatch. It persists one `LOGOFF_WINDOWS_SESSION` `BatchOperation` before mutation with a non-secret `accountId` payload, then stores each final result. `NO_SESSION` is `NO_CHANGE`; mismatched/OTHER is `WINDOWS_SESSION_CHANGED`; UNKNOWN is `WINDOWS_SESSION_UNKNOWN`. No retry or logout+login chain is performed.
+
+`DELETE /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential` requires `X-Galtek-Vault-Session`, dispatches typed `REMOVE_MANAGED_CREDENTIAL`, and then removes the matching Vault entry. It does not remove the binding or Windows account and transports no password.
+
+Session-state responses may return `ADMIN_ACTIVE`. `POST .../managed-accounts/switch` accepts `PRIMARY|SECONDARY|ADMIN`; ADMIN requires `X-Galtek-Sensitive-Authorization` issued by the octet-stream step-up endpoint and scoped to the exact target list. Missing, expired, mismatched or replayed authorization is rejected with a typed error.
+
+`POST /api/classrooms/{classroomId}/devices/{deviceId}/managed-accounts/{accountId}/credential/reveal` requires a fresh `CREDENTIAL_REVEAL` authorization, returns one UTF-8 secret as `application/octet-stream`, and sets `Cache-Control: no-store` plus `Pragma: no-cache`. `GET .../devices/{deviceId}/activity?date=today&limit=50` returns non-secret persisted activity guarded by `MasterAccessGuard`.
+
 Estado: implementado inicial en Prompt 10; ampliado en Prompt 14 con Clients de red y registro de Devices; ampliado en Prompt 15B con dispatch batch de power control; ampliado en Prompt 15C con reconciliacion segura de power control incierto; ampliado en Prompt 16C con administracion persistente de politicas de navegacion web; ampliado en Prompt 16E1 con administracion persistente de politicas de descarga de navegador; ampliado en Prompt 16F1 con dispatch batch Master de aplicacion de policies de navegacion y descarga; ampliado en Prompt 16F2 con dispatch batch Master de `OPEN_URL`; ampliado en Prompt 17C con dispatch batch Master de `OPEN_APPLICATION`; ampliado en Prompt 18B2 con dispatch batch Master de `LOCK_INPUT` y `UNLOCK_INPUT`; ampliado en Prompt 19H1 con dispatch batch Master de `SWITCH_MANAGED_ACCOUNT`; ampliado en Prompt 19H2 con retry administrativo explicito y selectivo de `SWITCH_MANAGED_ACCOUNT`; ampliado en 2026-09-14 con HTTP minimo de Credential Vault y administracion de estado/provisioning de managed accounts para un Device explicito.
 
 Esta API es local al Master Backend y existe para la futura UI React/Tauri. No ejecuta comandos remotos arbitrarios y no mueve `StudentWorkspace` en filesystem. Prompt 14 permite registrar como `Device` persistente a un Client ya paired; el Master genera el `deviceId` y vincula el Device con la Network Identity en SQLite. Prompt 15B permite enviar solo `SHUTDOWN`/`RESTART` tipados por el framework gRPC seguro. Prompt 16F1 permite aplicar policies de navegacion y descarga desde la fuente de verdad persistida del Master hacia Agents con handlers ya existentes. Prompt 16F2 permite enviar `OPEN_URL` batch con `OpenUrlOperationParameters.url`, evaluando safety global y policy efectiva por target. Prompt 17C permite enviar `OPEN_APPLICATION` batch con `OpenApplicationOperationParameters.applicationId`, previa autorizacion de `ApplicationDefinition` activa en el Classroom. Prompt 19H1 permite enviar `SWITCH_MANAGED_ACCOUNT` batch para Devices explicitos, con snapshot previo `GET_WINDOWS_SESSION_STATE`, `NO_CHANGE` durable y sin secretos. Prompt 19H2 permite reintentar selectivamente targets fallidos retryable del mismo batch `SWITCH_MANAGED_ACCOUNT`, con snapshot fresco y operationIds remotos nuevos. La ampliacion 2026-09-14 permite inicializar/desbloquear/bloquear el Credential Vault local y consultar/provisionar credenciales Windows administradas `PRIMARY`/`SECONDARY` en un Device explicito sin devolver password, SID, credentialId ni vault token. Los apply endpoints no aceptan URLs/commands, Java no escribe registry, Java no conoce bindings locales de aplicaciones y 17C no modifica Agent/Protobuf/Registry/Session. Las asignaciones `Student -> Device` solo modifican metadata SQLite.
@@ -476,7 +498,7 @@ Request:
 Reglas de request:
 
 - Solo se aceptan `targetAccountId` y `targetDeviceIds`; cualquier campo adicional produce `400 INVALID_REQUEST`.
-- `targetAccountId` solo acepta `PRIMARY` o `SECONDARY`.
+- `targetAccountId` acepta `PRIMARY`, `SECONDARY` o `ADMIN`; ADMIN requiere autorización sensible fresca.
 - `targetDeviceIds` es obligatorio, no puede estar vacio, no acepta strings en blanco ni duplicados y tiene limite maximo de 100 targets.
 - No se aceptan password, username, SID, sessionId, credentialId, vault token, source account, force, timeout, command, args, shell, `groupId`, `allDevices` ni payload libre.
 

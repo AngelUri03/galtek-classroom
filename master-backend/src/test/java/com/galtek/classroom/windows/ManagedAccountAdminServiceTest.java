@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.galtek.classroom.admin.AdminDtos.ClassroomCounts;
 import com.galtek.classroom.admin.AdminDtos.ClassroomResponse;
 import com.galtek.classroom.admin.MasterAdminRepository;
+import com.galtek.classroom.activity.DeviceActivityRecorder;
 import com.galtek.classroom.credentialvault.CredentialType;
 import com.galtek.classroom.credentialvault.CredentialVaultEntryDraft;
 import com.galtek.classroom.credentialvault.CredentialVaultEntryMetadata;
@@ -43,6 +44,7 @@ import com.galtek.classroom.operations.ErrorCode;
 import com.galtek.classroom.operations.TargetExecutionStatus;
 import com.galtek.classroom.persistence.MasterStorageHealth;
 import com.galtek.classroom.persistence.MasterStorageState;
+import com.galtek.classroom.security.SensitiveActionAuthorizationService;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -209,6 +211,95 @@ class ManagedAccountAdminServiceTest {
         verify(fixture.remoteOperationGateway).getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID));
     }
 
+    @Test
+    void removeCredentialDeletesClientCopyThenMatchingVaultEntryAndRefreshesStatus() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID)))
+                .thenReturn(handle(RemoteOperationOutcome.success("status", status(true))))
+                .thenReturn(handle(RemoteOperationOutcome.success("status", status(false))));
+        when(fixture.credentialVaultService.list("vault-token")).thenReturn(List.of(
+                new CredentialVaultEntryMetadata(
+                        "cred-1",
+                        CredentialType.WINDOWS_ACCOUNT,
+                        "Managed Windows account device-1 / PC14\\Primaria",
+                        "PC14\\Primaria",
+                        Instant.parse("2026-09-14T12:00:00Z"),
+                        Instant.parse("2026-09-14T12:00:00Z"))));
+        when(fixture.remoteOperationGateway.removeManagedCredential(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)))
+                .thenReturn(handle(RemoteOperationOutcome.success("removed")));
+
+        var response = fixture.service.removeCredential(
+                CLASSROOM_ID, DEVICE_ID, "PRIMARY", "vault-token");
+
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        assertThat(response.account().configured()).isTrue();
+        assertThat(response.account().credentialConfigured()).isFalse();
+        InOrder order = inOrder(fixture.remoteOperationGateway, fixture.credentialVaultService);
+        order.verify(fixture.remoteOperationGateway).removeManagedCredential(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY));
+        order.verify(fixture.credentialVaultService).remove("vault-token", "cred-1");
+    }
+
+    @Test
+    void unbindDeletesClientBindingThenMatchingVaultEntryAndRefreshesStatus() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID)))
+                .thenReturn(handle(RemoteOperationOutcome.success("before", status(true))))
+                .thenReturn(handle(RemoteOperationOutcome.success("after", unboundStatus())));
+        when(fixture.credentialVaultService.list("vault-token")).thenReturn(List.of(
+                new CredentialVaultEntryMetadata(
+                        "cred-1",
+                        CredentialType.WINDOWS_ACCOUNT,
+                        "Managed Windows account device-1 / PC14\\Primaria",
+                        "PC14\\Primaria",
+                        Instant.parse("2026-09-14T12:00:00Z"),
+                        Instant.parse("2026-09-14T12:00:00Z"))));
+        when(fixture.remoteOperationGateway.removeManagedAccountBinding(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)))
+                .thenReturn(handle(RemoteOperationOutcome.success("unbound")));
+
+        var response = fixture.service.unbind(
+                CLASSROOM_ID, DEVICE_ID, "PRIMARY", "vault-token");
+
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        assertThat(response.account().configured()).isFalse();
+        InOrder order = inOrder(fixture.remoteOperationGateway, fixture.credentialVaultService);
+        order.verify(fixture.remoteOperationGateway).removeManagedAccountBinding(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY));
+        order.verify(fixture.credentialVaultService).remove("vault-token", "cred-1");
+    }
+
+    @Test
+    void unbindFindsTheSameDeviceCredentialAfterHostnameRename() {
+        Fixture fixture = new Fixture();
+        when(fixture.remoteOperationGateway.getManagedAccountStatus(any(), anyString(), eq(DEVICE_ID)))
+                .thenReturn(handle(RemoteOperationOutcome.success("before", status(true))))
+                .thenReturn(handle(RemoteOperationOutcome.success("after", unboundStatus())));
+        when(fixture.credentialVaultService.list("vault-token")).thenReturn(List.of(
+                new CredentialVaultEntryMetadata(
+                        "cred-renamed",
+                        CredentialType.WINDOWS_ACCOUNT,
+                        "Managed Windows account device-1 / ICH11\\Primaria",
+                        "ICH11\\Primaria",
+                        Instant.parse("2026-09-14T12:00:00Z"),
+                        Instant.parse("2026-09-14T12:00:00Z"))));
+        when(fixture.remoteOperationGateway.removeManagedAccountBinding(
+                any(), anyString(), eq(DEVICE_ID),
+                eq(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)))
+                .thenReturn(handle(RemoteOperationOutcome.success("unbound")));
+
+        var response = fixture.service.unbind(
+                CLASSROOM_ID, DEVICE_ID, "PRIMARY", "vault-token");
+
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        verify(fixture.credentialVaultService).remove("vault-token", "cred-renamed");
+    }
+
     private static ManagedAccountStatusResult status(boolean ready) {
         return ManagedAccountStatusResult.newBuilder()
                 .addAccounts(ManagedAccountStatus.newBuilder()
@@ -220,6 +311,26 @@ class ManagedAccountAdminServiceTest {
                                 : ManagedAccountCredentialStatus
                                         .MANAGED_ACCOUNT_CREDENTIAL_STATUS_CREDENTIAL_NOT_CONFIGURED)
                         .setWindowsAccountName("PC14\\Primaria"))
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
+                        .setConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_ADMIN)
+                        .setConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
+                .build();
+    }
+
+    private static ManagedAccountStatusResult unboundStatus() {
+        return ManagedAccountStatusResult.newBuilder()
+                .addAccounts(ManagedAccountStatus.newBuilder()
+                        .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_PRIMARY)
+                        .setConfigured(false)
+                        .setCredentialStatus(ManagedAccountCredentialStatus
+                                .MANAGED_ACCOUNT_CREDENTIAL_STATUS_NOT_CONFIGURED))
                 .addAccounts(ManagedAccountStatus.newBuilder()
                         .setAccountId(ManagedWindowsAccountId.MANAGED_WINDOWS_ACCOUNT_ID_SECONDARY)
                         .setConfigured(false)
@@ -250,6 +361,8 @@ class ManagedAccountAdminServiceTest {
         final MasterRemoteOperationGateway remoteOperationGateway = mock(MasterRemoteOperationGateway.class);
         final CredentialVaultService credentialVaultService = mock(CredentialVaultService.class);
         final ManagedCredentialProvisioningBridge provisioningBridge = mock(ManagedCredentialProvisioningBridge.class);
+        final SensitiveActionAuthorizationService sensitiveAuthorizationService = mock(SensitiveActionAuthorizationService.class);
+        final DeviceActivityRecorder activityRecorder = mock(DeviceActivityRecorder.class);
         final ManagedAccountAdminService service = new ManagedAccountAdminService(
                 masterAccessGuard,
                 storageState,
@@ -260,7 +373,9 @@ class ManagedAccountAdminServiceTest {
                 connectionRegistry,
                 remoteOperationGateway,
                 credentialVaultService,
-                provisioningBridge);
+                provisioningBridge,
+                sensitiveAuthorizationService,
+                activityRecorder);
 
         Fixture() {
             when(masterAccessGuard.requireAuthorized()).thenReturn(new MasterAuthorizationResponse(
@@ -315,6 +430,7 @@ class ManagedAccountAdminServiceTest {
             when(connectionRegistry.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(snapshot(EnumSet.of(
                     DeviceCapability.MANAGED_ACCOUNT_STATUS_V1,
                     DeviceCapability.MANAGED_CREDENTIAL_PROVISIONING_V1,
+                    DeviceCapability.MANAGED_CREDENTIAL_REMOVAL_V1,
                     DeviceCapability.MANAGED_ACCOUNT_BINDING_V2))));
             when(remoteOperationGateway.resultTimeout()).thenReturn(java.time.Duration.ofMillis(100));
         }

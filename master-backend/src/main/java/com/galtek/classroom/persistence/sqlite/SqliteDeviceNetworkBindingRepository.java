@@ -21,6 +21,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @ConditionalOnProperty(
@@ -142,26 +143,46 @@ public class SqliteDeviceNetworkBindingRepository implements DeviceNetworkBindin
     }
 
     @Override
+    @Transactional
     public void recordConnection(
             UUID networkIdentityId,
+            String hostname,
             String agentVersion,
             Set<DeviceCapability> capabilities,
             OffsetDateTime connectedAtUtc,
             OffsetDateTime nowUtc) {
-        execute(() -> jdbcTemplate.update("""
-                UPDATE device_network_bindings
-                SET agent_version = ?,
-                    capabilities_json = ?,
-                    last_connected_at_utc = ?,
-                    updated_at_utc = ?,
-                    version = version + 1
-                WHERE network_identity_id = ? AND current = 1
-                """,
-                emptyToNull(agentVersion),
-                JsonText.enumNames(capabilities == null ? Set.of() : capabilities),
-                UtcTimestamps.toText(connectedAtUtc),
-                UtcTimestamps.toText(nowUtc),
-                networkIdentityId.toString()), "Device network binding connection could not be recorded.");
+        execute(() -> {
+            jdbcTemplate.update("""
+                    UPDATE device_network_bindings
+                    SET agent_version = ?,
+                        capabilities_json = ?,
+                        last_connected_at_utc = ?,
+                        updated_at_utc = ?,
+                        version = version + 1
+                    WHERE network_identity_id = ? AND current = 1
+                    """,
+                    emptyToNull(agentVersion),
+                    JsonText.enumNames(capabilities == null ? Set.of() : capabilities),
+                    UtcTimestamps.toText(connectedAtUtc),
+                    UtcTimestamps.toText(nowUtc),
+                    networkIdentityId.toString());
+            String normalizedHostname = emptyToNull(hostname);
+            if (normalizedHostname != null) {
+                jdbcTemplate.update("""
+                        UPDATE devices
+                        SET hostname = ?, updated_at_utc = ?, version = version + 1
+                        WHERE device_id = (
+                            SELECT device_id
+                            FROM device_network_bindings
+                            WHERE network_identity_id = ? AND current = 1
+                        ) AND hostname <> ?
+                        """,
+                        normalizedHostname,
+                        UtcTimestamps.toText(nowUtc),
+                        networkIdentityId.toString(),
+                        normalizedHostname);
+            }
+        }, "Device network binding connection could not be recorded.");
     }
 
     private static RegisteredNetworkDevice registeredFromRow(ResultSet rs) throws SQLException {

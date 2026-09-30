@@ -26,6 +26,7 @@ public interface DeviceNetworkBindingRepository {
 
     void recordConnection(
             UUID networkIdentityId,
+            String hostname,
             String agentVersion,
             Set<DeviceCapability> capabilities,
             OffsetDateTime connectedAtUtc,

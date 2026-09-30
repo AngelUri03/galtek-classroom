@@ -838,7 +838,7 @@ namespace
 
     bool IsValidAccountId(const std::string& value)
     {
-        return value == "PRIMARY" || value == "SECONDARY";
+        return value == "PRIMARY" || value == "SECONDARY" || value == "ADMIN";
     }
 
     bool ReadUInt16(const SecureByteBuffer& payload, DWORD* offset, WORD* value)

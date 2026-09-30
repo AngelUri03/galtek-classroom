@@ -1,4 +1,4 @@
-import { deleteJson, getJson, putJson, sendSecret } from "./apiClient";
+import { authorizeSensitiveAction, deleteWithVaultSession, getJson, getJsonWithVaultSession, putJson, revealSensitiveSecret, sendSecret } from "./apiClient";
 
 export type ManagedAccountRole = "PRIMARY" | "SECONDARY" | "ADMIN";
 export type WindowsAccountManagedRole = ManagedAccountRole | "NONE";
@@ -28,6 +28,8 @@ export type ManagedAccountSlot = {
   credentialConfigured: boolean;
   credentialStatus: ManagedAccountCredentialStatus;
   windowsAccountName: string | null;
+  vaultCredentialConfigured?: boolean | null;
+  combinedCredentialState?: "READY" | "PENDING_CLIENT_SYNC" | "CLIENT_ONLY_NOT_REVEALABLE" | "NO_CREDENTIAL" | "UNKNOWN";
 };
 
 export type ManagedAccountStatusResponse = {
@@ -54,6 +56,18 @@ export type ManagedAccountCredentialResponse = {
 
 export type VaultStatus = { initialized: boolean; locked: boolean };
 export type VaultUnlockResponse = VaultStatus & { vaultSessionToken: string; expiresAtUtc: string };
+export type DeviceActivityEvent = {
+  eventId: string;
+  classroomId: string;
+  deviceId: string;
+  eventType: string;
+  actor: string;
+  occurredAtUtc: string;
+  role: ManagedAccountRole | null;
+  accountReference: string | null;
+  result: string;
+  message: string | null;
+};
 
 function devicePath(classroomId: string, deviceId: string, suffix: string) {
   return `/api/classrooms/${encodeURIComponent(classroomId)}/devices/${encodeURIComponent(deviceId)}/${suffix}`;
@@ -64,9 +78,16 @@ export function fetchWindowsAccounts(classroomId: string, deviceId: string, sign
     devicePath(classroomId, deviceId, "windows-accounts"), signal);
 }
 
-export function fetchManagedAccounts(classroomId: string, deviceId: string, signal?: AbortSignal) {
-  return getJson<ManagedAccountStatusResponse>(
-    devicePath(classroomId, deviceId, "managed-accounts"), signal);
+export function fetchManagedAccounts(
+  classroomId: string,
+  deviceId: string,
+  vaultSessionToken?: string | null,
+  signal?: AbortSignal
+) {
+  const path = devicePath(classroomId, deviceId, "managed-accounts");
+  return vaultSessionToken
+    ? getJsonWithVaultSession<ManagedAccountStatusResponse>(path, vaultSessionToken, signal)
+    : getJson<ManagedAccountStatusResponse>(path, signal);
 }
 
 export function bindManagedAccount(
@@ -86,10 +107,11 @@ export function unbindManagedAccount(
   classroomId: string,
   deviceId: string,
   role: ManagedAccountRole,
+  vaultSessionToken: string,
   signal?: AbortSignal
 ) {
-  return deleteJson<ManagedAccountMutationResponse>(
-    devicePath(classroomId, deviceId, `managed-accounts/${role}`), signal);
+  return deleteWithVaultSession<ManagedAccountMutationResponse>(
+    devicePath(classroomId, deviceId, `managed-accounts/${role}`), vaultSessionToken, signal);
 }
 
 export function provisionManagedCredential(
@@ -105,8 +127,24 @@ export function provisionManagedCredential(
     "PUT", password, vaultSessionToken, signal);
 }
 
+export function removeManagedCredential(
+  classroomId: string,
+  deviceId: string,
+  role: ManagedAccountRole,
+  vaultSessionToken: string,
+  signal?: AbortSignal
+) {
+  return deleteWithVaultSession<ManagedAccountMutationResponse>(
+    devicePath(classroomId, deviceId, `managed-accounts/${role}/credential`), vaultSessionToken, signal);
+}
+
 export function fetchVaultStatus(signal?: AbortSignal) {
   return getJson<VaultStatus>("/api/credential-vault/status", signal);
+}
+
+export function fetchDeviceActivity(classroomId: string, deviceId: string, signal?: AbortSignal) {
+  return getJson<{ events: DeviceActivityEvent[] }>(
+    `${devicePath(classroomId, deviceId, "activity")}?date=today&limit=50`, signal);
 }
 
 export function unlockVault(masterPassword: string, signal?: AbortSignal) {
@@ -115,4 +153,35 @@ export function unlockVault(masterPassword: string, signal?: AbortSignal) {
 
 export function initializeVault(masterPassword: string, signal?: AbortSignal) {
   return sendSecret<VaultStatus>("/api/credential-vault/initialize", "POST", masterPassword, undefined, signal);
+}
+
+export type SensitiveAuthorizationResponse = {
+  sensitiveAuthorizationToken: string;
+  expiresAtUtc: string;
+};
+
+export function authorizeCredentialReveal(
+  classroomId: string,
+  deviceId: string,
+  masterPassword: string,
+  signal?: AbortSignal
+) {
+  return authorizeSensitiveAction<SensitiveAuthorizationResponse>(
+    devicePath(classroomId, deviceId, "sensitive-authorizations/credential-reveal"),
+    masterPassword,
+    {},
+    signal);
+}
+
+export function revealManagedCredential(
+  classroomId: string,
+  deviceId: string,
+  role: ManagedAccountRole,
+  sensitiveAuthorization: string,
+  signal?: AbortSignal
+) {
+  return revealSensitiveSecret(
+    devicePath(classroomId, deviceId, `managed-accounts/${role}/credential/reveal`),
+    sensitiveAuthorization,
+    signal);
 }

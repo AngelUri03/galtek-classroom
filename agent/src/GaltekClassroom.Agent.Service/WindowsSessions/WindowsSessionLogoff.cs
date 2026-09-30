@@ -301,6 +301,7 @@ public sealed class LogoffWindowsSessionOperationHandler : IRemoteOperationHandl
         {
             ManagedWindowsAccountId.Primary => ClassroomManagedWindowsAccountTypes.Primary,
             ManagedWindowsAccountId.Secondary => ClassroomManagedWindowsAccountTypes.Secondary,
+            ManagedWindowsAccountId.Admin => ClassroomManagedWindowsAccountTypes.Admin,
             _ => null
         };
     }

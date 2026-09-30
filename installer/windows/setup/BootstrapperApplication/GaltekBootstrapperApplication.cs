@@ -59,7 +59,7 @@ namespace GaltekClassroom.Bootstrapper
                 this.currentBundleId = BundleIdentity.ReadCurrentBundleId(AppDomain.CurrentDomain.BaseDirectory);
                 this.Engine.SetVariableString("GaltekCurrentBundleId", this.currentBundleId, false);
                 this.Engine.Log(LogLevel.Standard, "CURRENT_BUNDLE_AUTHORITY bundleId=" + this.currentBundleId +
-                    " version=" + this.bundleVersion + " providerKey=GaltekSolution.GaltekClassroom.Client.Bundle.0.0.4");
+                    " version=" + this.bundleVersion + " providerKey=GaltekSolution.GaltekClassroom.Client.Bundle.0.0.6");
                 Subscribe();
 
                 if (this.execution.CreateWindow)

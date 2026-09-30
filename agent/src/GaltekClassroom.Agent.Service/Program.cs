@@ -2,6 +2,7 @@ using GaltekClassroom.Agent.Service;
 using GaltekClassroom.Agent.Service.Applications;
 using GaltekClassroom.Agent.Service.CredentialProviderBridge;
 using GaltekClassroom.Agent.Service.Diagnostics;
+using GaltekClassroom.Agent.Service.Hosting;
 using GaltekClassroom.Agent.Service.Identity;
 using GaltekClassroom.Agent.Service.Ipc;
 using GaltekClassroom.Agent.Service.Licensing;
@@ -13,6 +14,7 @@ using GaltekClassroom.Agent.Service.Pairing;
 using GaltekClassroom.Agent.Service.SessionCommands;
 using GaltekClassroom.Agent.Shared;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 var bootstrap = BootstrapStartupDiagnostics.CreateDefault();
 var bootstrapStage = BootstrapStartupStages.ProcessEnter;
@@ -34,24 +36,22 @@ if (!commandLine.IsValid)
     return;
 }
 
-bootstrapStage = BootstrapStartupStages.CreateBuilder;
-bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_BEGIN");
-var builder = Host.CreateApplicationBuilder(commandLine.HostArgs);
-bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_OK");
+if (commandLine.Mode == AgentCommandMode.Service
+    && OperatingSystem.IsWindows()
+    && WindowsServiceHelpers.IsWindowsService())
+{
+    bootstrapStage = BootstrapStartupStages.ScmConnect;
+    DeferredWindowsService.RunService(
+        cancellationToken => Task.FromResult<IHost>(BuildDeferredRuntimeHost(
+            commandLine.HostArgs,
+            bootstrap,
+            cancellationToken)),
+        bootstrap);
+    return;
+}
 
-bootstrapStage = BootstrapStartupStages.Configuration;
-bootstrap.Write("BOOTSTRAP_CONFIG_BEGIN");
-builder.Services.AddInstallationIdentityServices();
-builder.Services.AddCommercialLicenseServices();
-builder.Services.AddMasterAuthorizationServices();
-builder.Services.AddNetworkIdentityServices();
-builder.Services.AddClientPairingServices();
-builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
-builder.Services.AddLocalIpcServices();
-builder.Services.AddSessionCommandServices();
-builder.Services.AddApplicationBindingServices();
-builder.Services.AddManagedWindowsAccountBindingServices();
-builder.Services.AddCredentialProviderBridgeServices();
+bootstrapStage = BootstrapStartupStages.CreateBuilder;
+var builder = CreateAgentBuilder(commandLine.HostArgs, bootstrap, useApplicationBaseDirectory: false);
 
 if (commandLine.Mode == AgentCommandMode.MachineCode)
 {
@@ -276,13 +276,7 @@ builder.Services.AddWindowsService(options =>
     options.ServiceName = ProductInfo.ServiceName;
 });
 
-builder.Services.AddHostedService<Worker>();
-builder.Services.AddHostedService<LocalIpcServer>();
-builder.Services.AddSingleton<IHostedService>(provider => OperatingSystem.IsWindows()
-    ? provider.GetRequiredService<CredentialProviderBridgeServer>()
-    : provider.GetRequiredService<NoOpCredentialProviderBridgeServer>());
-builder.Services.AddHostedService<CommercialLicenseRuntimeMonitor>();
-builder.Services.AddHostedService<MasterConnectionHostedService>();
+AddRuntimeHostedServices(builder.Services);
 bootstrap.Write("BOOTSTRAP_CONFIG_OK");
 
 bootstrapStage = BootstrapStartupStages.DiBuild;
@@ -293,6 +287,74 @@ bootstrap.Write("BOOTSTRAP_DI_BUILD_OK");
 bootstrapStage = BootstrapStartupStages.HostRun;
 bootstrap.Write("BOOTSTRAP_HOST_RUN_BEGIN");
 await host.RunAsync();
+
+static IHost BuildDeferredRuntimeHost(
+    string[] hostArgs,
+    BootstrapStartupDiagnostics bootstrap,
+    CancellationToken cancellationToken)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        throw new PlatformNotSupportedException("The deferred SCM host is Windows-only.");
+    }
+
+    cancellationToken.ThrowIfCancellationRequested();
+    var builder = CreateAgentBuilder(hostArgs, bootstrap, useApplicationBaseDirectory: true);
+
+    // ServiceBase already owns SCM. Do not install WindowsServiceLifetime again.
+    builder.Services.AddSingleton<IHostLifetime, DeferredHostLifetime>();
+#pragma warning disable CA1416 // Guarded above; this host factory is reachable only from the Windows SCM path.
+    builder.Logging.AddEventLog(settings => settings.SourceName = ProductInfo.ServiceName);
+#pragma warning restore CA1416
+    AddRuntimeHostedServices(builder.Services);
+    bootstrap.Write("BOOTSTRAP_CONFIG_OK");
+
+    bootstrap.Write("BOOTSTRAP_DI_BUILD_BEGIN");
+    var host = builder.Build();
+    bootstrap.Write("BOOTSTRAP_DI_BUILD_OK");
+    return host;
+}
+
+static HostApplicationBuilder CreateAgentBuilder(
+    string[] hostArgs,
+    BootstrapStartupDiagnostics bootstrap,
+    bool useApplicationBaseDirectory)
+{
+    bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_BEGIN");
+    HostApplicationBuilder builder = useApplicationBaseDirectory
+        ? Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            Args = hostArgs,
+            ContentRootPath = AppContext.BaseDirectory
+        })
+        : Host.CreateApplicationBuilder(hostArgs);
+    bootstrap.Write("BOOTSTRAP_CREATE_BUILDER_OK");
+
+    bootstrap.Write("BOOTSTRAP_CONFIG_BEGIN");
+    builder.Services.AddInstallationIdentityServices();
+    builder.Services.AddCommercialLicenseServices();
+    builder.Services.AddMasterAuthorizationServices();
+    builder.Services.AddNetworkIdentityServices();
+    builder.Services.AddClientPairingServices();
+    builder.Services.AddMasterNetworkTransportServices(builder.Configuration);
+    builder.Services.AddLocalIpcServices();
+    builder.Services.AddSessionCommandServices();
+    builder.Services.AddApplicationBindingServices();
+    builder.Services.AddManagedWindowsAccountBindingServices();
+    builder.Services.AddCredentialProviderBridgeServices();
+    return builder;
+}
+
+static void AddRuntimeHostedServices(IServiceCollection services)
+{
+    services.AddHostedService<Worker>();
+    services.AddHostedService<LocalIpcServer>();
+    services.AddSingleton<IHostedService>(provider => OperatingSystem.IsWindows()
+        ? provider.GetRequiredService<CredentialProviderBridgeServer>()
+        : provider.GetRequiredService<NoOpCredentialProviderBridgeServer>());
+    services.AddHostedService<CommercialLicenseRuntimeMonitor>();
+    services.AddHostedService<MasterConnectionHostedService>();
+}
 
 static async Task<LicenseState?> ResolveLicenseStateAsync(
     IServiceProvider serviceProvider,

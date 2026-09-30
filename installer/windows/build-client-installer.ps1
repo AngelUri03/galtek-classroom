@@ -375,7 +375,7 @@ Write-Output "GALTEK_FINAL_BUNDLE_ID=$bundleId"
         mode = 'exact-historical-graph-migration-fail-closed'
     }
     releaseFreeze = [ordered]@{
-        policy = 'Do not rebuild 0.0.4 after physical testing starts; any source change advances to 0.0.5.'
+        policy = 'Do not rebuild 0.0.6 after physical testing starts; 0.0.5 remains frozen at CB4035B57CD98D661FAA4247790A5C4E9D07E3FDF88C5A22360BE3F7D338CC19.'
         productVersion = $productVersion
         productCode = [string]$versionProps.Project.PropertyGroup.ProductCode
         packageCode = $packageCode

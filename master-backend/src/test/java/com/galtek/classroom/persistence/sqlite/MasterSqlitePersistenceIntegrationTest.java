@@ -248,6 +248,47 @@ class MasterSqlitePersistenceIntegrationTest {
     }
 
     @Test
+    void acceptedHelloUpdatesHostnameWithoutChangingDeviceOrTrustIdentity() {
+        Path dataDir = tempDir.resolve("hostname-refresh");
+
+        try (ConfigurableApplicationContext context = start(dataDir)) {
+            Fixture fixture = createFixture(context);
+            DeviceRepository devices = context.getBean(DeviceRepository.class);
+            Device original = devices.findById(fixture.deviceId).orElseThrow();
+            UUID installationId = UUID.fromString(original.installationId());
+            UUID networkIdentityId = UUID.randomUUID();
+            String fingerprint = "b".repeat(64);
+            OffsetDateTime registeredAt = OffsetDateTime.parse("2026-09-29T12:00:00Z");
+            JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
+            jdbc.update("UPDATE devices SET hostname = ? WHERE device_id = ?", "ICH11", fixture.deviceId);
+
+            DeviceNetworkBindingRepository bindings = context.getBean(DeviceNetworkBindingRepository.class);
+            bindings.create(new DeviceNetworkBinding(
+                    id(), fixture.deviceId, installationId, networkIdentityId, fingerprint,
+                    "0.0.5", EnumSet.of(DeviceCapability.HEARTBEAT_V1),
+                    registeredAt, registeredAt, true, 0), registeredAt);
+            bindings.recordConnection(
+                    networkIdentityId,
+                    "PC14",
+                    "0.0.6",
+                    EnumSet.of(DeviceCapability.HEARTBEAT_V1, DeviceCapability.OPERATION_FRAMEWORK_V1),
+                    registeredAt.plusMinutes(1),
+                    registeredAt.plusMinutes(1));
+
+            Device refreshedDevice = devices.findById(fixture.deviceId).orElseThrow();
+            var refreshedBinding = bindings.findCurrentByNetworkIdentityId(networkIdentityId).orElseThrow();
+            assertThat(refreshedDevice.deviceId()).isEqualTo(original.deviceId());
+            assertThat(refreshedDevice.installationId()).isEqualTo(original.installationId());
+            assertThat(refreshedDevice.hostname()).isEqualTo("PC14");
+            assertThat(refreshedBinding.deviceId()).isEqualTo(original.deviceId());
+            assertThat(refreshedBinding.installationId()).isEqualTo(installationId);
+            assertThat(refreshedBinding.networkIdentityId()).isEqualTo(networkIdentityId);
+            assertThat(refreshedBinding.publicKeyFingerprint()).isEqualTo(fingerprint);
+            assertThat(refreshedBinding.hostname()).isEqualTo("PC14");
+        }
+    }
+
+    @Test
     void reopensPersistedBrowserPoliciesAndRules() {
         Path dataDir = tempDir.resolve("browser-policy-reopen");
         String policyId = id();
@@ -305,11 +346,11 @@ class MasterSqlitePersistenceIntegrationTest {
         Path dataDir = tempDir.resolve("idempotence");
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(6);
+            assertThat(flywaySuccessCount(context)).isEqualTo(9);
         }
 
         try (ConfigurableApplicationContext context = start(dataDir)) {
-            assertThat(flywaySuccessCount(context)).isEqualTo(6);
+            assertThat(flywaySuccessCount(context)).isEqualTo(9);
             assertThat(context.getBean(ClassroomRepository.class).findActive()).isEmpty();
         }
     }
