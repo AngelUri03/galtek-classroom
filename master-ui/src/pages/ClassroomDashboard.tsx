@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { DeviceCard } from "../components/DeviceCard";
 import { QuickActions } from "../components/QuickActions";
 import { SummaryCard } from "../components/SummaryCard";
-import { fetchWindowsSessionStates, type BatchOperationResponse, type WindowsSessionState } from "../api/quickActionsApi";
+import { type BatchOperationResponse } from "../api/quickActionsApi";
 import type { ClassroomDashboardData } from "../types/classroom";
 import { useDeviceOperations } from "../app/DeviceOperationState";
+import { useSessionStates } from "../app/SessionState";
+import { reconcileSessionOperations } from "../app/sessionReconciliationModel";
 
 type ClassroomDashboardProps = {
   data?: ClassroomDashboardData;
@@ -57,6 +59,50 @@ export function ClassroomDashboard({
   onRefresh
 }: ClassroomDashboardProps) {
   const title = data?.classroomName ?? loadingTitle;
+  const deviceOperations = useDeviceOperations();
+  const sessionStates = useSessionStates();
+  const [sessionRefreshing, setSessionRefreshing] = useState(false);
+  const onlineDeviceKey = useMemo(() => data?.devices
+    .filter((device) => device.rawStatus === "ONLINE")
+    .map((device) => device.id)
+    .sort()
+    .join("\u0000") ?? "", [data?.devices]);
+  const onlineDeviceIds = useMemo(
+    () => onlineDeviceKey ? onlineDeviceKey.split("\u0000") : [],
+    [onlineDeviceKey]
+  );
+  const refreshSessionAuthority = useCallback(async (signal?: AbortSignal) => {
+    if (!classroomId || onlineDeviceIds.length === 0) return;
+    await reconcileSessionOperations(
+      onlineDeviceIds,
+      (deviceIds) => deviceOperations.refresh(deviceIds, signal),
+      (deviceIds, expectedStates) => sessionStates.refresh(
+        classroomId,
+        deviceIds,
+        signal,
+        expectedStates
+      )
+    );
+  }, [classroomId, deviceOperations.refresh, onlineDeviceIds, sessionStates.refresh]);
+
+  useEffect(() => {
+    if (status !== "ready" || !classroomId || onlineDeviceIds.length === 0) return;
+    const controller = new AbortController();
+    void refreshSessionAuthority(controller.signal).catch(() => undefined);
+    return () => controller.abort();
+  }, [classroomId, onlineDeviceKey, refreshSessionAuthority, status]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setSessionRefreshing(true);
+    try {
+      await onRefresh();
+      await refreshSessionAuthority();
+    } finally {
+      setSessionRefreshing(false);
+    }
+  }, [onRefresh, refreshSessionAuthority]);
+
+  const refreshPending = isRefreshing || sessionRefreshing;
 
   return (
     <section className="classroom-dashboard" aria-labelledby="classroom-title">
@@ -70,12 +116,12 @@ export function ClassroomDashboard({
             className="refresh-button"
             type="button"
             aria-label="Actualizar snapshot del aula"
-            aria-busy={isRefreshing}
-            disabled={isRefreshing}
-            onClick={onRefresh}
+            aria-busy={refreshPending}
+            disabled={refreshPending}
+            onClick={() => void handleManualRefresh()}
           >
             <RefreshCw size={17} aria-hidden="true" />
-            <span>{isRefreshing ? "Actualizando" : "Actualizar"}</span>
+            <span>{refreshPending ? "Actualizando" : "Actualizar"}</span>
           </button>
         ) : null}
       </div>
@@ -149,30 +195,8 @@ function ClassroomContent({
   onClearSelection?: () => void;
   onSnapshotRefresh?: () => Promise<void> | void;
 }) {
-  const [sessionStates, setSessionStates] = useState<Map<string, WindowsSessionState>>(() => new Map());
   const deviceOperations = useDeviceOperations();
-  const handleSessionStatesChange = useCallback(
-    (states: Map<string, WindowsSessionState>) => setSessionStates((current) => {
-      const next = new Map(current);
-      states.forEach((state, deviceId) => next.set(deviceId, state));
-      return next;
-    }),
-    []
-  );
-
-  useEffect(() => {
-    if (!classroomId) return;
-    const onlineIds = new Set(data.devices.filter((device) => device.rawStatus === "ONLINE").map((device) => device.id));
-    if (onlineIds.size === 0) return;
-    const controller = new AbortController();
-    void Promise.all([
-      fetchWindowsSessionStates(classroomId, onlineIds, controller.signal),
-      deviceOperations.refresh(onlineIds, controller.signal)
-    ]).then(([response]) => {
-      if (!controller.signal.aborted) handleSessionStatesChange(new Map(response.targets.map((target) => [target.deviceId, target.state])));
-    }).catch(() => undefined);
-    return () => controller.abort();
-  }, [classroomId, data.devices, deviceOperations.refresh, handleSessionStatesChange]);
+  const sessionStates = useSessionStates();
 
   if (data.devices.length === 0) {
     return (
@@ -216,7 +240,6 @@ function ClassroomContent({
             groups={data.groups} devices={data.devices} selectedDeviceIds={selectedDeviceIds}
             operationResult={operationResult} onDismissOperationResult={onDismissOperationResult}
             onToggleDevice={onToggleDevice} onSelectAll={onSelectAll} onClearSelection={onClearSelection}
-            onSessionStatesChange={handleSessionStatesChange}
             onSnapshotRefresh={onSnapshotRefresh}
             onStart={onOperationStart} onResult={onOperationResult} onError={onOperationError} />
         ) : null}
@@ -227,7 +250,7 @@ function ClassroomContent({
               key={device.id}
               device={device}
               selected={selectedDeviceIds.has(device.id)}
-              sessionState={sessionStates.get(device.id)}
+              sessionState={sessionStates.stateFor(device.id)}
               operation={deviceOperations.operationFor(device.id)}
               onToggle={() => onToggleDevice?.(device.id)}
             />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight, CircleAlert, Keyboard, Link, LoaderCircle, LogIn, MousePointer2, Power, RotateCcw, Search, UserRound, WifiOff } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ApiError } from "../api/apiClient";
-import { authorizeAdminSession, fetchWindowsSessionStates, openUrl, powerControl, setInputLocked, switchManagedAccount, type BatchOperationResponse, type ManagedSessionRole, type QuickActionType, type WindowsSessionState } from "../api/quickActionsApi";
+import { authorizeAdminSession, openUrl, powerControl, setInputLocked, switchManagedAccount, type BatchOperationResponse, type ManagedSessionRole, type QuickActionType, type WindowsSessionState } from "../api/quickActionsApi";
 import { fetchManagedAccounts, type ManagedAccountStatusResponse } from "../api/windowsAccountsApi";
 import type { ClassroomDeviceCardData, ClassroomGroupData } from "../types/classroom";
 import { resolveActionAvailability, sessionStateLabels, type ActionAvailability, type DeviceSessionContext } from "./actionAvailabilityResolver";
@@ -11,8 +11,9 @@ import { DeviceInspector } from "./DeviceInspector";
 import { resolveManagedSessionEligibility, type ManagedSessionEligibility } from "./managedSessionEligibility";
 import { FormPassword, GaltekCloseButton } from "./FormControls";
 import { useAppToast } from "../app/AppToastProvider";
-import { useDeviceOperations } from "../app/DeviceOperationState";
-import { deviceOperationLabel } from "../app/deviceOperationModel";
+import { useDeviceOperations, type DeviceOperation } from "../app/DeviceOperationState";
+import { deviceOperationLabel, sessionMutationControl } from "../app/deviceOperationModel";
+import { useSessionStates } from "../app/SessionState";
 
 type Intent = { type: "OPEN_URL" | "RESTART" | "SHUTDOWN"; classroomId: string; targetDeviceIds: Set<string>; availability: ActionAvailability };
 type Overlay = "selector" | "eligibility" | "session" | "session-stepup" | "inspector" | "intent" | "result" | null;
@@ -20,7 +21,6 @@ type Props = {
   classroomId: string; classroomName: string; groups: ClassroomGroupData[]; devices: ClassroomDeviceCardData[];
   selectedDeviceIds: Set<string>; operationResult?: BatchOperationResponse | null; onDismissOperationResult?: () => void;
   onToggleDevice?: (deviceId: string) => void; onSelectAll?: () => void; onClearSelection?: () => void;
-  onSessionStatesChange?: (states: Map<string, WindowsSessionState>) => void;
   onSnapshotRefresh?: () => Promise<void> | void;
   onStart: () => void; onResult: (result: BatchOperationResponse) => void; onError: (message: string) => void;
 };
@@ -34,8 +34,9 @@ const actionDescriptions: Record<QuickActionType, string> = {
 
 function sameTargets(targets: ReadonlySet<string>, selected: ReadonlySet<string>) { if (targets.size !== selected.size) return false; for (const id of targets) if (!selected.has(id)) return false; return true; }
 function interactiveSession(state: WindowsSessionState) { return state === "PRIMARY_ACTIVE" || state === "SECONDARY_ACTIVE" || state === "ADMIN_ACTIVE" || state === "OTHER_SESSION_ACTIVE"; }
+function activeStateFor(role: ManagedSessionRole): WindowsSessionState { return `${role}_ACTIVE`; }
 
-export function QuickActions({ classroomId, classroomName, groups, devices, selectedDeviceIds, operationResult, onDismissOperationResult, onToggleDevice, onSelectAll, onClearSelection, onSessionStatesChange, onSnapshotRefresh, onStart, onResult, onError }: Props) {
+export function QuickActions({ classroomId, classroomName, groups, devices, selectedDeviceIds, operationResult, onDismissOperationResult, onToggleDevice, onSelectAll, onClearSelection, onSnapshotRefresh, onStart, onResult, onError }: Props) {
   const [intent, setIntent] = useState<Intent | null>(null);
   const [url, setUrl] = useState("");
   const [urlTouched, setUrlTouched] = useState(false);
@@ -44,8 +45,6 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectorSearch, setSelectorSearch] = useState("");
   const [eligibility, setEligibility] = useState<ActionAvailability | null>(null);
-  const [sessionByDeviceId, setSessionByDeviceId] = useState<Map<string, WindowsSessionState>>(() => new Map());
-  const [sessionLoading, setSessionLoading] = useState(false);
   const [managedByDeviceId, setManagedByDeviceId] = useState<Map<string, ManagedAccountStatusResponse>>(() => new Map());
   const [managedLoading, setManagedLoading] = useState(false);
   const [sessionTargetRole, setSessionTargetRole] = useState<ManagedSessionRole | null>(null);
@@ -53,9 +52,9 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
   const [sessionError, setSessionError] = useState<string | null>(null);
   const appToast = useAppToast();
   const deviceOperations = useDeviceOperations();
+  const sessionStates = useSessionStates();
   const submittingRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
-  const sessionControllerRef = useRef<AbortController | null>(null);
   const managedControllerRef = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
@@ -66,7 +65,14 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
   const adminStepUpRef = useRef<HTMLDivElement>(null);
   const adminStepUpOpenerRef = useRef<HTMLElement | null>(null);
   const selectedDevices = useMemo(() => devices.filter((device) => selectedDeviceIds.has(device.id)), [devices, selectedDeviceIds]);
-  const contexts = useMemo<DeviceSessionContext[]>(() => selectedDevices.map((device) => ({ device, sessionState: device.rawStatus === "ONLINE" ? sessionByDeviceId.get(device.id) ?? "UNKNOWN" : "UNKNOWN", sessionLoading: sessionLoading && device.rawStatus === "ONLINE" && !sessionByDeviceId.has(device.id) })), [selectedDevices, sessionByDeviceId, sessionLoading]);
+  const sessionByDeviceId = useMemo(() => new Map(
+    [...sessionStates.snapshots].map(([deviceId, snapshot]) => [deviceId, snapshot.state])
+  ), [sessionStates.snapshots]);
+  const contexts = useMemo<DeviceSessionContext[]>(() => selectedDevices.map((device) => ({
+    device,
+    sessionState: device.rawStatus === "ONLINE" ? sessionStates.stateFor(device.id) ?? "UNKNOWN" : "UNKNOWN",
+    sessionLoading: device.rawStatus === "ONLINE" && sessionStates.isLoading(device.id) && !sessionStates.hasSnapshot(device.id)
+  })), [selectedDevices, sessionStates]);
   const availability = useMemo(() => ({ OPEN_URL: resolveActionAvailability("OPEN_URL", contexts), LOCK_INPUT: resolveActionAvailability("LOCK_INPUT", contexts), UNLOCK_INPUT: resolveActionAvailability("UNLOCK_INPUT", contexts), RESTART: resolveActionAvailability("RESTART", contexts), SHUTDOWN: resolveActionAvailability("SHUTDOWN", contexts) }), [contexts]);
   const sessionEligibility = useMemo(() => ({
     PRIMARY: resolveManagedSessionEligibility("PRIMARY", contexts, managedByDeviceId, managedLoading),
@@ -74,16 +80,7 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
     ADMIN: resolveManagedSessionEligibility("ADMIN", contexts, managedByDeviceId, managedLoading)
   }), [contexts, managedByDeviceId, managedLoading]);
 
-  useEffect(() => () => { controllerRef.current?.abort(); sessionControllerRef.current?.abort(); managedControllerRef.current?.abort(); }, []);
-  useEffect(() => {
-    if (selectedDeviceIds.size === 0) { sessionControllerRef.current?.abort(); const empty = new Map<string, WindowsSessionState>(); setSessionByDeviceId(empty); onSessionStatesChange?.(empty); setSessionLoading(false); return; }
-    const onlineTargets = new Set(devices.filter((device) => selectedDeviceIds.has(device.id) && device.rawStatus === "ONLINE").map((device) => device.id));
-    if (onlineTargets.size === 0) { const empty = new Map<string, WindowsSessionState>(); setSessionByDeviceId(empty); onSessionStatesChange?.(empty); setSessionLoading(false); return; }
-    sessionControllerRef.current?.abort(); const controller = new AbortController(); sessionControllerRef.current = controller; setSessionLoading(true);
-    void fetchWindowsSessionStates(classroomId, onlineTargets, controller.signal).then((response) => {
-      if (controller.signal.aborted) return; const states = new Map(response.targets.map((target) => [target.deviceId, target.state])); setSessionByDeviceId(states); onSessionStatesChange?.(states);
-    }).catch(() => { if (!controller.signal.aborted) { const unknown = new Map([...onlineTargets].map((id) => [id, "UNKNOWN" as WindowsSessionState])); setSessionByDeviceId(unknown); onSessionStatesChange?.(unknown); } }).finally(() => { if (sessionControllerRef.current === controller) { sessionControllerRef.current = null; setSessionLoading(false); } });
-  }, [classroomId, devices, selectedDeviceIds, onSessionStatesChange]);
+  useEffect(() => () => { controllerRef.current?.abort(); managedControllerRef.current?.abort(); }, [classroomId]);
   useEffect(() => {
     if (overlay !== "session" || selectedDeviceIds.size === 0) return;
     managedControllerRef.current?.abort();
@@ -131,7 +128,9 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
   const sessionControl = sessionPresentation(singleContext, initialSessionLoading);
   const selectedOperation = selectedDevices.map((device) => deviceOperations.operationFor(device.id)).find(Boolean);
   const mutationsDisabled = submitting || Boolean(selectedOperation);
-  const pendingLabel = selectedOperation ? deviceOperationLabel(selectedOperation) : "Operación en curso…";
+  const pendingLabel = selectedOperation ? deviceOperationLabel(selectedOperation, sessionStates.stateFor(selectedOperation.deviceId)) : "Operación en curso…";
+  const automaticReconciliationActive = selectedOperation?.state === "RECONCILIATION_REQUIRED"
+    && selectedOperation.reconciliationStatus === "ACTIVE";
   const urlError = urlTouched ? validateUrl(url) : null;
   const captureTargets = () => ({ targetDeviceIds: new Set(selectedDeviceIds) });
   const closeTransient = () => { setOpenMenu(null); setEligibility(null); setOverlay(null); };
@@ -175,8 +174,14 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
     const roleLabel = role === "ADMIN" ? "Administración" : role === "PRIMARY" ? "Primaria" : "Secundaria";
     const toastKey = `${[...targets].sort().join(",")}:session`;
     if (!deviceOperations.begin(targets, "SWITCH_MANAGED_ACCOUNT", role)) return;
+    const sourceStates = new Map<string, WindowsSessionState>();
+    targets.forEach((deviceId) => {
+      const source = sessionStates.stateFor(deviceId);
+      if (source) sourceStates.set(deviceId, source);
+    });
+    sessionStates.invalidate(targets);
     appToast.show({ key: toastKey, severity: "info", summary: "Cambiando sesión", detail: targets.size === 1 ? `${selectedDevices[0]?.label ?? "El equipo"} está cambiando a ${roleLabel}.` : `${targets.size} equipos están cambiando a ${roleLabel}.`, sticky: true });
-    submittingRef.current = true; setSubmitting(true); setSessionError(null); setOverlay(null); onStart();
+    submittingRef.current = true; setSubmitting(true); setSessionError(null); onStart();
     const controller = new AbortController(); controllerRef.current = controller;
     try {
       const response = await switchManagedAccount(classroomId, targets, role, sensitiveAuthorization, controller.signal);
@@ -191,20 +196,53 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
         targets: response.targets
       };
       onResult(result);
-      const refreshed = await fetchWindowsSessionStates(classroomId, targets, controller.signal);
-      const states = new Map(refreshed.targets.map((target) => [target.deviceId, target.state]));
-      setSessionByDeviceId(states); onSessionStatesChange?.(states);
+      const expectedStates = new Map<string, WindowsSessionState>();
+      const resultsByDeviceId = new Map(response.targets.map((target) => [target.deviceId, target]));
+      targets.forEach((deviceId) => {
+        if (resultsByDeviceId.get(deviceId)?.status !== "FAILED") {
+          expectedStates.set(deviceId, activeStateFor(role));
+        }
+      });
+      const reconcilingIds = new Set(expectedStates.keys());
+      if (reconcilingIds.size > 0) deviceOperations.requireReconciliation(reconcilingIds);
+      let reconciliationTimedOut = new Set<string>();
+      let reconciliationIncompatible = new Set<string>();
+      let observationFailed = false;
+      try {
+        const reconciliation = await sessionStates.reconcile(
+          classroomId,
+          expectedStates,
+          sourceStates,
+          controller.signal
+        );
+        reconciliationTimedOut = new Set(reconciliation.timedOutDeviceIds);
+        reconciliationIncompatible = new Set(reconciliation.incompatibleDeviceIds);
+      } catch {
+        observationFailed = true;
+      }
+      if (controller.signal.aborted) return;
+      const reconciliationIds = new Set([...reconciliationTimedOut, ...reconciliationIncompatible]);
+      if (observationFailed) reconcilingIds.forEach((deviceId) => reconciliationIds.add(deviceId));
+      const completedIds = [...targets].filter((deviceId) => !reconciliationIds.has(deviceId));
+      if (completedIds.length > 0) deviceOperations.clear(completedIds);
+      if (reconciliationIds.size > 0) deviceOperations.requireReconciliation(reconciliationIds);
+      try {
+        await deviceOperations.refresh(targets, controller.signal);
+      } catch {
+        // Preserve the conservative local state when the backend lease cannot be re-read.
+      }
+      if (reconciliationIds.size > 0) deviceOperations.markReconciliationTimedOut(reconciliationIds);
       await onSnapshotRefresh?.();
-      await deviceOperations.refresh(targets, controller.signal);
       const partial = response.targets.some((target) => target.status === "PARTIAL");
       const unknown = response.targets.some((target) => target.status === "UNKNOWN");
       const failed = response.targets.some((target) => target.status === "FAILED");
+      const observationUnsettled = reconciliationIds.size > 0 || observationFailed;
       appToast.show({
         key: toastKey,
-        severity: partial || unknown ? "warn" : failed ? "error" : "success",
-        summary: partial ? "No se completó el cambio de sesión" : unknown ? "No pudimos confirmar el resultado" : failed ? `No se pudo iniciar ${roleLabel}` : `${roleLabel} iniciada`,
-        detail: partial ? `No fue posible completar el cambio a ${roleLabel}. Estamos confirmando el estado del equipo.` : unknown ? "Galtek verificará el estado del equipo antes de permitir otra acción." : failed ? "Windows no pudo completar el cambio de sesión." : targets.size === 1 ? `${selectedDevices[0]?.label ?? "El equipo"} ya está usando el perfil ${roleLabel}.` : `${targets.size} equipos ya usan ${roleLabel}.`,
-        sticky: partial || unknown
+        severity: partial || unknown || observationUnsettled ? "warn" : failed ? "error" : "success",
+        summary: observationUnsettled ? "No pudimos confirmar automáticamente el estado del equipo" : partial ? "No se completó el cambio de sesión" : unknown ? "No pudimos confirmar el resultado" : failed ? `No se pudo iniciar ${roleLabel}` : `${roleLabel} iniciada`,
+        detail: observationUnsettled ? "La reconciliación automática terminó sin observar el estado esperado. Puedes usar Actualizar para volver a consultar." : partial ? `No fue posible completar el cambio a ${roleLabel}.` : unknown ? "El estado autoritativo permanece incierto." : failed ? "Windows no pudo completar el cambio de sesión." : targets.size === 1 ? `${selectedDevices[0]?.label ?? "El equipo"} ya está usando el perfil ${roleLabel}.` : `${targets.size} equipos ya usan ${roleLabel}.`,
+        sticky: partial || unknown || observationUnsettled
       });
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -237,6 +275,7 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
       const targets = new Set(selectedDeviceIds);
       const authorization = await authorizeAdminSession(classroomId, targets, masterPassword);
       submittingRef.current = false; setSubmitting(false);
+      setOverlay("session");
       await dispatchSession("ADMIN", authorization.sensitiveAuthorizationToken);
     } catch (error) {
       submittingRef.current = false; setSubmitting(false); setSessionError(sensitiveActionError(error));
@@ -253,7 +292,7 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
         <div className="command-context__actions"><button ref={selectorTriggerRef} type="button" onClick={() => showOverlay("selector")}>Cambiar selección</button></div>
       </div>
       <div className="command-dock" role="toolbar" aria-label="Comandos disponibles">
-        <CommandSlot icon={selectedOperation ? LoaderCircle : sessionControl.icon} label={selectedOperation ? pendingLabel : sessionControl.label} sublabel={selectedOperation ? "Espera a que termine la operación actual." : sessionControl.sublabel} tone={selectedOperation ? "warning" : sessionControl.tone} open={overlay === "session" || overlay === "inspector"} disabled={mutationsDisabled} onClick={() => { if (singleContext?.device.rawStatus === "ONLINE") showOverlay("inspector"); else if (overlay === "session") closeTransient(); else showOverlay("session"); }} />
+        <CommandSlot icon={selectedOperation?.state === "IN_PROGRESS" || automaticReconciliationActive ? LoaderCircle : selectedOperation ? CircleAlert : sessionControl.icon} label={selectedOperation ? pendingLabel : sessionControl.label} sublabel={selectedOperation ? automaticReconciliationActive ? "Windows está terminando el cambio de sesión." : "Usa Actualizar si el estado sigue sin confirmarse." : sessionControl.sublabel} tone={selectedOperation ? "warning" : sessionControl.tone} open={overlay === "session" || overlay === "inspector"} disabled={mutationsDisabled} processing={selectedOperation?.state === "IN_PROGRESS" || automaticReconciliationActive} onClick={() => { if (singleContext?.device.rawStatus === "ONLINE") showOverlay("inspector"); else if (overlay === "session") closeTransient(); else showOverlay("session"); }} />
         <CommandMenu id="interaction" icon={Keyboard} label="Interacción" open={openMenu === "interaction"} locked={!availability.LOCK_INPUT.enabled || !availability.UNLOCK_INPUT.enabled} disabled={mutationsDisabled} onToggle={() => { if (!availability.LOCK_INPUT.enabled || !availability.UNLOCK_INPUT.enabled) return showEligibility(availability.LOCK_INPUT); openMenuOnly("interaction"); }}><ActionItem action="LOCK_INPUT" availability={availability.LOCK_INPUT} disabled={mutationsDisabled} onChoose={(action) => void dispatch(action, classroomId, captureTargets().targetDeviceIds)} onBlocked={showEligibility} /><ActionItem action="UNLOCK_INPUT" availability={availability.UNLOCK_INPUT} disabled={mutationsDisabled} onChoose={(action) => void dispatch(action, classroomId, captureTargets().targetDeviceIds)} onBlocked={showEligibility} /></CommandMenu>
         <CommandMenu id="content" icon={Link} label="Contenido" open={openMenu === "content"} locked={!availability.OPEN_URL.enabled} disabled={mutationsDisabled} onToggle={() => availability.OPEN_URL.enabled ? openMenuOnly("content") : showEligibility(availability.OPEN_URL)}><ActionItem action="OPEN_URL" availability={availability.OPEN_URL} disabled={mutationsDisabled} onChoose={(action, event) => openIntent(action as Intent["type"], availability.OPEN_URL, event.currentTarget)} onBlocked={showEligibility} /></CommandMenu>
         <CommandMenu id="system" icon={Power} label="Sistema" open={openMenu === "system"} disabled={mutationsDisabled} onToggle={() => openMenuOnly("system")}><ActionItem action="RESTART" availability={availability.RESTART} disabled={mutationsDisabled} onChoose={(action, event) => openIntent(action as Intent["type"], availability.RESTART, event.currentTarget)} onBlocked={showEligibility} /><ActionItem action="SHUTDOWN" availability={availability.SHUTDOWN} disabled={mutationsDisabled} danger separator onChoose={(action, event) => openIntent(action as Intent["type"], availability.SHUTDOWN, event.currentTarget)} onBlocked={showEligibility} /></CommandMenu>
@@ -261,6 +300,7 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
       </div>
       {overlay === "session" ? <SessionPopover context={singleContext} contexts={contexts}
         loading={initialSessionLoading || managedLoading} eligibility={sessionEligibility} disabled={mutationsDisabled}
+        operation={selectedOperation}
         onChoose={chooseSessionRole} onClose={closeTransient} /> : null}
       {overlay === "eligibility" && eligibility ? <EligibilityPanel availability={eligibility} contexts={contexts} onClose={closeTransient} onSession={() => showOverlay("session")} onAdjust={() => showOverlay("selector")} /> : null}
       {operationResult && onDismissOperationResult ? <OperationResultPanel classroomId={classroomId} result={operationResult} devices={devices} onDismiss={onDismissOperationResult} drawerOpen={overlay === "result"} onDrawerChange={(open) => open ? showOverlay("result") : setOverlay(null)} /> : null}
@@ -268,11 +308,11 @@ export function QuickActions({ classroomId, classroomName, groups, devices, sele
     {overlay === "intent" && intent ? <dialog ref={dialogRef} className="action-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-description" onCancel={(event) => { event.preventDefault(); setIntent(null); setOverlay(null); }}><form onSubmit={submitIntent} noValidate><span className={`action-dialog__icon action-dialog__icon--${intent.type.toLowerCase()}`} aria-hidden="true">{intent.type === "OPEN_URL" ? <Link size={21} /> : intent.type === "RESTART" ? <RotateCcw size={21} /> : <Power size={21} />}</span><h2 id="action-dialog-title">{intent.type === "OPEN_URL" ? "Abrir página web" : `${actionName[intent.type]} ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}`}</h2><p id="action-dialog-description">{intent.type === "OPEN_URL" ? `Destino: ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}` : `Se solicitará a Windows ${intent.type === "RESTART" ? "reiniciar" : "apagar"} los equipos seleccionados. Las sesiones activas se cerrarán.`}</p>{intent.type === "OPEN_URL" ? <label className={`action-dialog__field${urlError ? " action-dialog__field--error" : ""}`}>Dirección web<input ref={urlInputRef} type="url" inputMode="url" value={url} onChange={(event) => setUrl(event.target.value)} onBlur={() => setUrlTouched(true)} placeholder="https://ejemplo.com/material" aria-invalid={Boolean(urlError)} aria-describedby="url-helper" /><small id="url-helper">{urlError ?? "Usa una dirección http o https completa."}</small></label> : <p className="action-dialog__impact">{intent.targetDeviceIds.size} {intent.targetDeviceIds.size === 1 ? "equipo recibirá" : "equipos recibirán"} la solicitud.</p>}<div className="action-dialog__footer"><button ref={cancelRef} type="button" onClick={() => { setIntent(null); setOverlay(null); }}>Cancelar</button><button type="submit" disabled={mutationsDisabled} className={`action-dialog__confirm${intent.type === "SHUTDOWN" ? " action-dialog__confirm--danger" : ""}`}>{intent.type === "OPEN_URL" ? `Abrir en ${intent.targetDeviceIds.size} ${intent.targetDeviceIds.size === 1 ? "equipo" : "equipos"}` : `${actionName[intent.type]} equipos`}</button></div></form></dialog> : null}
     {overlay === "session-stepup" ? <div className="managed-dialog__backdrop" role="presentation" onKeyDown={(event) => { if (event.key === "Escape" && !submitting) { event.stopPropagation(); setOverlay("session"); setMasterPassword(""); setSessionError(null); } if (event.key === "Tab") trapFocus(event, adminStepUpRef.current); }}><div ref={adminStepUpRef} className="managed-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-admin-title" tabIndex={-1}><div className="managed-dialog__header"><h4 id="batch-admin-title">Iniciar Administración en {selectedDeviceIds.size} {selectedDeviceIds.size === 1 ? "equipo" : "equipos"}</h4><GaltekCloseButton ariaLabel="Cerrar" disabled={submitting} onClick={() => { setOverlay("session"); setMasterPassword(""); setSessionError(null); }} /></div><div className="managed-dialog__body"><p className="managed-dialog__warning">Esta acción abrirá sesiones con privilegios administrativos en la selección exacta.</p><FormPassword label="Contraseña maestra" value={masterPassword} onChange={setMasterPassword} autoFocus error={sessionError} help="Confirma tu contraseña maestra para autorizar el acceso a Administración." />{sessionError ? null : null}<div className="managed-dialog__buttons"><button type="button" disabled={submitting} onClick={() => { setOverlay("session"); setMasterPassword(""); setSessionError(null); }}>Cancelar</button><button type="button" disabled={mutationsDisabled || !masterPassword} onClick={() => void submitAdminStepUp()}>{submitting ? "Autorizando…" : "Iniciar Administración"}</button></div></div></div></div> : null}
     {overlay === "selector" ? <div className="target-drawer-shell" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setOverlay(null); } if (event.key === "Tab") trapFocus(event, selectorRef.current); }}><button className="target-drawer-shell__backdrop" type="button" aria-label="Cerrar selección" onClick={() => setOverlay(null)} /><aside ref={selectorRef} className="target-selector" role="dialog" aria-modal="true" aria-labelledby="target-selector-title" tabIndex={-1}><TargetSelector title={classroomName} groups={groups} devices={devices} selectedDeviceIds={selectedDeviceIds} query={selectorSearch} sessionByDeviceId={sessionByDeviceId} onQueryChange={setSelectorSearch} onToggleDevice={onToggleDevice} onSelectAll={onSelectAll} onClearSelection={onClearSelection} onClose={() => setOverlay(null)} /></aside></div> : null}
-    {overlay === "inspector" && singleContext ? <div className="result-drawer-shell" role="presentation"><button className="result-drawer-shell__backdrop" type="button" aria-label="Cerrar inspector" onClick={() => setOverlay(null)} /><aside className="result-drawer device-inspector-drawer" role="dialog" aria-modal="true" aria-label={`Sesión y perfiles de ${singleContext.device.label}`}><DeviceInspector classroomId={classroomId} device={singleContext.device} initialTab="session" onSessionStateChange={(state) => onSessionStatesChange?.(new Map([[singleContext.device.id, state]]))} onSnapshotRefresh={onSnapshotRefresh} onClose={() => setOverlay(null)} /></aside></div> : null}
+    {overlay === "inspector" && singleContext ? <div className="result-drawer-shell" role="presentation"><button className="result-drawer-shell__backdrop" type="button" aria-label="Cerrar inspector" onClick={() => setOverlay(null)} /><aside className="result-drawer device-inspector-drawer" role="dialog" aria-modal="true" aria-label={`Sesión y perfiles de ${singleContext.device.label}`}><DeviceInspector classroomId={classroomId} device={singleContext.device} initialTab="session" onSnapshotRefresh={onSnapshotRefresh} onClose={() => setOverlay(null)} /></aside></div> : null}
   </>;
 }
 
-function CommandSlot({ icon: Icon, label, sublabel, tone, open, disabled, onClick }: { icon: LucideIcon; label: string; sublabel?: string; tone: string; open: boolean; disabled: boolean; onClick: () => void }) { return <button type="button" className={`command-slot command-slot--${tone}`} aria-expanded={open} disabled={disabled} title={disabled ? "Espera a que termine la operación actual." : undefined} onClick={onClick}><Icon size={17} aria-hidden="true" /><span><strong>{label}</strong>{sublabel ? <small>{sublabel}</small> : null}</span><ChevronDown size={15} aria-hidden="true" /></button>; }
+function CommandSlot({ icon: Icon, label, sublabel, tone, open, disabled, processing = false, onClick }: { icon: LucideIcon; label: string; sublabel?: string; tone: string; open: boolean; disabled: boolean; processing?: boolean; onClick: () => void }) { return <button type="button" className={`command-slot command-slot--${tone}${processing ? " is-processing" : ""}`} aria-expanded={open} aria-busy={processing} disabled={disabled} title={disabled ? "Espera a que termine la operación actual." : undefined} onClick={onClick}><Icon className={processing ? "spin" : undefined} size={17} aria-hidden="true" /><span><strong>{label}</strong>{sublabel ? <small>{sublabel}</small> : null}</span><ChevronDown size={15} aria-hidden="true" /></button>; }
 
 function CommandMenu({ id, icon: Icon, label, open, locked = false, disabled, onToggle, children }: { id: string; icon: LucideIcon; label: string; open: boolean; locked?: boolean; disabled: boolean; onToggle: () => void; children: ReactNode }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -282,17 +322,35 @@ function CommandMenu({ id, icon: Icon, label, open, locked = false, disabled, on
 
 function ActionItem({ action, availability, disabled, danger = false, separator = false, onChoose, onBlocked }: { action: QuickActionType; availability: ActionAvailability; disabled: boolean; danger?: boolean; separator?: boolean; onChoose: (action: QuickActionType, event: React.MouseEvent<HTMLButtonElement>) => void; onBlocked: (availability: ActionAvailability) => void }) { const Icon = actionIcons[action]; const blocked = disabled || !availability.enabled; return <button type="button" role="menuitem" data-menu-item className={`command-menu__item${danger ? " command-menu__item--danger" : ""}${separator ? " command-menu__item--separator" : ""}`} disabled={blocked} aria-disabled={blocked} onClick={(event) => availability.enabled ? onChoose(action, event) : onBlocked(availability)}><Icon size={16} aria-hidden="true" /><span><strong>{actionName[action]}</strong><small>{actionDescriptions[action]}</small></span>{!availability.enabled ? <CircleAlert size={15} aria-hidden="true" /> : null}</button>; }
 
-function SessionPopover({ context, contexts, loading, eligibility, disabled, onChoose, onClose }: {
+function SessionPopover({ context, contexts, loading, eligibility, disabled, operation, onChoose, onClose }: {
   context: DeviceSessionContext | null;
   contexts: DeviceSessionContext[];
   loading: boolean;
   eligibility: Record<ManagedSessionRole, ManagedSessionEligibility>;
   disabled: boolean;
+  operation?: DeviceOperation;
   onChoose: (role: ManagedSessionRole) => void;
   onClose: () => void;
 }) {
   const active = contexts.filter((item) => interactiveSession(item.sessionState)).length;
-  return <aside className="command-popover session-popover" role="dialog" aria-label="Cambiar perfil de Windows"><PopoverHeader icon={UserRound} title={context ? sessionStateLabels[context.sessionState] : "Estado de las sesiones"} onClose={onClose} />{loading ? <p>Consultando perfiles y sesiones…</p> : <><p>{context ? `${context.device.label} · ${sessionStateLabels[context.sessionState]}` : `${active} de ${contexts.length} equipos tienen una sesión interactiva.`}</p><div className="session-popover__actions">{(["PRIMARY", "SECONDARY", "ADMIN"] as ManagedSessionRole[]).map((role) => { const item = eligibility[role]; const label = role === "PRIMARY" ? "Primaria" : role === "SECONDARY" ? "Secundaria" : "Administración"; return <button key={role} type="button" disabled={disabled || !item.enabled} onClick={() => onChoose(role)}><strong>{contexts.length === 1 && contexts[0].sessionState === `${role}_ACTIVE` ? `${label} activa` : `Cambiar a ${label}`}</strong><small>{item.ready} listos{item.blocked ? ` · ${item.blocked} requieren atención` : ""}</small>{item.reasons[0] ? <span>{item.reasons[0]}</span> : null}</button>; })}</div></>}</aside>;
+  return <aside className="command-popover session-popover" role="dialog" aria-label="Cambiar perfil de Windows">
+    <PopoverHeader icon={UserRound} title={context ? sessionStateLabels[context.sessionState] : "Estado de las sesiones"} onClose={onClose} />
+    {loading ? <p>Consultando perfiles y sesiones…</p> : <>
+      <p>{context ? `${context.device.label} · ${sessionStateLabels[context.sessionState]}` : `${active} de ${contexts.length} equipos tienen una sesión interactiva.`}</p>
+      <div className="session-popover__actions">{(["PRIMARY", "SECONDARY", "ADMIN"] as ManagedSessionRole[]).map((role) => {
+        const item = eligibility[role];
+        const label = role === "PRIMARY" ? "Primaria" : role === "SECONDARY" ? "Secundaria" : "Administración";
+        const control = sessionMutationControl(operation, context?.sessionState ?? "UNKNOWN", "SWITCH_MANAGED_ACCOUNT", role);
+        return <button key={role} type="button" className={control.processing ? "is-processing" : undefined}
+          disabled={disabled || !item.enabled} aria-busy={control.processing} onClick={() => onChoose(role)}>
+          <strong>{control.processing ? <><LoaderCircle className="spin" size={15} aria-hidden="true" /> {control.processingLabel}</>
+            : contexts.length === 1 && contexts[0].sessionState === `${role}_ACTIVE` ? `${label} activa` : `Cambiar a ${label}`}</strong>
+          <small>{item.ready} listos{item.blocked ? ` · ${item.blocked} requieren atención` : ""}</small>
+          {item.reasons[0] ? <span>{item.reasons[0]}</span> : null}
+        </button>;
+      })}</div>
+    </>}
+  </aside>;
 }
 
 function EligibilityPanel({ availability, contexts, onClose, onAdjust, onSession }: { availability: ActionAvailability; contexts: DeviceSessionContext[]; onClose: () => void; onAdjust: () => void; onSession: () => void }) {

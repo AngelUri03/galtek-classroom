@@ -47,8 +47,50 @@ public class DeviceMutationHttpGuard {
         }
     }
 
+    /**
+     * SESSION mutations retain backend authority until an explicit session
+     * read confirms the frozen target. Deterministic failures release their
+     * lease because they did not produce an uncertain SESSION result.
+     */
+    public <T> T runSession(
+            List<String> deviceIds,
+            String operationType,
+            String targetProfile,
+            Supplier<T> action,
+            Function<T, Map<String, String>> targetStatuses) {
+        if (deviceIds == null || deviceIds.isEmpty()) return action.get();
+        Lease lease = coordinator.acquire(deviceIds, operationType, targetProfile);
+        try {
+            T response = action.get();
+            Map<String, String> statuses = targetStatuses.apply(response);
+            List<String> reconciliation = new ArrayList<>();
+            List<String> completed = new ArrayList<>();
+            for (String deviceId : lease.deviceIds()) {
+                String status = statuses == null ? null : statuses.get(deviceId);
+                if (status == null || requiresSessionObservation(status)) {
+                    reconciliation.add(deviceId);
+                } else {
+                    completed.add(deviceId);
+                }
+            }
+            coordinator.requireReconciliation(new Lease(reconciliation));
+            coordinator.complete(new Lease(completed));
+            return response;
+        } catch (ApiException exception) {
+            coordinator.complete(lease);
+            throw exception;
+        } catch (RuntimeException exception) {
+            coordinator.requireReconciliation(lease);
+            throw exception;
+        }
+    }
+
     public void confirmStable(List<String> deviceIds, List<String> operationTypes) {
         coordinator.confirmStable(deviceIds, operationTypes);
+    }
+
+    public List<String> reconcileSessionState(Map<String, String> observedStates) {
+        return coordinator.reconcileSessionState(observedStates);
     }
 
     public static List<String> targetDeviceIds(Map<String, Object> request) {
@@ -63,5 +105,11 @@ public class DeviceMutationHttpGuard {
 
     private static boolean requiresReconciliation(String status) {
         return "PARTIAL".equals(status) || "UNKNOWN".equals(status) || "PENDING".equals(status);
+    }
+
+    private static boolean requiresSessionObservation(String status) {
+        return "SUCCESS".equals(status)
+                || "NO_CHANGE".equals(status)
+                || requiresReconciliation(status);
     }
 }

@@ -3,6 +3,7 @@ package com.galtek.classroom.windows;
 import com.galtek.classroom.windows.WindowsSessionStateDtos.WindowsSessionStateBatchResponse;
 import com.galtek.classroom.operations.DeviceMutationHttpGuard;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,10 +35,11 @@ public class WindowsSessionStateController {
             @PathVariable String classroomId,
             @RequestBody(required = false) Map<String, Object> request) {
         WindowsSessionStateBatchResponse response = readService.read(classroomId, request);
-        mutationGuard.confirmStable(response.targets().stream()
-                .filter(target -> target.errorCode() == null && !"UNKNOWN".equals(target.state()))
-                .map(target -> target.deviceId())
-                .toList(), java.util.List.of("SWITCH_MANAGED_ACCOUNT", "LOGOFF_WINDOWS_SESSION"));
+        mutationGuard.reconcileSessionState(response.targets().stream()
+                .filter(target -> target.errorCode() == null)
+                .collect(Collectors.toMap(
+                        target -> target.deviceId(),
+                        target -> target.state())));
         return response;
     }
 }

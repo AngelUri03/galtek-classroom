@@ -250,6 +250,14 @@ class ManagedAccountSwitchDispatchControllerTest {
                 .andExpect(jsonPath("$.targetAccountId").value("ADMIN"))
                 .andExpect(jsonPath("$.summary.success").value(1));
 
+        whenSnapshot(current, com.galtek.classroom.network.v1.WindowsSessionState
+                .WINDOWS_SESSION_STATE_ADMIN_ACTIVE);
+        mockMvc.perform(post("/api/classrooms/{id}/windows-session-state", classroomId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("targetDeviceIds", List.of(current.deviceId())))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targets[0].state").value("ADMIN_ACTIVE"));
+
         mockMvc.perform(post("/api/classrooms/{id}/managed-accounts/switch", classroomId)
                         .header(SensitiveActionAuthorizationService.HEADER, token)
                         .contentType(MediaType.APPLICATION_JSON)

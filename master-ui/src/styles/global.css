@@ -2126,6 +2126,7 @@ h2 {
 .session-management__message { display: grid; gap: 5px; margin: 0; border: 1px solid var(--classroom-200); border-radius: var(--radius-sm); background: var(--classroom-50); padding: 10px; color: var(--classroom-800); font-size: 12px; }
 .session-management__message span { line-height: 1.45; }
 .session-management__message > div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 3px; }
+.session-management__message > .session-management__message-copy { display: grid; gap: 2px; margin-top: 0; }
 .session-management__message button { min-height: 32px; border: 1px solid var(--classroom-300); border-radius: var(--radius-sm); background: #fff; padding: 5px 9px; color: var(--classroom-800); font-weight: 700; }
 .session-management__message--partial { border-color: rgba(217, 144, 22, 0.35); background: rgba(255, 166, 12, 0.08); color: var(--text-primary); }
 .session-management__message--failed { border-color: rgba(192, 57, 57, 0.32); background: rgba(192, 57, 57, 0.06); color: var(--danger); }
@@ -2740,3 +2741,57 @@ h2 {
 .session-popover__actions button:focus-visible { outline: 3px solid rgba(32, 121, 184, .28); outline-offset: 2px; }
 .session-popover__actions button:disabled { cursor: not-allowed; opacity: .66; }
 .session-popover__actions small, .session-popover__actions span { color: #697b8f; font-size: 11px; }
+
+/* Per-device mutation feedback: keep the accepted CTA prominent and mute incompatible actions. */
+.session-management__actions button:disabled,
+.session-popover__actions button:disabled,
+.command-slot:disabled,
+.command-menu__trigger:disabled,
+.command-menu__item:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: saturate(0.45);
+  transform: none;
+}
+
+.session-management__actions button:disabled:hover,
+.session-popover__actions button:disabled:hover,
+.command-slot:disabled:hover,
+.command-menu__trigger:disabled:hover,
+.command-menu__item:disabled:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.session-management__actions button:disabled svg,
+.session-popover__actions button:disabled svg,
+.command-slot:disabled svg,
+.command-menu__trigger:disabled svg,
+.command-menu__item:disabled svg { opacity: 0.55; }
+
+.session-management__actions button.is-processing:disabled,
+.session-popover__actions button.is-processing:disabled,
+.command-slot.is-processing:disabled {
+  opacity: 1;
+  cursor: wait;
+  border-color: rgba(217, 144, 22, 0.48);
+  background: #fff8e9;
+  color: #76510d;
+  filter: none;
+}
+
+.session-management__actions button.is-processing,
+.session-popover__actions button.is-processing strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.session-management__actions button:focus-visible,
+.session-popover__actions button:focus-visible,
+.command-slot:focus-visible,
+.command-menu__trigger:focus-visible {
+  outline: 3px solid rgba(32, 121, 184, 0.28);
+  outline-offset: 2px;
+}

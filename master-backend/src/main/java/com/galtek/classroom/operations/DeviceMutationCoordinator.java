@@ -7,6 +7,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -103,6 +104,30 @@ public class DeviceMutationCoordinator {
         }
     }
 
+    /**
+     * Reconciles only SESSION leases whose frozen expectation is confirmed by
+     * the authoritative Windows session observation.
+     */
+    @Transactional
+    public List<String> reconcileSessionState(Map<String, String> observedStates) {
+        if (observedStates == null || observedStates.isEmpty()) return List.of();
+        List<String> deviceIds = normalizedTargets(new ArrayList<>(observedStates.keySet()));
+        if (deviceIds.isEmpty()) return List.of();
+
+        List<String> reconciled = new ArrayList<>();
+        for (DeviceMutationState mutation : find(deviceIds)) {
+            if (!RECONCILIATION_REQUIRED.equals(mutation.state())) continue;
+            String observed = observedStates.get(mutation.deviceId());
+            if (!sessionExpectationMatches(mutation, observed)) continue;
+            int deleted = jdbcTemplate.update("""
+                    DELETE FROM device_mutation_leases
+                    WHERE device_id = ? AND state = ? AND operation_type = ?
+                    """, mutation.deviceId(), RECONCILIATION_REQUIRED, mutation.operationType());
+            if (deleted == 1) reconciled.add(mutation.deviceId());
+        }
+        return List.copyOf(reconciled);
+    }
+
     public List<DeviceMutationState> find(List<String> deviceIds) {
         List<String> targets = normalizedTargets(deviceIds);
         if (targets.isEmpty()) return List.of();
@@ -142,6 +167,16 @@ public class DeviceMutationCoordinator {
 
     private static String cleanOptional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static boolean sessionExpectationMatches(DeviceMutationState mutation, String observedState) {
+        if (observedState == null) return false;
+        if ("LOGOFF_WINDOWS_SESSION".equals(mutation.operationType())) {
+            return "NO_SESSION".equals(observedState);
+        }
+        if (!"SWITCH_MANAGED_ACCOUNT".equals(mutation.operationType())) return false;
+        String target = cleanOptional(mutation.targetProfile());
+        return target != null && (target + "_ACTIVE").equals(observedState);
     }
 
     private static ApiException busy(int occupiedCount) {

@@ -1,5 +1,7 @@
 # Master API v1
 
+Para SESSION desde 20F.2-F3.1-R2, `SUCCESS`/`NO_CHANGE` remoto no elimina el lease antes de observar Windows. `SWITCH_MANAGED_ACCOUNT` se libera sólo cuando el estado leído coincide con `targetProfile + _ACTIVE`; `LOGOFF_WINDOWS_SESSION` sólo con `NO_SESSION`. Bootstrap y refresh manual ejecutan la secuencia ordenada `GET /api/device-operations -> POST .../windows-session-state -> GET /api/device-operations`; `IN_PROGRESS` se omite de la lectura y `RECONCILIATION_REQUIRED` se incluye. Después de una mutación terminal no fallida, la UI puede repetir exclusivamente `POST .../windows-session-state` para los Devices todavía transitorios durante un máximo monotónico de 8 s, con primera lectura inmediata y frecuencia de 750 ms; cada response pasa por la misma reconciliación backend y, al terminar, la UI relee `/api/device-operations`. No cambia el request/response HTTP. No hay retry de la mutación, polling idle/permanente, `setInterval`, scheduler global ni liberación por timeout.
+
 ## Device mutation serialization
 
 Las mutaciones remotas exclusivas se serializan por `deviceId` mediante leases persistidos en SQLite. La adquisición de un lote es ordenada y atómica: si un target ya está `IN_PROGRESS` o `RECONCILIATION_REQUIRED`, el Master responde `409 DEVICE_OPERATION_IN_PROGRESS` y no despacha ningún subset. Equipos distintos siguen operando en paralelo. La metadata del lease contiene únicamente `deviceId`, tipo de operación, perfil target opcional y fecha de inicio; nunca secretos.

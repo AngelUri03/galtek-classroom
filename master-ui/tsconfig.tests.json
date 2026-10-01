@@ -16,6 +16,8 @@
     "src/components/deviceInspectorModel.ts",
     "src/api/apiClient.ts",
     "src/app/deviceOperationModel.ts",
+    "src/app/sessionStateModel.ts",
+    "src/app/sessionReconciliationModel.ts",
     "src/app/keyedRegistry.ts",
     "src/components/windowsAccountViewModel.tests.ts"
   ]

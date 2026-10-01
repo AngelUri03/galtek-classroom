@@ -1,5 +1,45 @@
 # Decisiones vigentes
 
+## 2026-09-30 - 20F.2: aceptación física con deuda técnica conocida
+
+- Se acepta el milestone como **20F.2 SESSION & PROFILE MANAGEMENT — ACCEPTED ON PC14 WITH KNOWN TECHNICAL DEBT TD-SESSION-001** con la matriz de sesión, logout, superficies compartidas, bloqueo y reconciliación F3.1/R1/R2 validados físicamente.
+- `TD-SESSION-001 — First standalone logon after logout may fail once` registra el fallo intermitente del primer `LOGON_MANAGED_ACCOUNT` después de logout y la recuperación correcta mediante un segundo intento manual.
+- No se declara una causa raíz definitiva. La readiness de LogonUI/Credential Provider puede conservarse sólo como hipótesis histórica pendiente.
+- El recovery aceptado es retry manual explícito. No se autoriza retry automático, sleep, cambio de Agent, Credential Provider o Protobuf, ni Client/installer 0.0.7.
+- Client 0.0.6 permanece congelado. `OPEN_URL` y navegación no quedan físicamente validados y se revisarán o rediseñarán posteriormente sin tocar su implementación en este cierre.
+
+## 2026-09-30 - 20F.2-F3.1-R2: convergencia SESSION post-mutación acotada
+
+- R1 queda intacta como autoridad: backend expectation + `WindowsSessionState` decide release/keep del lease. React sólo programa lecturas y presenta el resultado; no elimina leases ni convierte por sí mismo una observación en success.
+- La reconciliación automática existe exclusivamente después de una mutación SESSION terminal no fallida y se identifica por `deviceId`. Primera lectura inmediata; deadline monotónico total 8 s; pausa cancelable 750 ms entre lecturas. Se eligieron presupuestos Windows ya presentes —8 s de disponibilidad post-logoff y 750 ms de espera conservadora de logon— sin tocar ni depender de cambios Client.
+- La ventana termina en la primera observación target. `UNKNOWN`, `NO_SESSION` y el snapshot source previo pueden ser transitorios. Otro perfil administrado que no es source ni target es incompatible determinista: detiene la ventana y conserva el lease; Galtek nunca cierra esa sesión ni fabrica success.
+- El resultado aceptado de una misma lectura puede reconciliar backend, publicarse en `SessionStateProvider` y, tras releer `DeviceOperation`, retirar el bloqueo. No se exige otra lectura duplicada si la primera ya satisface la expectativa.
+- Deadline/incompatibilidad no liberan. La presentación local pasa de `ACTIVE` a `TIMED_OUT`, detiene spinner y ofrece **Actualizar**; el backend continúa siendo recuperable aunque React desaparezca.
+- Cancelación por abort/unmount/cambio de aula o Device y generación por Device evitan trabajo obsoleto. Una nueva generación de sesión u operaciones no puede ser sobrescrita por responses anteriores.
+- Quedan prohibidos polling idle/bootstrap/permanente, `setInterval`, scheduler global, busy-loop, retry de mutación, segundo login/switch oculto y estado optimista.
+- F3.2 y OPEN_URL permanecen fuera de alcance. Agent, Session Agent, Credential Provider, Protobuf, installer y Client 0.0.6 permanecen congelados.
+
+## 2026-09-30 - 20F.2-F3.1-R1: reconciliación SESSION dirigida por expectativa
+
+- `IN_PROGRESS` y `RECONCILIATION_REQUIRED` son estados distintos. El primero puede omitir lecturas generales para no publicar snapshots transitorios; el segundo exige lecturas autoritativas explícitas y nunca puede bloquear la lectura que necesita para converger.
+- El Master Backend es la única autoridad que libera un lease SESSION persistente. Switch/login conserva `targetProfile` y sólo reconcilia con `<target>_ACTIVE`; logout sólo reconcilia con `NO_SESSION`. React refleja el lease y no lo sustituye con limpieza local.
+- Los resultados SESSION `SUCCESS`, `NO_CHANGE`, `PARTIAL`, `UNKNOWN` y `PENDING` esperan observación autoritativa. Un fallo determinista libera sólo su Device; un resultado ausente conserva reconciliación. Los Devices de un batch se resuelven de forma independiente.
+- Bootstrap, refresh manual y refresh del Inspector usan el mismo orden: `GET device-operations -> POST windows-session-state -> GET device-operations`. La lectura SESSION puede actualizar Devices normales y reconciliando, pero omite `IN_PROGRESS`; nunca libera familias INPUT, POWER o CONTENT.
+- La oportunidad automática post-mutación está acotada a dos lecturas consecutivas; la segunda consulta sólo expectativas rechazadas. No se agrega polling permanente, timer, sleep, timeout liberador, retry de mutación ni estado optimista.
+- Generaciones monotónicas por Device protegen respuestas tanto de sesión como de `device-operations`; una respuesta antigua no puede limpiar o sobrescribir una operación nueva.
+- Full reload no es mecanismo de recovery especial. Reconstrucción inicial y **Actualizar** manual ejecutan el mismo contrato backend y deben converger al mismo snapshot/lease.
+- F3.2 permanece separada; este paso no autoriza cambios de Agent, Credential Provider, Protobuf, installer ni Client 0.0.6.
+
+## 2026-09-30 - 20F.2-F3.1: autoridad frontend de sesión y refresh terminal
+
+- Existe una sola autoridad frontend de `WindowsSessionState`, keyed por `deviceId`. Device card, Command Center/selector, encabezado y tabs del Device Inspector no mantienen copias independientes.
+- Cada refresh asigna una generación monotónica por Device. Solo la generación vigente puede publicar; invalidar por inicio de mutación conserva el último snapshot válido y vuelve inofensivas las respuestas anteriores.
+- Un resultado remoto terminal no autoriza a liberar primero y observar después. Switch/login exige una observación fresca que coincida con el target activo; logout exige `NO_SESSION`. Una observación transitoria incompatible, ausente o fallida conserva el snapshot previo y `RECONCILIATION_REQUIRED`.
+- `PARTIAL`, `UNKNOWN` y `OPERATION_RESULT_UNKNOWN` no se convierten en `SUCCESS`. No se agregan polling continuo, timers, sleeps, retry automático ni estado optimista fabricado.
+- Los refresh generales no consultan Devices con mutación/reconciliación activa. Las lecturas de cuentas y actividad no disparan implícitamente un refresh de sesión post-mutación.
+- El CTA originador permanece visible como processing; las demás acciones incompatibles usan `disabled` HTML y tratamiento visual inequívoco. La exclusión sigue siendo por `deviceId`; otros Devices, lecturas y navegación general permanecen operables.
+- La regresión `logout -> primer login manual falla -> segundo intento funciona` pertenece a F3.2 y no justifica cambios de Agent/CP/protobuf en F3.1.
+
 ## 2026-09-29 - 20F.2-F2.1: frontera de reveal y estados UI
 
 - Un reveal exitoso conserva `application/octet-stream` UTF-8 y headers no-cache. El frontend rechaza respuestas success con media type distinto, no usa JSON/Base64 y no representa un secreto hasta haber leído bytes válidos.

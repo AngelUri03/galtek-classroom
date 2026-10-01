@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AppToastProvider } from "./app/AppToastProvider";
 import { DeviceOperationProvider } from "./app/DeviceOperationState";
+import { SessionStateProvider } from "./app/SessionState";
 import "@fontsource/kodchasan/400.css";
 import "@fontsource/kodchasan/700.css";
 import "primeicons/primeicons.css";
@@ -21,7 +22,9 @@ createRoot(rootElement).render(
   <React.StrictMode>
     <AppToastProvider>
       <DeviceOperationProvider>
-        <App />
+        <SessionStateProvider>
+          <App />
+        </SessionStateProvider>
       </DeviceOperationProvider>
     </AppToastProvider>
   </React.StrictMode>

@@ -63,7 +63,7 @@ export function DeviceCard({ device, selected, sessionState, operation, onToggle
         </span>
         <small>{device.secondaryStatus}</small>
         {operation ? <small className="device-card__session device-card__session--pending">
-          {deviceOperationLabel(operation)}
+          {deviceOperationLabel(operation, sessionState)}
         </small> : sessionState && device.rawStatus === "ONLINE" ? (
           <small className={`device-card__session device-card__session--${sessionState.toLowerCase().replace(/_/g, "-")}`}>
             {sessionStateLabels[sessionState]}

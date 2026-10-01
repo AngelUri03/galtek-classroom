@@ -12,7 +12,7 @@ import {
 import { Button } from "primereact/button";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ApiError } from "../api/apiClient";
-import { authorizeAdminSession, fetchWindowsSessionStates, logoffWindowsSession, switchManagedAccount, type WindowsSessionState } from "../api/quickActionsApi";
+import { authorizeAdminSession, logoffWindowsSession, switchManagedAccount, type WindowsSessionState } from "../api/quickActionsApi";
 import {
   bindManagedAccount,
   authorizeCredentialReveal,
@@ -43,7 +43,9 @@ import { deviceFeatureCompatibility, type DeviceFeature } from "./deviceFeatureC
 import { FormPassword, GaltekCloseButton } from "./FormControls";
 import { useAppToast } from "../app/AppToastProvider";
 import { useDeviceOperations } from "../app/DeviceOperationState";
-import { deviceOperationLabel } from "../app/deviceOperationModel";
+import { useSessionStates } from "../app/SessionState";
+import { deviceOperationLabel, sessionMutationControl } from "../app/deviceOperationModel";
+import { reconcileSessionOperations } from "../app/sessionReconciliationModel";
 import {
   deviceActivityText,
   isDeterministicHttpRejection,
@@ -68,14 +70,11 @@ type Props = {
   initialTab?: DeviceInspectorTab;
   onClose?: () => void;
   onBack?: () => void;
-  onSessionStateChange?: (state: WindowsSessionState) => void;
   onSnapshotRefresh?: () => Promise<void> | void;
 };
 
-export function DeviceInspector({ classroomId, device, initialTab = "summary", onClose, onBack, onSessionStateChange, onSnapshotRefresh }: Props) {
+export function DeviceInspector({ classroomId, device, initialTab = "summary", onClose, onBack, onSnapshotRefresh }: Props) {
   const [tab, setTab] = useState<DeviceInspectorTab>(initialTab);
-  const [sessionSnapshot, setSessionSnapshot] = useState<{ deviceId: string; state: WindowsSessionState } | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(device.rawStatus === "ONLINE");
   const [inventory, setInventory] = useState<WindowsAccountInventoryResponse | null>(null);
   const [managed, setManaged] = useState<ManagedAccountStatusResponse | null>(null);
   const [activity, setActivity] = useState<DeviceActivityEvent[]>([]);
@@ -83,37 +82,41 @@ export function DeviceInspector({ classroomId, device, initialTab = "summary", o
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
+  const [sessionLoadVersion, setSessionLoadVersion] = useState(0);
   const [activityVersion, setActivityVersion] = useState(0);
   const accountsControllerRef = useRef<AbortController | null>(null);
-  const onSessionStateChangeRef = useRef(onSessionStateChange);
   const deviceOperations = useDeviceOperations();
+  const sessionStates = useSessionStates();
   const activeOperation = deviceOperations.operationFor(device.id);
-  onSessionStateChangeRef.current = onSessionStateChange;
-  const hasSessionSnapshot = sessionSnapshot?.deviceId === device.id;
-  const sessionState = hasSessionSnapshot ? sessionSnapshot.state : "UNKNOWN";
+  const hasSessionSnapshot = sessionStates.hasSnapshot(device.id);
+  const sessionState = sessionStates.stateFor(device.id) ?? "UNKNOWN";
+  const sessionLoading = sessionStates.isLoading(device.id);
   const initialSessionLoading = showInitialSessionLoading(sessionLoading, hasSessionSnapshot);
+  const automaticReconciliationActive = activeOperation?.state === "RECONCILIATION_REQUIRED"
+    && activeOperation.reconciliationStatus === "ACTIVE";
+
+  const refreshAuthoritativeSession = useCallback(async (signal?: AbortSignal) => {
+    if (device.rawStatus !== "ONLINE") return;
+    await reconcileSessionOperations(
+      [device.id],
+      (deviceIds) => deviceOperations.refresh(deviceIds, signal),
+      (deviceIds, expectedStates) => sessionStates.refresh(
+        classroomId,
+        deviceIds,
+        signal,
+        expectedStates
+      )
+    );
+  }, [classroomId, device.id, device.rawStatus, deviceOperations.refresh, sessionStates.refresh]);
 
   useEffect(() => {
     if (device.rawStatus !== "ONLINE") {
-      setSessionSnapshot(null);
-      setSessionLoading(false);
       return;
     }
     const controller = new AbortController();
-    setSessionLoading(true);
-    void fetchWindowsSessionStates(classroomId, new Set([device.id]), controller.signal)
-      .then((response) => {
-        const target = response.targets.find((item) => item.deviceId === device.id);
-        if (!controller.signal.aborted) {
-          const nextState = target?.state ?? "UNKNOWN";
-          setSessionSnapshot({ deviceId: device.id, state: nextState });
-          onSessionStateChangeRef.current?.(nextState);
-        }
-      })
-      .catch(() => { if (!controller.signal.aborted) setSessionSnapshot({ deviceId: device.id, state: "UNKNOWN" }); })
-      .finally(() => { if (!controller.signal.aborted) setSessionLoading(false); });
+    void refreshAuthoritativeSession(controller.signal).catch(() => undefined);
     return () => controller.abort();
-  }, [classroomId, device.id, device.rawStatus, loadVersion]);
+  }, [device.rawStatus, refreshAuthoritativeSession, sessionLoadVersion]);
 
   useEffect(() => {
     if ((tab !== "accounts" && tab !== "session" && tab !== "summary") || device.rawStatus !== "ONLINE") return;
@@ -153,10 +156,11 @@ export function DeviceInspector({ classroomId, device, initialTab = "summary", o
   }, [activityVersion, classroomId, device.id, tab]);
 
   const retryAccounts = useCallback(() => setLoadVersion((version) => version + 1), []);
+  const refreshSession = useCallback(() => setSessionLoadVersion((version) => version + 1), []);
   const refreshActivity = useCallback(() => setActivityVersion((version) => version + 1), []);
-  const refreshAll = useCallback(() => { retryAccounts(); refreshActivity(); }, [refreshActivity, retryAccounts]);
+  const refreshAll = useCallback(() => { retryAccounts(); refreshSession(); refreshActivity(); }, [refreshActivity, refreshSession, retryAccounts]);
   const sessionLabel = activeOperation
-    ? deviceOperationLabel(activeOperation)
+    ? deviceOperationLabel(activeOperation, sessionState)
     : device.rawStatus !== "ONLINE"
     ? "Sin comunicación"
     : initialSessionLoading ? "Consultando sesión" : sessionStateLabels[sessionState];
@@ -171,7 +175,7 @@ export function DeviceInspector({ classroomId, device, initialTab = "summary", o
       <div><h3>{device.label}</h3><p>{device.studentName} · {device.rawStatus === "ONLINE" ? "En línea" : "Sin comunicación"}</p></div>
     </div>
     <div className="device-inspector__session-banner">
-      {device.rawStatus !== "ONLINE" ? <WifiOff size={16} /> : activeOperation || initialSessionLoading ? <LoaderCircle className="spin" size={16} /> : <UserRound size={16} />}
+      {device.rawStatus !== "ONLINE" ? <WifiOff size={16} /> : activeOperation?.state === "IN_PROGRESS" || automaticReconciliationActive || initialSessionLoading ? <LoaderCircle className="spin" size={16} /> : activeOperation ? <CircleAlert size={16} /> : <UserRound size={16} />}
       <div><span>{activeOperation ? "Operación en curso" : "Sesión actual"}</span><strong>{sessionLabel}</strong>{sessionLoading && hasSessionSnapshot && !activeOperation ? <small>Actualizando estado…</small> : null}{sessionState === "NO_SESSION" && device.rawStatus === "ONLINE" && !activeOperation ? <small>Este equipo no tiene una sesión iniciada.</small> : null}</div>
     </div>
     <div className="device-inspector__tabs" role="tablist" aria-label="Inspector de equipo">
@@ -241,6 +245,8 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
   const [busy, setBusy] = useState(false);
   const appToast = useAppToast();
   const deviceOperations = useDeviceOperations();
+  const sessionStates = useSessionStates();
+  const mutationControllerRef = useRef<AbortController | null>(null);
   const activeOperation = deviceOperations.operationFor(deviceId);
   const mutationBusy = busy || Boolean(activeOperation);
   const [feedback, setFeedback] = useState<SessionOperationFeedback | null>(null);
@@ -252,6 +258,7 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
     : state === "SECONDARY_ACTIVE" ? "SECONDARY"
     : state === "ADMIN_ACTIVE" ? "ADMIN" : null;
   const activeAccountName = activeRole ? slot(activeRole)?.windowsAccountName : null;
+  useEffect(() => () => mutationControllerRef.current?.abort(), [classroomId, deviceId]);
   const reasonFor = (role: ManagedAccountRole) => sessionAvailabilityMessage(
     resolveSessionActionAvailability({
       online: !offline,
@@ -266,11 +273,22 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
     const verb = state === "NO_SESSION" ? "Iniciando" : "Cambiando a";
     const toastKey = `${deviceId}:session`;
     if (!deviceOperations.begin([deviceId], "SWITCH_MANAGED_ACCOUNT", role)) return;
+    const sourceStates = new Map<string, WindowsSessionState>([[deviceId, state]]);
+    sessionStates.invalidate([deviceId]);
+    mutationControllerRef.current?.abort();
+    const controller = new AbortController();
+    mutationControllerRef.current = controller;
     appToast.show({ key: toastKey, severity: "info", summary: "Cambiando sesión", detail: `${deviceName} está cambiando a ${managedRoleLabels[role]}.`, sticky: true });
     setBusy(true);
     setFeedback({ state: "processing", title: `${verb} ${managedRoleLabels[role]}…` });
     try {
-      const response = await switchManagedAccount(classroomId, new Set([deviceId]), role, sensitiveAuthorization);
+      const response = await switchManagedAccount(
+        classroomId,
+        new Set([deviceId]),
+        role,
+        sensitiveAuthorization,
+        controller.signal
+      );
       const target = response.targets[0];
       if (!target) throw new Error("No se pudo confirmar el resultado.");
       if (target.status === "PARTIAL") {
@@ -285,14 +303,38 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
         deviceOperations.requireReconciliation([deviceId]);
         setFeedback({ state: "unknown", title: "No se pudo confirmar el resultado." });
       } else if (target.status === "FAILED") {
-        deviceOperations.clear([deviceId]);
         setFeedback({ state: "failed", title: `No se pudo iniciar ${managedRoleLabels[role]}.`, detail: target.message ?? undefined });
       } else {
-        deviceOperations.clear([deviceId]);
         setFeedback({ state: "success", title: target.status === "NO_CHANGE" ? `Ya estaba en ${managedRoleLabels[role]}.` : `${managedRoleLabels[role]} iniciada.` });
       }
-      const uncertain = target.status === "PARTIAL" || target.status === "UNKNOWN";
-      appToast.show({ key: toastKey, severity: uncertain ? "warn" : target.status === "FAILED" ? "error" : "success", summary: uncertain ? "No pudimos confirmar el resultado" : target.status === "FAILED" ? `No se pudo iniciar ${managedRoleLabels[role]}` : `${managedRoleLabels[role]} iniciada`, detail: uncertain ? "Galtek verificará el estado del equipo antes de permitir otra acción." : target.status === "FAILED" ? "Windows no pudo completar el cambio de sesión." : `${deviceName} ya está usando el perfil ${managedRoleLabels[role]}.`, sticky: uncertain });
+      let observationUnsettled = false;
+      try {
+        const expected = target.status !== "FAILED"
+          ? new Map<string, WindowsSessionState>([[deviceId, `${role}_ACTIVE`]])
+          : new Map<string, WindowsSessionState>();
+        if (expected.size > 0) deviceOperations.requireReconciliation([deviceId]);
+        const reconciliation = await sessionStates.reconcile(
+          classroomId,
+          expected,
+          sourceStates,
+          controller.signal
+        );
+        observationUnsettled = reconciliation.timedOutDeviceIds.has(deviceId)
+          || reconciliation.incompatibleDeviceIds.has(deviceId);
+      } catch {
+        observationUnsettled = true;
+      }
+      if (controller.signal.aborted) return;
+      if (observationUnsettled) deviceOperations.requireReconciliation([deviceId]);
+      else if (target.status !== "PARTIAL" && target.status !== "UNKNOWN" && target.errorCode !== "OPERATION_RESULT_UNKNOWN") deviceOperations.clear([deviceId]);
+      try {
+        await deviceOperations.refresh([deviceId]);
+      } catch {
+        // Preserve the conservative local state until a later refresh can read the backend lease.
+      }
+      if (observationUnsettled) deviceOperations.markReconciliationTimedOut([deviceId]);
+      const uncertain = target.status === "PARTIAL" || target.status === "UNKNOWN" || target.errorCode === "OPERATION_RESULT_UNKNOWN" || observationUnsettled;
+      appToast.show({ key: toastKey, severity: uncertain ? "warn" : target.status === "FAILED" ? "error" : "success", summary: observationUnsettled ? "No pudimos confirmar automáticamente el estado del equipo" : uncertain ? "No pudimos confirmar el resultado" : target.status === "FAILED" ? `No se pudo iniciar ${managedRoleLabels[role]}` : `${managedRoleLabels[role]} iniciada`, detail: observationUnsettled ? "La reconciliación automática terminó sin observar el estado esperado. Puedes usar Actualizar para volver a consultar." : uncertain ? "El estado autoritativo permanece incierto." : target.status === "FAILED" ? "Windows no pudo completar el cambio de sesión." : `${deviceName} ya está usando el perfil ${managedRoleLabels[role]}.`, sticky: uncertain });
     } catch (error) {
       if (error instanceof ApiError && error.code === "DEVICE_OPERATION_IN_PROGRESS") {
         deviceOperations.clear([deviceId]);
@@ -304,10 +346,10 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
       }
       setFeedback({ state: "failed", title: `No se pudo iniciar ${managedRoleLabels[role]}.`, detail: error instanceof Error ? error.message : undefined });
     } finally {
+      if (mutationControllerRef.current === controller) mutationControllerRef.current = null;
       setBusy(false);
       onRefresh();
       await onSnapshotRefresh?.();
-      await deviceOperations.refresh([deviceId]).catch(() => undefined);
     }
   };
   const runAdmin = async () => {
@@ -325,18 +367,74 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
     if (activeOperation) return;
     const toastKey = `${deviceId}:session`;
     if (!deviceOperations.begin([deviceId], "LOGOFF_WINDOWS_SESSION", role)) return;
+    const sourceStates = new Map<string, WindowsSessionState>([[deviceId, state]]);
+    sessionStates.invalidate([deviceId]);
+    mutationControllerRef.current?.abort();
+    const controller = new AbortController();
+    mutationControllerRef.current = controller;
     appToast.show({ key: toastKey, severity: "info", summary: "Cerrando sesión", detail: `${deviceName} está cerrando la sesión.`, sticky: true });
     setBusy(true); setFeedback({ state: "processing", title: "Cerrando sesión…" });
     try {
-      const response = await logoffWindowsSession(classroomId, new Set([deviceId]), role);
+      const response = await logoffWindowsSession(
+        classroomId,
+        new Set([deviceId]),
+        role,
+        controller.signal
+      );
       const target = response.targets[0];
       if (!target) throw new Error("No se pudo confirmar el resultado.");
-      if (target.status === "UNKNOWN" || target.errorCode === "OPERATION_RESULT_UNKNOWN") {
+      let observationUnsettled = false;
+      if (target.status === "FAILED") {
+        deviceOperations.clear([deviceId]);
+        setFeedback({ state: "failed", title: "No se pudo cerrar la sesión.", detail: target.message ?? undefined });
+      } else {
         deviceOperations.requireReconciliation([deviceId]);
-        setFeedback({ state: "unknown", title: "No se pudo confirmar el resultado." });
-      } else if (target.status === "FAILED") throw new Error(target.message ?? "No se pudo cerrar la sesión.");
-      else { deviceOperations.clear([deviceId]); setFeedback({ state: "success", title: target.status === "NO_CHANGE" ? "La sesión ya estaba cerrada." : "Sesión cerrada." }); }
-      appToast.show({ key: toastKey, severity: target.status === "UNKNOWN" ? "warn" : "success", summary: target.status === "UNKNOWN" ? "No pudimos confirmar el resultado" : "Sesión cerrada", detail: target.status === "UNKNOWN" ? "Galtek verificará el estado del equipo antes de permitir otra acción." : `${deviceName} quedó sin sesión iniciada.`, sticky: target.status === "UNKNOWN" });
+        try {
+          const reconciliation = await sessionStates.reconcile(
+            classroomId,
+            new Map<string, WindowsSessionState>([[deviceId, "NO_SESSION"]]),
+            sourceStates,
+            controller.signal
+          );
+          observationUnsettled = reconciliation.timedOutDeviceIds.has(deviceId)
+            || reconciliation.incompatibleDeviceIds.has(deviceId);
+        } catch {
+          observationUnsettled = true;
+        }
+        if (controller.signal.aborted) return;
+        if (observationUnsettled) deviceOperations.requireReconciliation([deviceId]);
+        else deviceOperations.clear([deviceId]);
+        setFeedback(target.status === "UNKNOWN" || target.errorCode === "OPERATION_RESULT_UNKNOWN"
+          ? { state: "unknown", title: "No se pudo confirmar el resultado." }
+          : { state: "success", title: target.status === "NO_CHANGE" ? "La sesión ya estaba cerrada." : "Sesión cerrada." });
+      }
+      try {
+        await deviceOperations.refresh([deviceId]);
+      } catch {
+        // Preserve the conservative local state until a later refresh can read the backend lease.
+      }
+      if (observationUnsettled) deviceOperations.markReconciliationTimedOut([deviceId]);
+      const resultUnknown = target.status === "UNKNOWN" || target.errorCode === "OPERATION_RESULT_UNKNOWN";
+      const resultFailed = target.status === "FAILED";
+      appToast.show({
+        key: toastKey,
+        severity: resultUnknown ? "warn" : resultFailed ? "error" : "success",
+        summary: observationUnsettled
+          ? "No pudimos confirmar automáticamente el estado del equipo"
+          : resultUnknown
+          ? "No pudimos confirmar el resultado"
+          : resultFailed
+            ? "No se pudo cerrar la sesión"
+            : "Sesión cerrada",
+        detail: observationUnsettled
+          ? "La reconciliación automática terminó sin observar el estado esperado. Puedes usar Actualizar para volver a consultar."
+          : resultUnknown
+          ? "Galtek verificará el estado del equipo antes de permitir otra acción."
+          : resultFailed
+            ? target.message ?? "Windows no pudo cerrar la sesión."
+            : `${deviceName} quedó sin sesión iniciada.`,
+        sticky: resultUnknown
+      });
     } catch (error) {
       if (error instanceof ApiError && error.code === "DEVICE_OPERATION_IN_PROGRESS") {
         deviceOperations.clear([deviceId]); await deviceOperations.refresh([deviceId]);
@@ -347,19 +445,30 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
       }
       setFeedback({ state: "failed", title: "No se pudo cerrar la sesión.", detail: error instanceof Error ? error.message : undefined });
     } finally {
+      if (mutationControllerRef.current === controller) mutationControllerRef.current = null;
       setBusy(false);
       onRefresh();
       await onSnapshotRefresh?.();
-      await deviceOperations.refresh([deviceId]).catch(() => undefined);
     }
   };
   const action = (role: ManagedAccountRole, label: string) => {
     const reason = reasonFor(role);
-    return <span className="session-action"><button type="button" disabled={mutationBusy || Boolean(reason)} title={activeOperation ? "Espera a que termine la operación actual." : undefined} onClick={() => role === "ADMIN" ? setAdminStepUp(true) : void runSwitch(role)}>{label}</button>{reason ? <small>{reason}</small> : null}</span>;
+    const control = sessionMutationControl(activeOperation, state, "SWITCH_MANAGED_ACCOUNT", role);
+    return <span className="session-action"><button type="button" className={control.processing ? "is-processing" : undefined}
+      disabled={mutationBusy || Boolean(reason)} aria-busy={control.processing}
+      title={activeOperation ? "Espera a que termine la operación actual." : undefined}
+      onClick={() => role === "ADMIN" ? setAdminStepUp(true) : void runSwitch(role)}>
+      {control.processing ? <><LoaderCircle className="spin" size={15} aria-hidden="true" /> {control.processingLabel}</> : label}
+    </button>{reason ? <small>{reason}</small> : null}</span>;
   };
   const logoffAction = (role: ManagedAccountRole, label: string) => {
     const reason = capabilities.includes("WINDOWS_SESSION_LOGOFF_V1") ? null : "Este Client necesita actualizarse para cerrar la sesión.";
-    return <span className="session-action"><button className="button-danger" type="button" disabled={mutationBusy || Boolean(reason)} title={activeOperation ? "Espera a que termine la operación actual." : undefined} onClick={() => void runLogoff(role)}>{label}</button>{reason ? <small>{reason}</small> : null}</span>;
+    const control = sessionMutationControl(activeOperation, state, "LOGOFF_WINDOWS_SESSION", role);
+    return <span className="session-action"><button className={`button-danger${control.processing ? " is-processing" : ""}`} type="button"
+      disabled={mutationBusy || Boolean(reason)} aria-busy={control.processing}
+      title={activeOperation ? "Espera a que termine la operación actual." : undefined} onClick={() => void runLogoff(role)}>
+      {control.processing ? <><LoaderCircle className="spin" size={15} aria-hidden="true" /> {control.processingLabel}</> : label}
+    </button>{reason ? <small>{reason}</small> : null}</span>;
   };
   const retryPartialLogon = (role: ManagedAccountRole) => {
     if (role === "ADMIN") {
@@ -377,7 +486,7 @@ function SessionPanel({ classroomId, deviceId, deviceName, state, offline, manag
   const availableActions = resolveSessionActions(state, offline);
   return <section className="identity-section session-management"><div className="identity-section__heading"><span>Sesión actual</span></div>
     <div className="session-identity"><UserRound size={20} /><div><strong>{offline ? "Sin comunicación" : sessionStateLabels[state]}</strong>{activeAccountName ? <span>{activeAccountName}</span> : null}<small>{copy}</small></div></div>
-    {activeOperation ? <div className="session-management__message session-management__message--processing" role="status"><LoaderCircle className="spin" size={16} /><strong>{activeOperation.state === "RECONCILIATION_REQUIRED" ? "Estamos confirmando el estado del equipo antes de permitir otra acción." : deviceOperationLabel(activeOperation)}</strong></div> : null}
+    {activeOperation ? <div className="session-management__message session-management__message--processing" role="status">{activeOperation.state === "IN_PROGRESS" || activeOperation.reconciliationStatus === "ACTIVE" ? <LoaderCircle className="spin" size={16} /> : <CircleAlert size={16} />}<div className="session-management__message-copy"><strong>{deviceOperationLabel(activeOperation, state)}</strong>{activeOperation.state === "RECONCILIATION_REQUIRED" ? <span>{activeOperation.reconciliationStatus === "ACTIVE" ? "Windows está terminando el cambio de sesión." : "No pudimos confirmar automáticamente el estado del equipo. Usa Actualizar para volver a consultar."}</span> : null}</div></div> : null}
     {!offline ? <div className="session-management__actions">
       {availableActions.includes("LOGIN_PRIMARY") ? action("PRIMARY", "Iniciar Primaria") : null}
       {availableActions.includes("LOGIN_SECONDARY") ? action("SECONDARY", "Iniciar Secundaria") : null}

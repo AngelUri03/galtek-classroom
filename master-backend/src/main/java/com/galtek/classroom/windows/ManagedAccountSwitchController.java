@@ -3,6 +3,7 @@ package com.galtek.classroom.windows;
 import com.galtek.classroom.windows.ManagedAccountSwitchDtos.ManagedAccountSwitchBatchResponse;
 import com.galtek.classroom.operations.DeviceMutationHttpGuard;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,12 +38,14 @@ public class ManagedAccountSwitchController {
                     required = false) String sensitiveAuthorization,
             @RequestBody(required = false) Map<String, Object> request) {
         String target = request != null && request.get("targetAccountId") instanceof String value ? value : null;
-        return mutationGuard.run(
+        return mutationGuard.runSession(
                 DeviceMutationHttpGuard.targetDeviceIds(request),
                 "SWITCH_MANAGED_ACCOUNT",
                 target,
                 () -> dispatchService.dispatch(classroomId, request, sensitiveAuthorization),
-                response -> response.targets().stream().map(targetResult -> targetResult.status()).toList());
+                response -> response.targets().stream().collect(Collectors.toMap(
+                        targetResult -> targetResult.deviceId(),
+                        targetResult -> targetResult.status())));
     }
 
     @PostMapping("/operations/{operationId}/retry")

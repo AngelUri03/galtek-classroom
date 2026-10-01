@@ -1,5 +1,40 @@
 # Historial
 
+## 2026-09-30 - Cierre administrativo 20F.2
+
+- Cerrado el milestone como **20F.2 SESSION & PROFILE MANAGEMENT — ACCEPTED ON PC14 WITH KNOWN TECHNICAL DEBT TD-SESSION-001**.
+- Registrada la validación física de la matriz `NO_SESSION` hacia los tres perfiles, los seis switches, los tres logout, la coherencia de Device Card/Command Center/Inspector, el bloqueo durante mutaciones, la reconciliación automática y el recovery manual mediante **Actualizar**.
+- F3.1/R1/R2 consolidan autoridad compartida de sesión, orden de respuestas, reconciliación backend por expectativa, persistencia correcta de leases SESSION y convergencia automática post-mutación.
+- Aceptada `TD-SESSION-001`: después de logout y `NO_SESSION`, el primer login standalone puede fallar intermitentemente —incluido un error visible `The operation was aborted.`— y el segundo intento manual funciona. No se declara causa raíz; readiness LogonUI/Credential Provider queda sólo como hipótesis histórica pendiente.
+- Client 0.0.6 permanece congelado. No se implementó retry automático o sleep, no se modificaron Agent/Credential Provider/Protobuf, no se generó Client/installer 0.0.7 y no se tocó PC14 durante este cierre.
+- `OPEN_URL` y navegación permanecen sin validación física y pendientes de revisión o rediseño posterior; su implementación no se modificó.
+
+## 2026-09-30 - Paso 20F.2-F3.1-R2
+
+- Registrada evidencia física autoritativa nueva: con Client 0.0.6, R1 permite que **Actualizar** reconcilie expectation backend + estado Windows y elimine `Estado por confirmar`; el defecto restante era la ausencia de otra observación automática cuando las dos lecturas inmediatas terminaban antes que la transición visible de Windows.
+- Reemplazadas las dos observaciones consecutivas por reconciliación read-only post-mutación keyed por Device: inmediata + cada 750 ms, deadline monotónico 8 s, `setTimeout` cancelable y fin inmediato al target. Backend conserva toda autoridad de release.
+- Agregada clasificación de target, transitorios (`UNKNOWN`, `NO_SESSION`, source), perfil inesperado y timeout; estos dos últimos conservan lease y muestran recovery manual honesto. La UI diferencia reconciliación automática activa de lease pendiente después del deadline.
+- Agregadas generaciones de reconciliación por Device, cancelación de aula/unmount/nueva operación, publicación única en `SessionStateProvider` y relectura coherente de `DeviceOperation`; no hay polling idle, `setInterval`, scheduler global, retry de mutación ni segundo login/switch.
+- Tests deterministas con fake scheduler cubren la secuencia física principal, primera/segunda/tercera lectura, UNKNOWN/source/logout, deadline, perfil inesperado, cancelación, dos Devices, stale generations, lease/snapshot, reload y separación SESSION de INPUT/POWER/CONTENT.
+- Estado: **20F.2-F3.1-R2 CODE/LOCAL VALIDATED — READY FOR PC14 AUTOMATIC RECONCILIATION RETEST**. Sin cierre físico, commit ni push. F3.2 intacta; Agent/Session Agent/CP/Protobuf/installer/Client 0.0.6 no cambiaron; PC14 no fue tocada.
+
+## 2026-09-30 - Paso 20F.2-F3.1-R1
+
+- Registrada evidencia física real: F3.1 corrigió cachés divergentes, pero PC14 podía alcanzar el target y quedar permanentemente en `RECONCILIATION_REQUIRED`; **Actualizar** no recuperaba y full page reload sí. F3.1 continúa pendiente de validación física.
+- Root cause demostrado: el backend liberaba SESSION al recibir resultado terminal; el frontend recreaba reconciliación sólo en memoria si la observación posterior no coincidía; los refresh generales excluían ese Device. F5 reiniciaba providers y volvía a leer sesión. Además, cualquier estado estable distinto de `UNKNOWN` podía liberar el lease sin validar target.
+- El backend conserva ahora leases SESSION hasta que `DeviceMutationCoordinator` compare la observación con la expectativa congelada. Switch/login exige el rol target activo; logout exige `NO_SESSION`; otras familias no se liberan.
+- Bootstrap, refresh manual e Inspector comparten `device-operations -> session read -> device-operations`; sólo `IN_PROGRESS` omite la lectura. Se eliminó la carrera `Promise.all`, se agregaron generaciones de operaciones y dos observaciones post-mutación como máximo, sin polling/timer/sleep/retry.
+- Agregadas pruebas de transición transitoria, lectura ausente, logout, UNKNOWN, perfil incorrecto, refresh manual/reload equivalentes, separación de familias, generaciones y aislamiento entre Devices. Validación local final: Maven `397/397`; UI tests y typecheck PASS; production build PASS con sólo las tres advertencias webpack de presupuesto conocidas; `git diff --check` PASS.
+- Estado: **20F.2-F3.1-R1 CODE/LOCAL VALIDATED — READY FOR PC14 RECONCILIATION RETEST**. F3.2 sigue pendiente. Agent/Session Agent/CP/Protobuf/installer/Client 0.0.6 no cambiaron; PC14 no fue tocada; sin commit ni push.
+
+## 2026-09-30 - Paso 20F.2-F3.1
+
+- Registrada evidencia física autoritativa: Client 0.0.6 instalado en PC14; login desde `NO_SESSION`, los seis switches entre PRIMARY/SECONDARY/ADMIN y logout de los tres perfiles completan correctamente en Windows. La UI permanecía stale y no se reinterpreta como fallo de CP/Windows.
+- Eliminadas las tres cachés de sesión divergentes. `SessionStateProvider` publica un único snapshot por `deviceId` para card, Command Center/selector e Inspector completo; generaciones por request impiden overwrite fuera de orden.
+- Una mutación invalida lecturas anteriores sin borrar el snapshot válido. El refresh terminal valida el estado esperado de switch/logout; `NO_SESSION` transitorio después de `SUCCESS` se rechaza y conserva reconciliación, sin polling, sleep, retry ni éxito fabricado.
+- CTA originador con spinner/copy específico; controles incompatibles disabled con atenuación visual, sin bloquear otros Devices. Se extendieron tests para transiciones, carreras, pending, visual processing/double activation y aislamiento.
+- UI tests, typecheck, production build y `git diff --check` PASS; solo permanecen las tres advertencias webpack de presupuesto conocidas. Estado: **20F.2-F3.1 CODE/LOCAL VALIDATED — READY FOR PC14 SESSION UI RETEST**. Queda separada F3.2: `logout -> first login attempt fails -> second manual attempt succeeds`. Client 0.0.6/Agent/CP/protobuf/installer/backend no cambiaron; PC14 no fue tocada; sin commit ni push.
+
 ## 2026-09-30 - Paso 20F.2-F2.2
 
 - Homologados los estados masked/visible/failed/missing/loading del reveal con botones PrimeReact pequeños, iconos eye/eye-slash, copy explícito y el mismo componente para Primaria, Secundaria y Administración.

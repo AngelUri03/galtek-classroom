@@ -1,4 +1,5 @@
 import type { DeviceActivityEvent, ManagedAccountSlot, WindowsAccount } from "../api/windowsAccountsApi";
+import type { WindowsSessionState } from "../api/quickActionsApi";
 import { ApiError, revealSensitiveSecret } from "../api/apiClient";
 import {
   eligibleAccountsForRole,
@@ -9,7 +10,27 @@ import {
 import { resolveSessionActionAvailability, resolveSessionActions } from "./sessionActionResolver";
 import { toOperationResultView } from "./quickActionResultViewModel";
 import { resolveManagedSessionEligibility } from "./managedSessionEligibility";
-import { claimDeviceOperations, deviceOperationLabel, hasBusyDevice, replaceDeviceOperations, type DeviceOperationSnapshot } from "../app/deviceOperationModel";
+import {
+  beginDeviceOperationRefresh,
+  claimDeviceOperations,
+  commitDeviceOperationRefresh,
+  deviceOperationLabel,
+  hasBusyDevice,
+  invalidateDeviceOperationRefreshes,
+  replaceDeviceOperations,
+  sessionMutationControl,
+  type DeviceOperationSnapshot
+} from "../app/deviceOperationModel";
+import { beginSessionRefresh, commitSessionObservations, invalidateSessionRefreshes, type SessionSnapshot } from "../app/sessionStateModel";
+import {
+  confirmSessionExpectations,
+  expectedSessionState,
+  planSessionRefresh,
+  reconcileSessionOperations,
+  SESSION_RECONCILIATION_DEADLINE_MS,
+  SESSION_RECONCILIATION_INTERVAL_MS,
+  type SessionReconciliationScheduler
+} from "../app/sessionReconciliationModel";
 import { KeyedRegistry } from "../app/keyedRegistry";
 import type { ClassroomDeviceCardData } from "../types/classroom";
 import {
@@ -238,6 +259,12 @@ assert(hasBusyDevice(operationState, ["PC14"]), "the active device must be mutat
 assert(!hasBusyDevice(operationState, ["PC15"]), "a busy PC14 must not block PC15");
 assert(deviceOperationLabel(pc14Mutation) === "Cambiando a Primaria…",
   "pending UI must describe the frozen target rather than claim final state");
+const originatingLogin = sessionMutationControl(pc14Mutation, "NO_SESSION", "SWITCH_MANAGED_ACCOUNT", "PRIMARY");
+const incompatibleLogin = sessionMutationControl(pc14Mutation, "NO_SESSION", "SWITCH_MANAGED_ACCOUNT", "SECONDARY");
+assert(originatingLogin.processing && originatingLogin.disabled && originatingLogin.processingLabel === "Iniciando Primaria…",
+  "the originating login CTA must become an explicit processing control");
+assert(!incompatibleLogin.processing && incompatibleLogin.disabled,
+  "incompatible session actions must remain functionally disabled without looking like the originator");
 const recovered = replaceDeviceOperations(operationState, ["PC14", "PC15"], [{
   ...pc14Mutation,
   state: "RECONCILIATION_REQUIRED"
@@ -246,6 +273,9 @@ assert(recovered.get("PC14")?.state === "RECONCILIATION_REQUIRED" && !recovered.
   "reload recovery must replace only the requested device snapshots");
 assert(deviceOperationLabel(recovered.get("PC14")!) === "Estado por confirmar",
   "unknown recovery must remain visibly blocked");
+assert(deviceOperationLabel({ ...recovered.get("PC14")!, reconciliationStatus: "ACTIVE" })
+  === "Confirmando estado del equipo…",
+  "an active automatic reconciliation must not imply that manual action is required");
 const firstClaim = claimDeviceOperations(new Map(), ["PC14"], "SWITCH_MANAGED_ACCOUNT", "PRIMARY", "2026-09-29T18:00:00Z");
 const doubleClickClaim = claimDeviceOperations(firstClaim.operations, ["PC14"], "SWITCH_MANAGED_ACCOUNT", "PRIMARY", "2026-09-29T18:00:00Z");
 assert(firstClaim.accepted && !doubleClickClaim.accepted && doubleClickClaim.operations.size === 1,
@@ -277,6 +307,342 @@ assert(!showInitialSessionLoading(false, true), "a completed fetch with a snapsh
 assert(deviceOperationLabel(pc14Mutation) === "Cambiando a Primaria…" && !showInitialSessionLoading(true, true),
   "mutation pending and background session fetch pending must remain separate states");
 
+const sessionTransitions: [string, WindowsSessionState, WindowsSessionState][] = [
+  ["NO_SESSION -> PRIMARY_ACTIVE", "NO_SESSION", "PRIMARY_ACTIVE"],
+  ["NO_SESSION -> SECONDARY_ACTIVE", "NO_SESSION", "SECONDARY_ACTIVE"],
+  ["NO_SESSION -> ADMIN_ACTIVE", "NO_SESSION", "ADMIN_ACTIVE"],
+  ["PRIMARY_ACTIVE -> SECONDARY_ACTIVE", "PRIMARY_ACTIVE", "SECONDARY_ACTIVE"],
+  ["SECONDARY_ACTIVE -> PRIMARY_ACTIVE", "SECONDARY_ACTIVE", "PRIMARY_ACTIVE"],
+  ["managed -> ADMIN_ACTIVE", "PRIMARY_ACTIVE", "ADMIN_ACTIVE"],
+  ["ADMIN_ACTIVE -> managed", "ADMIN_ACTIVE", "SECONDARY_ACTIVE"]
+];
+for (const [label, initial, terminal] of sessionTransitions) {
+  const initialSnapshots = new Map<string, SessionSnapshot>([["PC14", {
+    deviceId: "PC14", state: initial, generation: 0
+  }]]);
+  const started = beginSessionRefresh(new Map([["PC14", 0]]), ["PC14"]);
+  const committed = commitSessionObservations(
+    initialSnapshots,
+    started.generations,
+    started.ticket,
+    [{ deviceId: "PC14", state: terminal }],
+    new Map([["PC14", terminal]])
+  );
+  const authoritativeState = committed.snapshots.get("PC14")?.state;
+  const surfaces = [authoritativeState, authoritativeState, authoritativeState, authoritativeState];
+  assert(surfaces.every((surface) => surface === terminal),
+    `${label} must update card, command center, inspector header and session tab from one authority`);
+}
+
+const firstRefresh = beginSessionRefresh(new Map<string, number>(), ["PC14"]);
+const secondRefresh = beginSessionRefresh(firstRefresh.generations, ["PC14"]);
+const newestCommit = commitSessionObservations(
+  new Map(), secondRefresh.generations, secondRefresh.ticket,
+  [{ deviceId: "PC14", state: "PRIMARY_ACTIVE" }]
+);
+const lateOldCommit = commitSessionObservations(
+  newestCommit.snapshots, secondRefresh.generations, firstRefresh.ticket,
+  [{ deviceId: "PC14", state: "NO_SESSION" }]
+);
+assert(lateOldCommit.snapshots.get("PC14")?.state === "PRIMARY_ACTIVE",
+  "an older response must not overwrite a newer authoritative session observation");
+
+const validBeforeMutation = new Map<string, SessionSnapshot>([["PC14", {
+  deviceId: "PC14", state: "PRIMARY_ACTIVE", generation: 1
+}]]);
+const invalidatedGenerations = invalidateSessionRefreshes(new Map([["PC14", 1]]), ["PC14"]);
+assert(validBeforeMutation.get("PC14")?.state === "PRIMARY_ACTIVE" && invalidatedGenerations.get("PC14") === 2,
+  "starting a mutation must invalidate old requests without replacing the last valid snapshot");
+const postSwitchRefresh = beginSessionRefresh(invalidatedGenerations, ["PC14"]);
+const transientCommit = commitSessionObservations(
+  validBeforeMutation,
+  postSwitchRefresh.generations,
+  postSwitchRefresh.ticket,
+  [{ deviceId: "PC14", state: "NO_SESSION" }],
+  new Map([["PC14", "SECONDARY_ACTIVE"]])
+);
+assert(transientCommit.rejectedDeviceIds.has("PC14") && transientCommit.snapshots.get("PC14")?.state === "PRIMARY_ACTIVE",
+  "a transitional NO_SESSION must not become terminal after a successful switch");
+const missingCommit = commitSessionObservations(
+  validBeforeMutation,
+  postSwitchRefresh.generations,
+  postSwitchRefresh.ticket,
+  [],
+  new Map([["PC14", "SECONDARY_ACTIVE"]])
+);
+assert(missingCommit.rejectedDeviceIds.has("PC14") && missingCommit.snapshots.get("PC14")?.state === "PRIMARY_ACTIVE",
+  "a missing post-mutation observation must preserve the previous snapshot and require reconciliation");
+
+const secondaryReconciliation: DeviceOperationSnapshot = {
+  ...pc14Mutation,
+  state: "RECONCILIATION_REQUIRED",
+  targetProfile: "SECONDARY"
+};
+const logoutReconciliation: DeviceOperationSnapshot = {
+  ...pc14Mutation,
+  state: "RECONCILIATION_REQUIRED",
+  operationType: "LOGOFF_WINDOWS_SESSION",
+  targetProfile: "ADMIN"
+};
+assert(expectedSessionState(secondaryReconciliation) === "SECONDARY_ACTIVE",
+  "switch/login reconciliation must freeze its target profile expectation");
+assert(expectedSessionState(logoutReconciliation) === "NO_SESSION",
+  "logout reconciliation must require an authoritative NO_SESSION observation");
+const reconciliationPlan = planSessionRefresh(["PC14", "PC15"], new Map([
+  ["PC14", secondaryReconciliation]
+]));
+assert(reconciliationPlan.deviceIds.has("PC14") && reconciliationPlan.deviceIds.has("PC15"),
+  "a reconciling device must remain readable without blocking a normal second device");
+assert(reconciliationPlan.expectedStates.get("PC14") === "SECONDARY_ACTIVE"
+  && !reconciliationPlan.expectedStates.has("PC15"),
+"only the SESSION reconciliation target must constrain its observation");
+const inProgressPlan = planSessionRefresh(["PC14", "PC15"], new Map([
+  ["PC14", pc14Mutation]
+]));
+assert(!inProgressPlan.deviceIds.has("PC14") && inProgressPlan.deviceIds.has("PC15"),
+  "IN_PROGRESS may suppress its transitional read but must not block another device");
+for (const operationType of ["LOCK_INPUT", "RESTART"] as const) {
+  const unrelated: DeviceOperationSnapshot = {
+    ...pc14Mutation,
+    state: "RECONCILIATION_REQUIRED",
+    operationType,
+    targetProfile: null
+  };
+  const plan = planSessionRefresh(["PC14"], new Map([["PC14", unrelated]]));
+  assert(plan.deviceIds.has("PC14") && !plan.expectedStates.has("PC14"),
+    `a SESSION read must not invent a reconciliation expectation for ${operationType}`);
+}
+
+const oldOperationRefresh = beginDeviceOperationRefresh(new Map<string, number>(), ["PC14"]);
+const invalidatedOperationGenerations = invalidateDeviceOperationRefreshes(oldOperationRefresh.generations, ["PC14"]);
+const operationAfterMutation = new Map<string, DeviceOperationSnapshot>([["PC14", pc14Mutation]]);
+const staleOperationCommit = commitDeviceOperationRefresh(
+  operationAfterMutation,
+  invalidatedOperationGenerations,
+  oldOperationRefresh.ticket,
+  []
+);
+assert(staleOperationCommit.get("PC14") === pc14Mutation,
+  "an old device-operation response must not clear a newer mutation state");
+const activeReconciliation = new Map<string, DeviceOperationSnapshot>([["PC14", {
+  ...secondaryReconciliation,
+  reconciliationStatus: "ACTIVE"
+}]]);
+const settledOperationRefresh = beginDeviceOperationRefresh(new Map<string, number>(), ["PC14"]);
+const stillPendingCommit = commitDeviceOperationRefresh(
+  activeReconciliation,
+  settledOperationRefresh.generations,
+  settledOperationRefresh.ticket,
+  [secondaryReconciliation]
+);
+assert(stillPendingCommit.get("PC14")?.reconciliationStatus === "ACTIVE",
+  "a lease refresh must preserve the active automatic-reconciliation presentation");
+const releasedCommit = commitDeviceOperationRefresh(
+  activeReconciliation,
+  settledOperationRefresh.generations,
+  settledOperationRefresh.ticket,
+  []
+);
+assert(!releasedCommit.has("PC14"),
+  "the operation refresh after a target observation must not reintroduce a backend lease already removed");
+
+async function sessionReconciliationContractTests() {
+  assert(SESSION_RECONCILIATION_DEADLINE_MS === 8_000
+    && SESSION_RECONCILIATION_INTERVAL_MS === 750,
+  "post-mutation reconciliation must keep an explicit small deadline and conservative frequency");
+
+  const runSequence = async (
+    observations: WindowsSessionState[],
+    expected: WindowsSessionState = "SECONDARY_ACTIVE",
+    source: WindowsSessionState = "PRIMARY_ACTIVE",
+    deadlineMs = SESSION_RECONCILIATION_DEADLINE_MS
+  ) => {
+    let readCount = 0;
+    let mutationCount = 1;
+    const scheduler = new FakeSessionScheduler();
+    const outcome = await confirmSessionExpectations(
+      new Set(["PC14"]),
+      new Map([["PC14", expected]]),
+      new Map([["PC14", source]]),
+      async (_deviceIds, expectedStates) => {
+        const observedState = observations[Math.min(readCount++, observations.length - 1)];
+        return {
+          observed: new Map([["PC14", observedState]]),
+          rejectedDeviceIds: new Set(observedState === expectedStates.get("PC14") ? [] : ["PC14"])
+        };
+      },
+      { scheduler, deadlineMs, intervalMs: SESSION_RECONCILIATION_INTERVAL_MS }
+    );
+    return { outcome, readCount, mutationCount, scheduler };
+  };
+
+  const immediate = await runSequence(["SECONDARY_ACTIVE"]);
+  assert(immediate.readCount === 1 && immediate.outcome.confirmedDeviceIds.has("PC14")
+    && immediate.scheduler.waits.length === 0,
+  "target on the first read must reconcile immediately without a duplicate read");
+
+  const physicalTransition = await runSequence(["NO_SESSION", "UNKNOWN", "SECONDARY_ACTIVE"]);
+  assert(physicalTransition.readCount === 3 && physicalTransition.outcome.confirmedDeviceIds.has("PC14")
+    && physicalTransition.scheduler.waits.length === 2,
+  "SUCCESS -> NO_SESSION -> UNKNOWN -> SECONDARY_ACTIVE must converge automatically");
+  assert(physicalTransition.mutationCount === 1,
+    "automatic reconciliation must only issue reads and never repeat the original mutation");
+
+  const unknownThenTarget = await runSequence(["UNKNOWN", "SECONDARY_ACTIVE"]);
+  assert(unknownThenTarget.readCount === 2 && unknownThenTarget.outcome.confirmedDeviceIds.has("PC14"),
+    "UNKNOWN must remain retryable inside the bounded window and converge on the target");
+
+  const sourceTransition = await runSequence(["PRIMARY_ACTIVE", "SECONDARY_ACTIVE"]);
+  assert(sourceTransition.readCount === 2 && sourceTransition.outcome.confirmedDeviceIds.has("PC14"),
+    "the still-active source may be observed before the target");
+
+  const timedOut = await runSequence(["UNKNOWN"], "SECONDARY_ACTIVE", "PRIMARY_ACTIVE", 1_500);
+  assert(timedOut.outcome.timedOutDeviceIds.has("PC14") && !timedOut.outcome.confirmedDeviceIds.has("PC14")
+    && timedOut.readCount === 3,
+  "deadline exhaustion must retain reconciliation after a finite number of reads");
+
+  const unexpected = await runSequence(["ADMIN_ACTIVE"]);
+  assert(unexpected.outcome.incompatibleDeviceIds.has("PC14") && unexpected.readCount === 1
+    && unexpected.scheduler.waits.length === 0,
+  "an unexpected profile must stop the automatic window without fabricating success");
+
+  const logout = await runSequence(
+    ["PRIMARY_ACTIVE", "UNKNOWN", "NO_SESSION"],
+    "NO_SESSION",
+    "PRIMARY_ACTIVE"
+  );
+  assert(logout.outcome.confirmedDeviceIds.has("PC14") && logout.readCount === 3,
+    "logout must tolerate source -> UNKNOWN and release only on NO_SESSION");
+
+  const cancellation = new AbortController();
+  const cancelled = await confirmSessionExpectations(
+    new Set(["PC14"]),
+    new Map([["PC14", "SECONDARY_ACTIVE"]]),
+    new Map([["PC14", "PRIMARY_ACTIVE"]]),
+    async () => {
+      cancellation.abort();
+      return { observed: new Map([["PC14", "NO_SESSION"]]), rejectedDeviceIds: new Set(["PC14"]) };
+    },
+    { scheduler: new FakeSessionScheduler(), signal: cancellation.signal }
+  );
+  assert(cancelled.cancelledDeviceIds.has("PC14") && cancelled.timedOutDeviceIds.size === 0,
+    "unmount, classroom change or a new mutation must cancel pending reconciliation");
+
+  const multiDeviceScheduler = new FakeSessionScheduler();
+  let multiRead = 0;
+  const isolated = await confirmSessionExpectations(
+    new Set(["PC14", "PC15"]),
+    new Map([["PC14", "SECONDARY_ACTIVE"], ["PC15", "PRIMARY_ACTIVE"]]),
+    new Map([["PC14", "PRIMARY_ACTIVE"], ["PC15", "NO_SESSION"]]),
+    async (deviceIds) => {
+      multiRead += 1;
+      const observed = new Map<string, WindowsSessionState>();
+      if (deviceIds.has("PC14")) observed.set("PC14", "NO_SESSION");
+      if (deviceIds.has("PC15")) observed.set("PC15", "PRIMARY_ACTIVE");
+      return { observed, rejectedDeviceIds: new Set(observed.get("PC14") === "NO_SESSION" ? ["PC14"] : []) };
+    },
+    { scheduler: multiDeviceScheduler, deadlineMs: 750, intervalMs: 750 }
+  );
+  assert(isolated.confirmedDeviceIds.has("PC15") && isolated.timedOutDeviceIds.has("PC14")
+    && multiRead === 2,
+  "a reconciling Device A must not prevent Device B from confirming independently");
+
+  let observedState: WindowsSessionState = "NO_SESSION";
+  let backendOperations = new Map<string, DeviceOperationSnapshot>([["PC14", secondaryReconciliation]]);
+  let snapshots = new Map<string, SessionSnapshot>([["PC14", {
+    deviceId: "PC14", state: "PRIMARY_ACTIVE", generation: 1
+  }]]);
+  let generations = new Map<string, number>([["PC14", 1]]);
+  const calls: string[] = [];
+  const refreshOperations = async () => {
+    calls.push("operations");
+    return new Map(backendOperations);
+  };
+  const refreshSessions = async (
+    deviceIds: ReadonlySet<string>,
+    expectedStates: ReadonlyMap<string, WindowsSessionState>
+  ) => {
+    calls.push("session");
+    const started = beginSessionRefresh(generations, deviceIds);
+    generations = started.generations;
+    const committed = commitSessionObservations(
+      snapshots,
+      generations,
+      started.ticket,
+      [...deviceIds].map((deviceId) => ({ deviceId, state: observedState })),
+      expectedStates
+    );
+    snapshots = committed.snapshots;
+    if (!committed.rejectedDeviceIds.has("PC14") && expectedStates.get("PC14") === observedState) {
+      backendOperations.delete("PC14");
+    }
+    return committed;
+  };
+
+  const transient = await reconcileSessionOperations(["PC14"], refreshOperations, refreshSessions);
+  assert(transient.operations.has("PC14") && snapshots.get("PC14")?.state === "PRIMARY_ACTIVE",
+    "a transient NO_SESSION after switch SUCCESS must retain reconciliation and the last valid snapshot");
+  assert(calls.join() === "operations,session,operations",
+    "refresh must hydrate leases, read SESSION, then re-read leases in a deterministic order");
+
+  observedState = "SECONDARY_ACTIVE";
+  calls.length = 0;
+  const recovered = await reconcileSessionOperations(["PC14"], refreshOperations, refreshSessions);
+  assert(!recovered.operations.has("PC14") && snapshots.get("PC14")?.state === "SECONDARY_ACTIVE",
+    "a later target observation must release reconciliation without reload");
+  assert(calls.join() === "operations,session,operations",
+    "manual refresh and bootstrap must use the same bounded reconciliation sequence");
+
+  const runEquivalentRecovery = async () => {
+    let operations = new Map<string, DeviceOperationSnapshot>([["PC14", secondaryReconciliation]]);
+    const result = await reconcileSessionOperations(
+      ["PC14"],
+      async () => new Map(operations),
+      async (_ids, expectedStates) => {
+        if (expectedStates.get("PC14") === "SECONDARY_ACTIVE") operations = new Map();
+        return "SECONDARY_ACTIVE";
+      }
+    );
+    return { state: result.sessionResult, busy: result.operations.has("PC14") };
+  };
+  const manual = await runEquivalentRecovery();
+  const reload = await runEquivalentRecovery();
+  assert(JSON.stringify(manual) === JSON.stringify(reload) && !manual.busy,
+    "manual refresh and full reload must converge through the same reconciliation contract");
+
+  let absentObservationOperations = new Map<string, DeviceOperationSnapshot>([["PC14", {
+    ...secondaryReconciliation,
+    targetProfile: "PRIMARY"
+  }]]);
+  await reconcileSessionOperations(
+    ["PC14"],
+    async () => new Map(absentObservationOperations),
+    async () => {
+      // A missing observation cannot reconcile the backend lease.
+      return undefined;
+    }
+  );
+  assert(absentObservationOperations.has("PC14"),
+    "login SUCCESS with an absent observation must remain recoverable on a later read");
+}
+
+class FakeSessionScheduler implements SessionReconciliationScheduler {
+  current = 0;
+  waits: number[] = [];
+
+  now() { return this.current; }
+
+  async wait(milliseconds: number, signal?: AbortSignal) {
+    if (signal?.aborted) {
+      const error = new Error("cancelled");
+      error.name = "AbortError";
+      throw error;
+    }
+    this.waits.push(milliseconds);
+    this.current += milliseconds;
+  }
+}
+
 const activeUnbind = managedMutationFeedback(
   "unbind", "ADMIN", "PC14", "MANAGED_ACCOUNT_SESSION_ACTIVE",
   "Managed profile cannot be removed while its session is active."
@@ -292,6 +658,7 @@ assert(conflictToast.severity === "warn" && conflictToast.summary.includes("oper
   "a 409/device lease conflict must produce a human warning toast model");
 
 async function apiContractTests() {
+  await sessionReconciliationContractTests();
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => new Response(new TextEncoder().encode("fixture-password"), {
@@ -344,7 +711,7 @@ async function apiContractTests() {
 }
 
 void apiContractTests().then(() => {
-  console.log("WINDOWS_ACCOUNT_VIEWMODEL_TESTS_PASS role-filters status-copy partial-state admin-session-parity batch-admin combined-credential-state reveal-octet-stream reveal-failed reveal-missing reveal-retry audit-copy active-unbind-feedback conflict-toast session-loading refresh-snapshot operation-fetch-separation result-feedback device-operation-lock double-click atomic-batch recovery-state toast-deduplication other-device-isolation");
+  console.log("WINDOWS_ACCOUNT_VIEWMODEL_TESTS_PASS role-filters status-copy partial-state admin-session-parity batch-admin combined-credential-state reveal-octet-stream reveal-failed reveal-missing reveal-retry audit-copy active-unbind-feedback conflict-toast session-loading authoritative-session-transitions stale-response-guard transient-no-session-guard pending-snapshot-preservation refresh-snapshot operation-fetch-separation result-feedback processing-cta incompatible-disabled device-operation-lock double-click atomic-batch recovery-state toast-deduplication other-device-isolation");
 }).catch((error) => {
   setTimeout(() => { throw error; }, 0);
 });

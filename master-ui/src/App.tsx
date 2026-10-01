@@ -272,7 +272,7 @@ export function App() {
           onSelectAll={() => setSelectedDeviceIds(new Set(dashboardState.data.devices.map((device) => device.id)))}
           onClearSelection={() => setSelectedDeviceIds(new Set())}
           onRetry={() => void loadDashboard()}
-          onRefresh={() => void refreshSnapshot()}
+          onRefresh={refreshSnapshot}
         />
       );
     }
